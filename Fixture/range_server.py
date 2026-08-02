@@ -24,6 +24,7 @@ DEFAULT_BYTES_PER_SECOND = 1024 * 1024
 DEFAULT_CHUNK_SIZE = 16 * 1024
 
 EMPTY_FILE_PATH = "/empty.bin"
+FLAKY_FILE_PATH = "/flaky-once.bin"
 EMPTY_FILE_NAME = "empty.bin"
 EMPTY_FILE_LAST_MODIFIED = "Wed, 01 Jan 2025 00:00:00 GMT"
 MULTIPART_BOUNDARY = "sdm-fixture-boundary"
@@ -185,6 +186,8 @@ class FixtureHTTPServer(ThreadingHTTPServer):
         self._transfer_count_lock = threading.Lock()
         self.active_transfers = 0
         self.peak_active_transfers = 0
+        self._failure_lock = threading.Lock()
+        self._failed_once_paths: set[str] = set()
         super().__init__((config.host, config.port), FixtureRequestHandler)
 
     @contextmanager
@@ -204,7 +207,7 @@ class FixtureHTTPServer(ThreadingHTTPServer):
             self._transfer_slots.release()
 
     def resource_for_path(self, path: str) -> VirtualResource | None:
-        if path == EMPTY_FILE_PATH:
+        if path in (EMPTY_FILE_PATH, FLAKY_FILE_PATH):
             return VirtualResource(
                 path=path,
                 name=EMPTY_FILE_NAME,
@@ -213,6 +216,13 @@ class FixtureHTTPServer(ThreadingHTTPServer):
                 chunk_size=self.config.chunk_size,
             )
         return None
+
+    def consume_first_failure(self, path: str) -> bool:
+        with self._failure_lock:
+            if path in self._failed_once_paths:
+                return False
+            self._failed_once_paths.add(path)
+            return True
 
 
 class FixtureRequestHandler(BaseHTTPRequestHandler):
@@ -243,6 +253,10 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/health":
             self._serve_health(include_body=include_body)
+            return
+        if include_body and path == FLAKY_FILE_PATH and \
+                self.fixture_server.consume_first_failure(path):
+            self._send_retryable_response()
             return
 
         resource = self.fixture_server.resource_for_path(path)
@@ -406,6 +420,12 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
     def _send_empty_response(self, status: int) -> None:
         self.send_response(status)
         self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _send_retryable_response(self) -> None:
+        self.send_response(503)
+        self.send_header("Content-Length", "0")
+        self.send_header("Retry-After", "0")
         self.end_headers()
 
     def _write_throttled(

@@ -200,6 +200,9 @@ public:
         std::string etag;
         std::string last_modified;
         std::uint64_t write_offset = 0;
+        std::uint64_t speed_baseline_bytes = 0;
+        std::uint32_t retry_attempt = 0;
+        std::optional<Clock::time_point> retry_at;
         Clock::time_point transfer_started = Clock::now();
         Clock::time_point last_published = Clock::now();
     };
@@ -545,6 +548,7 @@ private:
 
                 auto id = task->request.id;
                 tasks.insert_or_assign(id, std::move(task));
+                task_order.push_back(id);
                 publish_snapshot(*tasks.at(id));
             }
         } catch (const std::exception &error) {
@@ -573,6 +577,7 @@ private:
             });
             command.id = task->request.id;
             tasks.insert_or_assign(command.id, std::move(task));
+            task_order.push_back(command.id);
             {
                 std::lock_guard lock(mutex);
                 pending_ids.erase(command.id);
@@ -603,6 +608,7 @@ private:
                         });
                     }
                     tasks.erase(iterator);
+                    std::erase(task_order, command.id);
                 }
             }
         }
@@ -625,10 +631,12 @@ private:
         switch (command) {
         case CommandKind::pause:
             remove_transfers(task);
+            task.retry_at.reset();
             task.snapshot.state = DownloadState::paused;
             close_file(task);
             break;
         case CommandKind::resume:
+            task.retry_at.reset();
             task.snapshot.state = DownloadState::queued;
             break;
         case CommandKind::cancel:
@@ -638,6 +646,7 @@ private:
             task.snapshot.state = DownloadState::cancelled;
             task.snapshot.downloaded_bytes = 0;
             task.write_offset = 0;
+            task.retry_at.reset();
             reset_segments(task);
             break;
         case CommandKind::retry:
@@ -649,6 +658,8 @@ private:
             task.snapshot.error_code = Result::ok;
             task.snapshot.error_message.clear();
             task.write_offset = 0;
+            task.retry_attempt = 0;
+            task.retry_at.reset();
             reset_segments(task);
             break;
         case CommandKind::remove:
@@ -664,6 +675,19 @@ private:
     }
 
     void schedule_queued_tasks() {
+        const auto now = Clock::now();
+        for (const auto &id : task_order) {
+            auto &task = *tasks.at(id);
+            if (task.snapshot.state == DownloadState::retrying && task.retry_at &&
+                now >= *task.retry_at) {
+                task.retry_at.reset();
+                task.snapshot.state = DownloadState::queued;
+                task.snapshot.error_code = Result::ok;
+                task.snapshot.error_message.clear();
+                publish_snapshot(task);
+            }
+        }
+
         std::size_t active_tasks = 0;
         for (const auto &[id, task] : tasks) {
             (void)id;
@@ -672,8 +696,8 @@ private:
             }
         }
 
-        for (auto &[id, task] : tasks) {
-            (void)id;
+        for (const auto &id : task_order) {
+            auto &task = tasks.at(id);
             if (active_tasks >= config.maximum_active_downloads) {
                 break;
             }
@@ -720,13 +744,6 @@ private:
         curl_easy_setopt(transfer->easy, CURLOPT_WRITEFUNCTION, write_callback);
         curl_easy_setopt(transfer->easy, CURLOPT_WRITEDATA, transfer.get());
         curl_easy_setopt(transfer->easy, CURLOPT_PRIVATE, transfer.get());
-        if (task.request.bandwidth_limit > 0) {
-            curl_easy_setopt(
-                transfer->easy,
-                CURLOPT_MAX_RECV_SPEED_LARGE,
-                static_cast<curl_off_t>(task.request.bandwidth_limit)
-            );
-        }
         return transfer;
     }
 
@@ -759,6 +776,7 @@ private:
 
         task.transfer_started = Clock::now();
         task.last_published = task.transfer_started;
+        task.speed_baseline_bytes = downloaded_bytes(task);
         task.snapshot.state = DownloadState::downloading;
         task.snapshot.segment_count = static_cast<std::uint32_t>(task.segments.size());
         task.snapshot.segments = task.segments;
@@ -769,10 +787,15 @@ private:
                 return;
             }
             transfer->start_offset = task.write_offset;
+            apply_bandwidth_limit(*transfer, task, 1);
             add_transfer(task, std::move(transfer));
         } else {
             const bool must_use_ranges = task.segments.size() > 1 ||
                 task.segments.front().next > task.segments.front().start;
+            const auto unfinished_count = static_cast<std::uint32_t>(std::ranges::count_if(
+                task.segments,
+                [](const Segment &segment) { return segment.next <= segment.end; }
+            ));
             for (auto &segment : task.segments) {
                 if (segment.next > segment.end) {
                     continue;
@@ -785,6 +808,7 @@ private:
                 transfer->start_offset = segment.next;
                 transfer->end_offset = segment.end;
                 transfer->expected_bytes = segment.end - segment.next + 1;
+                apply_bandwidth_limit(*transfer, task, unfinished_count);
                 if (must_use_ranges) {
                     transfer->expects_partial_response = true;
                     const auto range = std::to_string(segment.next) + "-" +
@@ -821,6 +845,25 @@ private:
         }
         task.active_handles.insert(easy);
         transfers.insert_or_assign(easy, std::move(transfer));
+    }
+
+    static void apply_bandwidth_limit(
+        Transfer &transfer,
+        const Task &task,
+        std::uint32_t active_count
+    ) {
+        if (task.request.bandwidth_limit == 0 || active_count == 0) {
+            return;
+        }
+        const auto per_transfer = std::max<std::uint64_t>(
+            1,
+            task.request.bandwidth_limit / active_count
+        );
+        curl_easy_setopt(
+            transfer.easy,
+            CURLOPT_MAX_RECV_SPEED_LARGE,
+            static_cast<curl_off_t>(per_transfer)
+        );
     }
 
     void process_completed_transfers() {
@@ -872,19 +915,21 @@ private:
             const auto message = transfer.error_buffer.c_str()[0] != '\0'
                 ? std::string(transfer.error_buffer.c_str())
                 : std::string(curl_easy_strerror(curl_result));
-            fail_task(
-                task,
-                transfer.write_failed ? Result::io_error : Result::network_error,
-                message
-            );
+            if (transfer.write_failed) {
+                fail_task(task, Result::io_error, message);
+            } else {
+                retry_or_fail(task, Result::network_error, message);
+            }
             return;
         }
         if (transfer.response_status < 200 || transfer.response_status >= 300) {
-            fail_task(
-                task,
-                Result::protocol_error,
-                "HTTP status " + std::to_string(transfer.response_status)
-            );
+            const auto message = "HTTP status " + std::to_string(transfer.response_status);
+            if (transfer.response_status == 408 || transfer.response_status == 429 ||
+                transfer.response_status >= 500) {
+                retry_or_fail(task, Result::network_error, message);
+            } else {
+                fail_task(task, Result::protocol_error, message);
+            }
             return;
         }
 
@@ -1056,6 +1101,8 @@ private:
             return;
         }
         task.snapshot.state = DownloadState::completed;
+        task.retry_attempt = 0;
+        task.retry_at.reset();
         task.snapshot.bytes_per_second = 0;
         task.snapshot.estimated_seconds_remaining = 0;
         publish_snapshot(task);
@@ -1076,7 +1123,9 @@ private:
             ).count();
             if (elapsed > 0) {
                 task->snapshot.bytes_per_second = static_cast<std::uint64_t>(
-                    static_cast<double>(task->snapshot.downloaded_bytes) / elapsed
+                    static_cast<double>(
+                        task->snapshot.downloaded_bytes - task->speed_baseline_bytes
+                    ) / elapsed
                 );
             }
             if (task->snapshot.content_length_known &&
@@ -1092,8 +1141,29 @@ private:
 
     void fail_task(Task &task, Result result, std::string message) {
         remove_transfers(task);
+        task.retry_at.reset();
         close_file(task);
         task.snapshot.state = DownloadState::failed;
+        task.snapshot.error_code = result;
+        task.snapshot.error_message = std::move(message);
+        task.snapshot.bytes_per_second = 0;
+        task.snapshot.estimated_seconds_remaining = 0;
+        publish_snapshot(task);
+    }
+
+    void retry_or_fail(Task &task, Result result, std::string message) {
+        constexpr std::uint32_t maximum_attempts = 3;
+        if (task.retry_attempt >= maximum_attempts) {
+            fail_task(task, result, std::move(message));
+            return;
+        }
+        remove_transfers(task);
+        close_file(task);
+        ++task.retry_attempt;
+        const auto exponent = std::min<std::uint32_t>(task.retry_attempt - 1, 4);
+        const auto delay = std::chrono::milliseconds(250 * (1U << exponent));
+        task.retry_at = Clock::now() + delay;
+        task.snapshot.state = DownloadState::retrying;
         task.snapshot.error_code = result;
         task.snapshot.error_message = std::move(message);
         task.snapshot.bytes_per_second = 0;
@@ -1243,6 +1313,7 @@ private:
     std::unordered_map<std::string, DownloadSnapshot> snapshots_by_id;
     std::unordered_set<std::string> pending_ids;
     std::unordered_map<std::string, std::unique_ptr<Task>> tasks;
+    std::vector<std::string> task_order;
     std::unordered_map<CURL *, std::unique_ptr<Transfer>> transfers;
     std::uint64_t next_command_id = 1;
     std::uint64_t next_event_sequence = 1;

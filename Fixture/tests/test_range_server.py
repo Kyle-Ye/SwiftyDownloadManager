@@ -15,6 +15,7 @@ from Fixture.range_server import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_MAX_CONNECTIONS,
     EMPTY_FILE_PATH,
+    FLAKY_FILE_PATH,
     MULTIPART_BOUNDARY,
     FixtureConfig,
     FixtureHTTPServer,
@@ -127,6 +128,16 @@ class RangeServerTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, 416)
         self.assertEqual(context.exception.headers["Content-Range"], "bytes */8192")
+
+    def test_flaky_endpoint_fails_once_then_serves_the_virtual_file(self) -> None:
+        url = self.base_url + FLAKY_FILE_PATH
+        with self.assertRaises(HTTPError) as context:
+            fetch(url)
+        self.assertEqual(context.exception.code, 503)
+        self.assertEqual(context.exception.headers["Retry-After"], "0")
+
+        with fetch(url) as response:
+            self.assertEqual(response.read(), pattern_bytes(0, self.config.file_size))
 
     def test_eight_ranges_reconstruct_the_configured_fixture(self) -> None:
         ranges = [(start, start + 1023) for start in range(0, 8192, 1024)]

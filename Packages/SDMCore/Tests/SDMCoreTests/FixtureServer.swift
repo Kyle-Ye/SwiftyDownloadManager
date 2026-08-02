@@ -2,6 +2,7 @@ import Foundation
 @testable import SDMCore
 
 final class FixtureServer: @unchecked Sendable {
+    let baseURL: URL
     let fileURL: URL
 
     private let process: Process
@@ -40,7 +41,6 @@ final class FixtureServer: @unchecked Sendable {
               let portRange = message.range(of: #"127\.0\.0\.1:(\d+)"#, options: .regularExpression),
               let port = Int(message[portRange].split(separator: ":")[1]) else {
             process.terminate()
-            process.waitUntilExit()
             let diagnostic = String(
                 data: error.fileHandleForReading.readDataToEndOfFile(),
                 encoding: .utf8
@@ -49,7 +49,8 @@ final class FixtureServer: @unchecked Sendable {
         }
 
         self.process = process
-        fileURL = URL(string: "http://127.0.0.1:\(port)/empty.bin")!
+        baseURL = URL(string: "http://127.0.0.1:\(port)")!
+        fileURL = baseURL.appending(path: "empty.bin")
     }
 
     deinit {
@@ -59,7 +60,6 @@ final class FixtureServer: @unchecked Sendable {
     func stop() {
         guard process.isRunning else { return }
         process.terminate()
-        process.waitUntilExit()
     }
 }
 

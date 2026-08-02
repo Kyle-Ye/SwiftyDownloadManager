@@ -39,6 +39,8 @@ Endpoints:
 - `http://127.0.0.1:8080/empty.bin` — a configurable virtual file with
   deterministic non-zero content, used for single- and multi-connection tests.
 - `http://127.0.0.1:8080/health` — readiness check.
+- `http://127.0.0.1:8080/flaky-once.bin` — returns one retryable response,
+  then serves the same virtual content for retry tests.
 
 The response body is generated from each byte's absolute offset while streaming.
 `file_size` controls the reported representation size and Range bounds without
