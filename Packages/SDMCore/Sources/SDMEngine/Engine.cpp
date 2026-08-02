@@ -537,6 +537,7 @@ private:
     void restore_tasks() noexcept {
         try {
             for (auto &stored : store->load_all()) {
+                bool refresh_timestamp = false;
                 auto task = std::make_unique<Task>();
                 task->request = std::move(stored.request);
                 task->snapshot = std::move(stored.snapshot);
@@ -558,6 +559,7 @@ private:
                 case DownloadState::retrying:
                 case DownloadState::finalizing:
                     task->snapshot.state = DownloadState::paused;
+                    refresh_timestamp = true;
                     break;
                 default:
                     break;
@@ -570,18 +572,36 @@ private:
                     task->snapshot.state = DownloadState::failed;
                     task->snapshot.error_code = Result::io_error;
                     task->snapshot.error_message = "Finalized file no longer exists";
+                    refresh_timestamp = true;
+                } else if (task->snapshot.state == DownloadState::completed) {
+                    error.clear();
+                    const auto final_size = std::filesystem::file_size(
+                        task->destination_path,
+                        error
+                    );
+                    if (!error) {
+                        task->snapshot.downloaded_bytes = final_size;
+                    }
+                    if (task->segments.empty()) {
+                        task->write_offset = task->snapshot.downloaded_bytes;
+                    } else {
+                        for (auto &segment : task->segments) {
+                            segment.next = segment.end + 1;
+                        }
+                    }
                 } else if (task->snapshot.downloaded_bytes > 0 &&
                            (task->temporary_path.empty() ||
                             !std::filesystem::exists(task->temporary_path, error))) {
                     task->write_offset = 0;
                     reset_segments(*task);
                     task->snapshot.downloaded_bytes = 0;
+                    refresh_timestamp = true;
                 }
 
                 auto id = task->request.id;
                 tasks.insert_or_assign(id, std::move(task));
                 task_order.push_back(id);
-                publish_snapshot(*tasks.at(id));
+                publish_snapshot(*tasks.at(id), refresh_timestamp);
             }
         } catch (const std::exception &) {
             std::lock_guard lock(mutex);
@@ -1340,9 +1360,11 @@ private:
         }
     }
 
-    void publish_snapshot(Task &task) {
+    void publish_snapshot(Task &task, bool refresh_timestamp = true) {
         update_snapshot_segments(task);
-        task.snapshot.updated_milliseconds = current_milliseconds();
+        if (refresh_timestamp) {
+            task.snapshot.updated_milliseconds = current_milliseconds();
+        }
         persist_task(task);
         std::lock_guard lock(mutex);
         snapshots_by_id.insert_or_assign(task.snapshot.id, task.snapshot);

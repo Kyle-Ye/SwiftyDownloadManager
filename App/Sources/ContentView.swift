@@ -131,10 +131,13 @@ struct ContentView: View {
                 .width(min: 72, ideal: 90)
 
                 TableColumn("Updated") { snapshot in
-                    Text(snapshot.updatedAt, style: .relative)
+                    Text(
+                        snapshot.updatedAt,
+                        format: .dateTime.month().day().hour().minute()
+                    )
                         .foregroundStyle(.secondary)
                 }
-                .width(min: 74, ideal: 90)
+                .width(min: 100, ideal: 120)
 
                 TableColumn("") { snapshot in
                     DownloadActionsMenu(

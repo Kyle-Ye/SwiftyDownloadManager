@@ -73,6 +73,7 @@ extension DownloadSnapshot {
     }
 
     var progressFraction: Double? {
+        if state == .completed { return 1 }
         guard let contentLength, contentLength > 0 else { return nil }
         let boundedBytes = min(downloadedBytes, contentLength)
         return Double(boundedBytes) / Double(contentLength)

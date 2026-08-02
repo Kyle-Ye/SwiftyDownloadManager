@@ -51,6 +51,27 @@ final class SDMAppTests: XCTestCase {
         XCTAssertEqual(snapshot.progressFraction, 1)
     }
 
+    func testCompletedProgressIsFullWhenPersistedByteCountIsStale() throws {
+        let knownLength = DownloadSnapshot(
+            id: DownloadID(),
+            sourceURL: try XCTUnwrap(URL(string: "https://example.com/file.bin")),
+            filename: "file.bin",
+            state: .completed,
+            contentLength: 100,
+            downloadedBytes: 0
+        )
+        let unknownLength = DownloadSnapshot(
+            id: DownloadID(),
+            sourceURL: try XCTUnwrap(URL(string: "https://example.com/page")),
+            filename: "page.html",
+            state: .completed,
+            downloadedBytes: 100
+        )
+
+        XCTAssertEqual(knownLength.progressFraction, 1)
+        XCTAssertEqual(unknownLength.progressFraction, 1)
+    }
+
     func testDisplayFilenameUsesFinalDestinationName() throws {
         let snapshot = DownloadSnapshot(
             id: DownloadID(),
