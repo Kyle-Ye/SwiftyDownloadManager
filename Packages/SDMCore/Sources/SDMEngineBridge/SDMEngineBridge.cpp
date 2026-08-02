@@ -64,6 +64,10 @@ void copy_snapshot(
     destination.estimated_seconds_remaining = source.estimated_seconds_remaining;
     destination.segment_count = source.segment_count;
     destination.error_code = static_cast<std::uint32_t>(source.error_code);
+    destination.created_milliseconds = source.created_milliseconds;
+    destination.started_milliseconds = source.started_milliseconds;
+    destination.last_attempt_milliseconds = source.last_attempt_milliseconds;
+    destination.completed_milliseconds = source.completed_milliseconds;
     destination.updated_milliseconds = source.updated_milliseconds;
     copy_c_string(destination.id, source.id);
     copy_c_string(destination.source_url, source.source_url);
@@ -71,6 +75,19 @@ void copy_snapshot(
     copy_c_string(destination.destination_url, source.destination_url);
     copy_c_string(destination.filename, source.filename);
     copy_c_string(destination.error_message, source.error_message);
+}
+
+void copy_diagnostic_event(
+    const sdm::DiagnosticEvent &source,
+    sdm_diagnostic_event_t &destination
+) {
+    destination = {};
+    destination.struct_size = sizeof(sdm_diagnostic_event_t);
+    destination.level = static_cast<std::uint32_t>(source.level);
+    destination.code = source.code;
+    destination.id = source.id;
+    destination.timestamp_milliseconds = source.timestamp_milliseconds;
+    copy_c_string(destination.message, source.message);
 }
 
 void copy_segment(const sdm::Segment &source, sdm_segment_snapshot_t &destination) {
@@ -120,6 +137,8 @@ sdm_result_t sdm_engine_create(
         return SDM_RESULT_OK;
     } catch (const std::invalid_argument &) {
         return SDM_RESULT_INVALID_ARGUMENT;
+    } catch (const sdm::PersistenceError &) {
+        return SDM_RESULT_PERSISTENCE_ERROR;
     } catch (...) {
         return SDM_RESULT_INTERNAL_ERROR;
     }
@@ -290,6 +309,42 @@ sdm_result_t sdm_engine_copy_segments(
             copy_segment(snapshot->segments[index], segments[index]);
         }
         return capacity < snapshot->segments.size()
+            ? SDM_RESULT_INVALID_ARGUMENT
+            : SDM_RESULT_OK;
+    } catch (const std::invalid_argument &) {
+        return SDM_RESULT_INVALID_ARGUMENT;
+    } catch (...) {
+        return SDM_RESULT_INTERNAL_ERROR;
+    }
+}
+
+sdm_result_t sdm_engine_copy_diagnostic_events(
+    sdm_engine_t *engine,
+    sdm_string_view_t download_id,
+    sdm_diagnostic_event_t *events,
+    size_t capacity,
+    size_t *out_count
+) {
+    if (engine == nullptr || !engine->value || out_count == nullptr ||
+        (capacity > 0 && events == nullptr)) {
+        return SDM_RESULT_INVALID_ARGUMENT;
+    }
+
+    try {
+        const auto id = copy_string(download_id);
+        if (!engine->value->snapshot(id)) {
+            return SDM_RESULT_NOT_FOUND;
+        }
+        const auto values = engine->value->diagnostic_events(id);
+        *out_count = values.size();
+        if (capacity == 0) {
+            return SDM_RESULT_OK;
+        }
+        const auto count = std::min(values.size(), capacity);
+        for (std::size_t index = 0; index < count; ++index) {
+            copy_diagnostic_event(values[index], events[index]);
+        }
+        return capacity < values.size()
             ? SDM_RESULT_INVALID_ARGUMENT
             : SDM_RESULT_OK;
     } catch (const std::invalid_argument &) {

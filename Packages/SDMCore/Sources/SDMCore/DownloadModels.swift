@@ -116,6 +116,10 @@ public struct DownloadSnapshot: Sendable, Codable, Equatable, Identifiable {
     public let estimatedTimeRemaining: Duration?
     public let segments: [DownloadSegmentSnapshot]
     public let error: DownloadError?
+    public let createdAt: Date
+    public let startedAt: Date?
+    public let lastAttemptAt: Date?
+    public let completedAt: Date?
     public let updatedAt: Date
 
     public init(
@@ -131,6 +135,10 @@ public struct DownloadSnapshot: Sendable, Codable, Equatable, Identifiable {
         estimatedTimeRemaining: Duration? = nil,
         segments: [DownloadSegmentSnapshot] = [],
         error: DownloadError? = nil,
+        createdAt: Date? = nil,
+        startedAt: Date? = nil,
+        lastAttemptAt: Date? = nil,
+        completedAt: Date? = nil,
         updatedAt: Date = .now
     ) {
         self.id = id
@@ -145,7 +153,39 @@ public struct DownloadSnapshot: Sendable, Codable, Equatable, Identifiable {
         self.estimatedTimeRemaining = estimatedTimeRemaining
         self.segments = segments
         self.error = error
+        self.createdAt = createdAt ?? updatedAt
+        self.startedAt = startedAt
+        self.lastAttemptAt = lastAttemptAt
+        self.completedAt = completedAt
         self.updatedAt = updatedAt
+    }
+}
+
+public enum DownloadDiagnosticLevel: UInt32, Sendable, Codable, CaseIterable {
+    case info = 0
+    case warning = 1
+    case error = 2
+}
+
+public struct DownloadDiagnosticEvent: Sendable, Codable, Equatable, Identifiable {
+    public let id: UInt64
+    public let timestamp: Date
+    public let level: DownloadDiagnosticLevel
+    public let code: UInt32
+    public let message: String
+
+    public init(
+        id: UInt64,
+        timestamp: Date,
+        level: DownloadDiagnosticLevel,
+        code: UInt32 = 0,
+        message: String
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.level = level
+        self.code = code
+        self.message = message
     }
 }
 

@@ -13,6 +13,7 @@ extern "C" {
 #define SDM_PATH_CAPACITY 4096
 #define SDM_FILENAME_CAPACITY 512
 #define SDM_ERROR_MESSAGE_CAPACITY 512
+#define SDM_DIAGNOSTIC_MESSAGE_CAPACITY 1024
 
 typedef struct sdm_engine sdm_engine_t;
 
@@ -42,7 +43,14 @@ typedef enum {
     SDM_EVENT_SNAPSHOT_CHANGED = 1,
     SDM_EVENT_REMOVED = 2,
     SDM_EVENT_ENGINE_STOPPED = 3,
+    SDM_EVENT_ENGINE_READY = 4,
 } sdm_event_kind_t;
+
+typedef enum {
+    SDM_DIAGNOSTIC_INFO = 0,
+    SDM_DIAGNOSTIC_WARNING = 1,
+    SDM_DIAGNOSTIC_ERROR = 2,
+} sdm_diagnostic_level_t;
 
 typedef struct {
     const char *data;
@@ -89,6 +97,10 @@ typedef struct {
     uint64_t estimated_seconds_remaining;
     uint32_t segment_count;
     uint32_t error_code;
+    uint64_t created_milliseconds;
+    uint64_t started_milliseconds;
+    uint64_t last_attempt_milliseconds;
+    uint64_t completed_milliseconds;
     uint64_t updated_milliseconds;
     char id[SDM_DOWNLOAD_ID_CAPACITY];
     char source_url[SDM_URL_CAPACITY];
@@ -105,6 +117,16 @@ typedef struct {
     uint64_t end;
     uint64_t next;
 } sdm_segment_snapshot_t;
+
+typedef struct {
+    uint32_t struct_size;
+    uint32_t level;
+    uint32_t code;
+    uint32_t reserved;
+    uint64_t id;
+    uint64_t timestamp_milliseconds;
+    char message[SDM_DIAGNOSTIC_MESSAGE_CAPACITY];
+} sdm_diagnostic_event_t;
 
 uint32_t sdm_engine_abi_version(void);
 const char *sdm_engine_version(void);
@@ -149,6 +171,13 @@ sdm_result_t sdm_engine_copy_segments(
     sdm_engine_t *engine,
     sdm_string_view_t download_id,
     sdm_segment_snapshot_t *segments,
+    size_t capacity,
+    size_t *out_count
+);
+sdm_result_t sdm_engine_copy_diagnostic_events(
+    sdm_engine_t *engine,
+    sdm_string_view_t download_id,
+    sdm_diagnostic_event_t *events,
     size_t capacity,
     size_t *out_count
 );

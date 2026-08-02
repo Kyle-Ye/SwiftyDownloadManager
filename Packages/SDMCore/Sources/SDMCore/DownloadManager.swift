@@ -66,6 +66,11 @@ public actor DownloadManager {
         try bridge.allSnapshots()
     }
 
+    /// Returns the bounded persistent diagnostic history for one download.
+    public func diagnosticEvents(for id: DownloadID) throws -> [DownloadDiagnosticEvent] {
+        try bridge.diagnosticEvents(for: id)
+    }
+
     /// Produces coalesced newest-value updates suitable for a UI subscriber.
     public func updates() -> AsyncStream<DownloadUpdate> {
         startPollingIfNeeded()
@@ -157,7 +162,7 @@ public actor DownloadManager {
         }
 
         guard events.contains(where: {
-            $0.kind == .snapshotChanged || $0.kind == .removed
+            $0.kind == .snapshotChanged || $0.kind == .removed || $0.kind == .engineReady
         }) else { return }
         let update = DownloadUpdate(
             sequence: lastSequence,

@@ -7,6 +7,7 @@ struct BridgeEvent: Sendable {
         case snapshotChanged = 1
         case removed = 2
         case engineStopped = 3
+        case engineReady = 4
     }
 
     let sequence: UInt64
@@ -171,6 +172,52 @@ final class EngineBridge: @unchecked Sendable {
         }
     }
 
+    func diagnosticEvents(for id: DownloadID) throws -> [DownloadDiagnosticEvent] {
+        try lock.withLock {
+            let handle = try requiredHandle()
+            var requiredCount = 0
+            let countResult = Self.withStringView(id.description) { idView in
+                sdm_engine_copy_diagnostic_events(handle, idView, nil, 0, &requiredCount)
+            }
+            try Self.check(countResult, operation: "count diagnostic events")
+            guard requiredCount > 0 else { return [] }
+
+            var rawEvents = Array(
+                repeating: sdm_diagnostic_event_t(),
+                count: requiredCount
+            )
+            var copiedCount = 0
+            let copyResult = Self.withStringView(id.description) { idView in
+                rawEvents.withUnsafeMutableBufferPointer { buffer in
+                    sdm_engine_copy_diagnostic_events(
+                        handle,
+                        idView,
+                        buffer.baseAddress,
+                        buffer.count,
+                        &copiedCount
+                    )
+                }
+            }
+            try Self.check(copyResult, operation: "copy diagnostic events")
+            return rawEvents.prefix(copiedCount).compactMap { raw in
+                guard let level = DownloadDiagnosticLevel(rawValue: raw.level) else {
+                    return nil
+                }
+                var mutableRaw = raw
+                return DownloadDiagnosticEvent(
+                    id: raw.id,
+                    timestamp: Date(
+                        timeIntervalSince1970:
+                            Double(raw.timestamp_milliseconds) / 1_000
+                    ),
+                    level: level,
+                    code: raw.code,
+                    message: Self.string(from: &mutableRaw.message)
+                )
+            }
+        }
+    }
+
     func shutdown() {
         lock.withLock {
             if let handle {
@@ -243,10 +290,22 @@ final class EngineBridge: @unchecked Sendable {
                 : .seconds(Int64(raw.estimated_seconds_remaining)),
             segments: segments,
             error: error,
+            createdAt: Self.date(from: raw.created_milliseconds),
+            startedAt: Self.optionalDate(from: raw.started_milliseconds),
+            lastAttemptAt: Self.optionalDate(from: raw.last_attempt_milliseconds),
+            completedAt: Self.optionalDate(from: raw.completed_milliseconds),
             updatedAt: Date(
                 timeIntervalSince1970: Double(raw.updated_milliseconds) / 1_000
             )
         )
+    }
+
+    private static func date(from milliseconds: UInt64) -> Date {
+        Date(timeIntervalSince1970: Double(milliseconds) / 1_000)
+    }
+
+    private static func optionalDate(from milliseconds: UInt64) -> Date? {
+        milliseconds == 0 ? nil : date(from: milliseconds)
     }
 
     private static func copySegments(

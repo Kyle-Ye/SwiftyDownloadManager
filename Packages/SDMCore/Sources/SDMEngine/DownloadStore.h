@@ -28,6 +28,16 @@ public:
     DownloadStore &operator=(const DownloadStore &) = delete;
 
     [[nodiscard]] std::vector<PersistedDownload> load_all();
+    [[nodiscard]] std::vector<DiagnosticEvent> load_events(
+        const std::string &download_id
+    );
+    [[nodiscard]] DiagnosticEvent append_event(
+        const std::string &download_id,
+        std::uint64_t timestamp_milliseconds,
+        DiagnosticLevel level,
+        std::uint32_t code,
+        const std::string &message
+    );
     void save(const PersistedDownload &download);
     void remove(const std::string &id);
 

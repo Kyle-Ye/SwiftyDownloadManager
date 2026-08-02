@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -11,13 +12,25 @@
 
 namespace sdm {
 
-inline constexpr std::uint32_t engine_abi_version = 1;
+class PersistenceError final : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
+inline constexpr std::uint32_t engine_abi_version = 2;
 
 enum class EventKind : std::uint32_t {
     command_result = 0,
     snapshot_changed = 1,
     removed = 2,
     engine_stopped = 3,
+    engine_ready = 4,
+};
+
+enum class DiagnosticLevel : std::uint32_t {
+    info = 0,
+    warning = 1,
+    error = 2,
 };
 
 struct EngineConfig final {
@@ -53,7 +66,20 @@ struct DownloadSnapshot final {
     std::vector<Segment> segments;
     Result error_code = Result::ok;
     std::string error_message;
+    std::uint64_t created_milliseconds = 0;
+    std::uint64_t started_milliseconds = 0;
+    std::uint64_t last_attempt_milliseconds = 0;
+    std::uint64_t completed_milliseconds = 0;
     std::uint64_t updated_milliseconds = 0;
+};
+
+struct DiagnosticEvent final {
+    std::uint64_t id = 0;
+    std::string download_id;
+    std::uint64_t timestamp_milliseconds = 0;
+    DiagnosticLevel level = DiagnosticLevel::info;
+    std::uint32_t code = 0;
+    std::string message;
 };
 
 struct Event final {
@@ -90,6 +116,9 @@ public:
         std::string_view id
     ) const;
     [[nodiscard]] std::vector<DownloadSnapshot> snapshots() const;
+    [[nodiscard]] std::vector<DiagnosticEvent> diagnostic_events(
+        std::string_view id
+    ) const;
 
     void shutdown() noexcept;
 

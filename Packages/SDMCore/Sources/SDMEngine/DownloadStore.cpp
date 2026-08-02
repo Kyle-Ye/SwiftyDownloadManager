@@ -95,17 +95,28 @@ public:
         if (sqlite3_step(version.get()) != SQLITE_ROW) {
             throw std::runtime_error("Unable to read database schema version");
         }
-        const auto schema_version = sqlite3_column_int(version.get(), 0);
-        if (schema_version > 1) {
+        auto schema_version = sqlite3_column_int(version.get(), 0);
+        if (schema_version > 2) {
             throw std::runtime_error("Database schema is newer than this engine");
         }
         if (schema_version == 0) {
             migrate_to_version_one();
+            schema_version = 1;
+        }
+        if (schema_version == 1) {
+            migrate_to_version_two();
         }
     }
 
     ~Impl() {
         if (database != nullptr) {
+            sqlite3_wal_checkpoint_v2(
+                database,
+                nullptr,
+                SQLITE_CHECKPOINT_PASSIVE,
+                nullptr,
+                nullptr
+            );
             sqlite3_close(database);
         }
     }
@@ -157,6 +168,65 @@ public:
         }
     }
 
+    void migrate_to_version_two() {
+        execute(database, "BEGIN IMMEDIATE");
+        try {
+            execute(database, R"sql(
+                ALTER TABLE downloads
+                ADD COLUMN created_milliseconds INTEGER NOT NULL DEFAULT 0
+            )sql");
+            execute(database, R"sql(
+                ALTER TABLE downloads
+                ADD COLUMN started_milliseconds INTEGER NOT NULL DEFAULT 0
+            )sql");
+            execute(database, R"sql(
+                ALTER TABLE downloads
+                ADD COLUMN last_attempt_milliseconds INTEGER NOT NULL DEFAULT 0
+            )sql");
+            execute(database, R"sql(
+                ALTER TABLE downloads
+                ADD COLUMN completed_milliseconds INTEGER NOT NULL DEFAULT 0
+            )sql");
+            execute(database, R"sql(
+                UPDATE downloads
+                   SET created_milliseconds = updated_milliseconds,
+                       last_attempt_milliseconds = updated_milliseconds,
+                       completed_milliseconds = CASE
+                           WHEN state = 8 THEN updated_milliseconds
+                           ELSE 0
+                       END
+            )sql");
+            execute(database, R"sql(
+                CREATE TABLE download_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    download_id TEXT NOT NULL
+                        REFERENCES downloads(id) ON DELETE CASCADE,
+                    timestamp_milliseconds INTEGER NOT NULL,
+                    level INTEGER NOT NULL,
+                    code INTEGER NOT NULL,
+                    message TEXT NOT NULL
+                )
+            )sql");
+            execute(database, R"sql(
+                CREATE INDEX downloads_state_updated_index
+                    ON downloads(state, updated_milliseconds DESC)
+            )sql");
+            execute(database, R"sql(
+                CREATE INDEX downloads_updated_index
+                    ON downloads(updated_milliseconds DESC)
+            )sql");
+            execute(database, R"sql(
+                CREATE INDEX download_events_download_index
+                    ON download_events(download_id, id DESC)
+            )sql");
+            execute(database, "PRAGMA user_version = 2");
+            execute(database, "COMMIT");
+        } catch (...) {
+            execute(database, "ROLLBACK");
+            throw;
+        }
+    }
+
     std::vector<sdm::PersistedDownload> load_all() {
         Statement downloads(database, R"sql(
             SELECT id, source_url, destination_directory, requested_filename,
@@ -164,13 +234,16 @@ public:
                    destination_path, filename, state, content_length_known,
                    content_length, downloaded_bytes, error_code, error_message,
                    temporary_path, accepts_ranges, server_connection_limit,
-                   etag, last_modified, updated_milliseconds
+                   etag, last_modified, created_milliseconds,
+                   started_milliseconds, last_attempt_milliseconds,
+                   completed_milliseconds, updated_milliseconds
               FROM downloads
-             ORDER BY updated_milliseconds
+             ORDER BY updated_milliseconds DESC
         )sql");
         std::vector<sdm::PersistedDownload> result;
         while (sqlite3_step(downloads.get()) == SQLITE_ROW) {
             sdm::PersistedDownload value;
+            bool has_invalid_state = false;
             value.request.id = column_text(downloads.get(), 0);
             value.request.url = column_text(downloads.get(), 1);
             value.request.destination_directory = column_text(downloads.get(), 2);
@@ -189,9 +262,14 @@ public:
             value.snapshot.final_url = column_text(downloads.get(), 7);
             value.snapshot.destination_url = column_text(downloads.get(), 8);
             value.snapshot.filename = column_text(downloads.get(), 9);
-            value.snapshot.state = static_cast<sdm::DownloadState>(
-                sqlite3_column_int64(downloads.get(), 10)
-            );
+            const auto raw_state = sqlite3_column_int64(downloads.get(), 10);
+            if (raw_state < static_cast<sqlite3_int64>(sdm::DownloadState::created) ||
+                raw_state > static_cast<sqlite3_int64>(sdm::DownloadState::cancelled)) {
+                value.snapshot.state = sdm::DownloadState::failed;
+                has_invalid_state = true;
+            } else {
+                value.snapshot.state = static_cast<sdm::DownloadState>(raw_state);
+            }
             value.snapshot.content_length_known = sqlite3_column_int(downloads.get(), 11) != 0;
             value.snapshot.content_length = static_cast<std::uint64_t>(
                 sqlite3_column_int64(downloads.get(), 12)
@@ -210,13 +288,111 @@ public:
             );
             value.etag = column_text(downloads.get(), 19);
             value.last_modified = column_text(downloads.get(), 20);
-            value.snapshot.updated_milliseconds = static_cast<std::uint64_t>(
+            value.snapshot.created_milliseconds = static_cast<std::uint64_t>(
                 sqlite3_column_int64(downloads.get(), 21)
             );
+            value.snapshot.started_milliseconds = static_cast<std::uint64_t>(
+                sqlite3_column_int64(downloads.get(), 22)
+            );
+            value.snapshot.last_attempt_milliseconds = static_cast<std::uint64_t>(
+                sqlite3_column_int64(downloads.get(), 23)
+            );
+            value.snapshot.completed_milliseconds = static_cast<std::uint64_t>(
+                sqlite3_column_int64(downloads.get(), 24)
+            );
+            value.snapshot.updated_milliseconds = static_cast<std::uint64_t>(
+                sqlite3_column_int64(downloads.get(), 25)
+            );
+            if (has_invalid_state) {
+                value.snapshot.error_code = sdm::Result::persistence_error;
+                value.snapshot.error_message = "Persisted download state was invalid";
+            }
             load_segments(value);
             result.push_back(std::move(value));
         }
         return result;
+    }
+
+    std::vector<sdm::DiagnosticEvent> load_events(const std::string &download_id) {
+        Statement statement(database, R"sql(
+            SELECT id, timestamp_milliseconds, level, code, message
+              FROM (
+                    SELECT id, timestamp_milliseconds, level, code, message
+                      FROM download_events
+                     WHERE download_id = ?
+                     ORDER BY id DESC
+                     LIMIT 500
+                   )
+             ORDER BY id
+        )sql");
+        bind_text(statement.get(), 1, download_id);
+        std::vector<sdm::DiagnosticEvent> result;
+        while (sqlite3_step(statement.get()) == SQLITE_ROW) {
+            result.push_back(sdm::DiagnosticEvent{
+                .id = static_cast<std::uint64_t>(sqlite3_column_int64(statement.get(), 0)),
+                .download_id = download_id,
+                .timestamp_milliseconds = static_cast<std::uint64_t>(
+                    sqlite3_column_int64(statement.get(), 1)
+                ),
+                .level = static_cast<sdm::DiagnosticLevel>(
+                    sqlite3_column_int64(statement.get(), 2)
+                ),
+                .code = static_cast<std::uint32_t>(
+                    sqlite3_column_int64(statement.get(), 3)
+                ),
+                .message = column_text(statement.get(), 4),
+            });
+        }
+        return result;
+    }
+
+    sdm::DiagnosticEvent append_event(
+        const std::string &download_id,
+        std::uint64_t timestamp_milliseconds,
+        sdm::DiagnosticLevel level,
+        std::uint32_t code,
+        const std::string &message
+    ) {
+        Statement statement(database, R"sql(
+            INSERT INTO download_events(
+                download_id, timestamp_milliseconds, level, code, message
+            ) VALUES (?, ?, ?, ?, ?)
+        )sql");
+        bind_text(statement.get(), 1, download_id);
+        sqlite3_bind_int64(
+            statement.get(),
+            2,
+            static_cast<sqlite3_int64>(timestamp_milliseconds)
+        );
+        sqlite3_bind_int64(statement.get(), 3, static_cast<std::uint32_t>(level));
+        sqlite3_bind_int64(statement.get(), 4, code);
+        bind_text(statement.get(), 5, message);
+        require_done(database, statement.get());
+        const auto event_id = static_cast<std::uint64_t>(sqlite3_last_insert_rowid(database));
+
+        Statement prune(database, R"sql(
+            DELETE FROM download_events
+             WHERE download_id = ?
+               AND id NOT IN (
+                    SELECT id
+                      FROM download_events
+                     WHERE download_id = ?
+                     ORDER BY id DESC
+                     LIMIT 500
+               )
+        )sql");
+        bind_text(prune.get(), 1, download_id);
+        bind_text(prune.get(), 2, download_id);
+        require_done(database, prune.get());
+
+        return sdm::DiagnosticEvent{
+            .id = event_id,
+            .download_id = download_id,
+            .timestamp_milliseconds = timestamp_milliseconds,
+            .level = level,
+            .code = code,
+            .message = message,
+        };
     }
 
     void load_segments(sdm::PersistedDownload &download) {
@@ -244,9 +420,45 @@ public:
         execute(database, "BEGIN IMMEDIATE");
         try {
             Statement statement(database, R"sql(
-                INSERT OR REPLACE INTO downloads VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                INSERT INTO downloads (
+                    id, source_url, destination_directory, requested_filename,
+                    connection_limit, bandwidth_limit, conflict_policy, final_url,
+                    destination_path, filename, state, content_length_known,
+                    content_length, downloaded_bytes, error_code, error_message,
+                    temporary_path, accepts_ranges, server_connection_limit,
+                    etag, last_modified, created_milliseconds,
+                    started_milliseconds, last_attempt_milliseconds,
+                    completed_milliseconds, updated_milliseconds
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?
                 )
+                ON CONFLICT(id) DO UPDATE SET
+                    source_url = excluded.source_url,
+                    destination_directory = excluded.destination_directory,
+                    requested_filename = excluded.requested_filename,
+                    connection_limit = excluded.connection_limit,
+                    bandwidth_limit = excluded.bandwidth_limit,
+                    conflict_policy = excluded.conflict_policy,
+                    final_url = excluded.final_url,
+                    destination_path = excluded.destination_path,
+                    filename = excluded.filename,
+                    state = excluded.state,
+                    content_length_known = excluded.content_length_known,
+                    content_length = excluded.content_length,
+                    downloaded_bytes = excluded.downloaded_bytes,
+                    error_code = excluded.error_code,
+                    error_message = excluded.error_message,
+                    temporary_path = excluded.temporary_path,
+                    accepts_ranges = excluded.accepts_ranges,
+                    server_connection_limit = excluded.server_connection_limit,
+                    etag = excluded.etag,
+                    last_modified = excluded.last_modified,
+                    created_milliseconds = excluded.created_milliseconds,
+                    started_milliseconds = excluded.started_milliseconds,
+                    last_attempt_milliseconds = excluded.last_attempt_milliseconds,
+                    completed_milliseconds = excluded.completed_milliseconds,
+                    updated_milliseconds = excluded.updated_milliseconds
             )sql");
             int index = 1;
             bind_text(statement.get(), index++, value.request.id);
@@ -270,8 +482,19 @@ public:
             sqlite3_bind_int64(statement.get(), index++, value.server_connection_limit);
             bind_text(statement.get(), index++, value.etag);
             bind_text(statement.get(), index++, value.last_modified);
+            sqlite3_bind_int64(statement.get(), index++, static_cast<sqlite3_int64>(value.snapshot.created_milliseconds));
+            sqlite3_bind_int64(statement.get(), index++, static_cast<sqlite3_int64>(value.snapshot.started_milliseconds));
+            sqlite3_bind_int64(statement.get(), index++, static_cast<sqlite3_int64>(value.snapshot.last_attempt_milliseconds));
+            sqlite3_bind_int64(statement.get(), index++, static_cast<sqlite3_int64>(value.snapshot.completed_milliseconds));
             sqlite3_bind_int64(statement.get(), index++, static_cast<sqlite3_int64>(value.snapshot.updated_milliseconds));
             require_done(database, statement.get());
+
+            Statement remove_segments(
+                database,
+                "DELETE FROM segments WHERE download_id = ?"
+            );
+            bind_text(remove_segments.get(), 1, value.request.id);
+            require_done(database, remove_segments.get());
 
             Statement segment(database, R"sql(
                 INSERT INTO segments(download_id, ordinal, start_byte, end_byte, next_byte)
@@ -310,6 +533,28 @@ sdm::DownloadStore::~DownloadStore() = default;
 
 std::vector<sdm::PersistedDownload> sdm::DownloadStore::load_all() {
     return impl_->load_all();
+}
+
+std::vector<sdm::DiagnosticEvent> sdm::DownloadStore::load_events(
+    const std::string &download_id
+) {
+    return impl_->load_events(download_id);
+}
+
+sdm::DiagnosticEvent sdm::DownloadStore::append_event(
+    const std::string &download_id,
+    std::uint64_t timestamp_milliseconds,
+    DiagnosticLevel level,
+    std::uint32_t code,
+    const std::string &message
+) {
+    return impl_->append_event(
+        download_id,
+        timestamp_milliseconds,
+        level,
+        code,
+        message
+    );
 }
 
 void sdm::DownloadStore::save(const PersistedDownload &download) {

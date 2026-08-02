@@ -11,6 +11,7 @@
 #include <deque>
 #include <fcntl.h>
 #include <filesystem>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -192,7 +193,14 @@ public:
         if (multi == nullptr) {
             throw std::runtime_error("curl_multi_init failed");
         }
-        store = std::make_unique<DownloadStore>(config.database_path);
+        try {
+            store = std::make_unique<DownloadStore>(config.database_path);
+            restore_tasks();
+        } catch (const std::exception &error) {
+            curl_multi_cleanup(multi);
+            multi = nullptr;
+            throw PersistenceError(error.what());
+        }
         worker = std::jthread([this](std::stop_token stop_token) {
             run(stop_token);
         });
@@ -234,8 +242,12 @@ public:
         std::uint64_t speed_baseline_bytes = 0;
         std::uint32_t retry_attempt = 0;
         std::optional<Clock::time_point> retry_at;
+        std::optional<DownloadState> last_published_state;
+        Result last_published_error_code = Result::ok;
+        std::string last_published_error_message;
         Clock::time_point transfer_started = Clock::now();
         Clock::time_point last_published = Clock::now();
+        Clock::time_point last_checkpoint = Clock::now();
     };
 
     struct Transfer final {
@@ -346,8 +358,21 @@ public:
             (void)id;
             result.push_back(snapshot);
         }
-        std::ranges::sort(result, {}, &DownloadSnapshot::updated_milliseconds);
+        std::ranges::sort(
+            result,
+            std::greater{},
+            &DownloadSnapshot::updated_milliseconds
+        );
         return result;
+    }
+
+    std::vector<DiagnosticEvent> diagnostic_events(std::string_view id) const {
+        std::lock_guard lock(mutex);
+        const auto iterator = diagnostic_events_by_id.find(std::string(id));
+        if (iterator == diagnostic_events_by_id.end()) {
+            return {};
+        }
+        return iterator->second;
     }
 
     void shutdown() noexcept {
@@ -474,7 +499,13 @@ private:
     }
 
     void run(std::stop_token stop_token) noexcept {
-        restore_tasks();
+        {
+            std::lock_guard lock(mutex);
+            emit_locked(Event{
+                .kind = EventKind::engine_ready,
+                .result = Result::ok,
+            });
+        }
         while (!stop_token.stop_requested()) {
             process_commands();
             schedule_queued_tasks();
@@ -534,10 +565,10 @@ private:
         }
     }
 
-    void restore_tasks() noexcept {
-        try {
-            for (auto &stored : store->load_all()) {
+    void restore_tasks() {
+        for (auto &stored : store->load_all()) {
                 bool refresh_timestamp = false;
+                std::optional<std::string> recovery_message;
                 auto task = std::make_unique<Task>();
                 task->request = std::move(stored.request);
                 task->snapshot = std::move(stored.snapshot);
@@ -548,6 +579,9 @@ private:
                 task->segments = task->snapshot.segments;
                 task->etag = std::move(stored.etag);
                 task->last_modified = std::move(stored.last_modified);
+                task->last_published_state = task->snapshot.state;
+                task->last_published_error_code = task->snapshot.error_code;
+                task->last_published_error_message = task->snapshot.error_message;
                 if (task->segments.empty()) {
                     task->write_offset = task->snapshot.downloaded_bytes;
                 }
@@ -596,19 +630,37 @@ private:
                     reset_segments(*task);
                     task->snapshot.downloaded_bytes = 0;
                     refresh_timestamp = true;
+                    recovery_message =
+                        "Partial download file was missing; resumable progress was reset.";
                 }
 
                 auto id = task->request.id;
                 tasks.insert_or_assign(id, std::move(task));
                 task_order.push_back(id);
+                {
+                    std::lock_guard lock(mutex);
+                    diagnostic_events_by_id.insert_or_assign(
+                        id,
+                        store->load_events(id)
+                    );
+                }
                 publish_snapshot(*tasks.at(id), refresh_timestamp);
-            }
-        } catch (const std::exception &) {
-            std::lock_guard lock(mutex);
-            emit_locked(Event{
-                .kind = EventKind::engine_stopped,
-                .result = Result::persistence_error,
-            });
+                if (recovery_message) {
+                    record_diagnostic(
+                        *tasks.at(id),
+                        DiagnosticLevel::warning,
+                        static_cast<std::uint32_t>(Result::io_error),
+                        *recovery_message
+                    );
+                }
+                if (diagnostic_events(id).empty()) {
+                    record_diagnostic(
+                        *tasks.at(id),
+                        DiagnosticLevel::info,
+                        0,
+                        "Loaded persisted download history."
+                    );
+                }
         }
     }
 
@@ -616,12 +668,14 @@ private:
         Result result = Result::ok;
         if (command.kind == CommandKind::enqueue && command.request) {
             auto request = std::move(*command.request);
+            const auto now = current_milliseconds();
             auto snapshot = DownloadSnapshot{
                 .id = request.id,
                 .source_url = request.url,
                 .filename = inferred_filename(request),
                 .state = DownloadState::queued,
-                .updated_milliseconds = current_milliseconds(),
+                .created_milliseconds = now,
+                .updated_milliseconds = now,
             };
             auto task = std::make_unique<Task>(Task{
                 .request = std::move(request),
@@ -652,6 +706,7 @@ private:
                     {
                         std::lock_guard lock(mutex);
                         snapshots_by_id.erase(command.id);
+                        diagnostic_events_by_id.erase(command.id);
                         emit_locked(Event{
                             .command_id = command.command_id,
                             .download_id = command.id,
@@ -806,6 +861,7 @@ private:
         }
         curl_easy_setopt(transfer->easy, CURLOPT_NOBODY, 1L);
         task.snapshot.state = DownloadState::probing;
+        task.snapshot.last_attempt_milliseconds = current_milliseconds();
         add_transfer(task, std::move(transfer));
         publish_snapshot(task);
     }
@@ -844,6 +900,7 @@ private:
         task.last_published = task.transfer_started;
         task.speed_baseline_bytes = downloaded_bytes(task);
         task.snapshot.state = DownloadState::downloading;
+        task.snapshot.last_attempt_milliseconds = current_milliseconds();
         task.snapshot.segment_count = static_cast<std::uint32_t>(task.segments.size());
         task.snapshot.segments = task.segments;
 
@@ -1203,6 +1260,7 @@ private:
             return;
         }
         task.snapshot.state = DownloadState::completed;
+        task.snapshot.completed_milliseconds = current_milliseconds();
         task.retry_attempt = 0;
         task.retry_at.reset();
         task.snapshot.bytes_per_second = 0;
@@ -1237,7 +1295,10 @@ private:
                     task->snapshot.bytes_per_second;
             }
             task->last_published = now;
-            publish_snapshot(*task);
+            constexpr auto checkpoint_interval = std::chrono::milliseconds(500);
+            const bool should_checkpoint =
+                now - task->last_checkpoint >= checkpoint_interval;
+            publish_snapshot(*task, true, should_checkpoint);
         }
     }
 
@@ -1360,12 +1421,113 @@ private:
         }
     }
 
-    void publish_snapshot(Task &task, bool refresh_timestamp = true) {
+    static std::string_view state_title(DownloadState state) noexcept {
+        switch (state) {
+        case DownloadState::created: return "Created";
+        case DownloadState::probing: return "Connecting";
+        case DownloadState::queued: return "Queued";
+        case DownloadState::downloading: return "Downloading";
+        case DownloadState::pausing: return "Pausing";
+        case DownloadState::paused: return "Paused";
+        case DownloadState::retrying: return "Retrying";
+        case DownloadState::finalizing: return "Finalizing";
+        case DownloadState::completed: return "Completed";
+        case DownloadState::failed: return "Failed";
+        case DownloadState::cancelled: return "Cancelled";
+        }
+        return "Unknown";
+    }
+
+    void record_diagnostic(
+        Task &task,
+        DiagnosticLevel level,
+        std::uint32_t code,
+        std::string message
+    ) noexcept {
+        try {
+            auto event = store->append_event(
+                task.snapshot.id,
+                current_milliseconds(),
+                level,
+                code,
+                message
+            );
+            std::lock_guard lock(mutex);
+            auto &events = diagnostic_events_by_id[task.snapshot.id];
+            events.push_back(std::move(event));
+            constexpr std::size_t maximum_event_count = 500;
+            if (events.size() > maximum_event_count) {
+                events.erase(
+                    events.begin(),
+                    events.begin() + static_cast<std::ptrdiff_t>(
+                        events.size() - maximum_event_count
+                    )
+                );
+            }
+        } catch (...) {
+            // The snapshot write remains authoritative if a diagnostic row fails.
+        }
+    }
+
+    void publish_snapshot(
+        Task &task,
+        bool refresh_timestamp = true,
+        bool persist_to_store = true
+    ) {
         update_snapshot_segments(task);
         if (refresh_timestamp) {
             task.snapshot.updated_milliseconds = current_milliseconds();
         }
-        persist_task(task);
+        if (task.snapshot.created_milliseconds == 0) {
+            task.snapshot.created_milliseconds = task.snapshot.updated_milliseconds;
+        }
+        if (task.snapshot.state == DownloadState::downloading &&
+            task.snapshot.started_milliseconds == 0) {
+            task.snapshot.started_milliseconds = task.snapshot.updated_milliseconds;
+        }
+        if (task.snapshot.state == DownloadState::completed &&
+            task.snapshot.completed_milliseconds == 0) {
+            task.snapshot.completed_milliseconds = task.snapshot.updated_milliseconds;
+        }
+        const auto previous_state = task.last_published_state;
+        const auto previous_error_code = task.last_published_error_code;
+        const auto previous_error_message = task.last_published_error_message;
+        if (persist_to_store) {
+            persist_task(task);
+            task.last_checkpoint = Clock::now();
+        }
+        if (persist_to_store && !previous_state) {
+            record_diagnostic(
+                task,
+                DiagnosticLevel::info,
+                static_cast<std::uint32_t>(task.snapshot.state),
+                "Added to download history in " +
+                    std::string(state_title(task.snapshot.state)) + " state."
+            );
+        } else if (persist_to_store && *previous_state != task.snapshot.state) {
+            record_diagnostic(
+                task,
+                task.snapshot.state == DownloadState::failed
+                    ? DiagnosticLevel::error
+                    : DiagnosticLevel::info,
+                static_cast<std::uint32_t>(task.snapshot.state),
+                "State changed: " + std::string(state_title(*previous_state)) +
+                    " -> " + std::string(state_title(task.snapshot.state)) + "."
+            );
+        }
+        if (persist_to_store && task.snapshot.error_code != Result::ok &&
+            (previous_error_code != task.snapshot.error_code ||
+             previous_error_message != task.snapshot.error_message)) {
+            record_diagnostic(
+                task,
+                DiagnosticLevel::error,
+                static_cast<std::uint32_t>(task.snapshot.error_code),
+                task.snapshot.error_message
+            );
+        }
+        task.last_published_state = task.snapshot.state;
+        task.last_published_error_code = task.snapshot.error_code;
+        task.last_published_error_message = task.snapshot.error_message;
         std::lock_guard lock(mutex);
         snapshots_by_id.insert_or_assign(task.snapshot.id, task.snapshot);
         emit_locked(Event{
@@ -1415,6 +1577,8 @@ private:
     std::deque<Command> commands;
     std::deque<Event> events;
     std::unordered_map<std::string, DownloadSnapshot> snapshots_by_id;
+    std::unordered_map<std::string, std::vector<DiagnosticEvent>>
+        diagnostic_events_by_id;
     std::unordered_set<std::string> pending_ids;
     std::unordered_map<std::string, std::unique_ptr<Task>> tasks;
     std::vector<std::string> task_order;
@@ -1457,6 +1621,12 @@ std::optional<sdm::DownloadSnapshot> sdm::Engine::snapshot(
 
 std::vector<sdm::DownloadSnapshot> sdm::Engine::snapshots() const {
     return impl_->snapshots();
+}
+
+std::vector<sdm::DiagnosticEvent> sdm::Engine::diagnostic_events(
+    std::string_view id
+) const {
+    return impl_->diagnostic_events(id);
 }
 
 void sdm::Engine::shutdown() noexcept {

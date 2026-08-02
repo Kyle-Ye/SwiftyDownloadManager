@@ -26,6 +26,19 @@ size_t sdm_test_plan_segments(
 
 bool sdm_test_can_transition(uint32_t from, uint32_t to);
 uint32_t sdm_test_validate_command(uint32_t state, uint32_t command);
+bool sdm_test_create_v1_database(
+    const char *path,
+    const char *download_id,
+    const char *destination_directory,
+    uint64_t updated_milliseconds
+);
+uint32_t sdm_test_database_user_version(const char *path);
+bool sdm_test_set_database_user_version(const char *path, uint32_t version);
+bool sdm_test_set_download_state(
+    const char *path,
+    const char *download_id,
+    uint32_t state
+);
 
 #ifdef __cplusplus
 }
