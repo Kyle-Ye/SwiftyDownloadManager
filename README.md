@@ -11,9 +11,23 @@ SQLite-backed recovery, and atomic file finalization. The SwiftUI application
 uses `DownloadService` to enqueue direct URLs, observe engine snapshots, show
 filterable progress and status, and issue pause, resume, cancel, retry, and
 remove commands. Every task can open a live Info window with transfer metadata,
-per-connection progress, lifecycle controls, and a bounded session activity
-log. Project planning is maintained outside the application repository in the
-surrounding workspace.
+per-connection progress, lifecycle controls, and a bounded persistent activity
+history. Project planning is maintained outside the application repository in
+the surrounding workspace.
+
+## Download history
+
+SQLite is the single source of truth for tasks, segment checkpoints, lifecycle
+timestamps, and diagnostic events. The signed sandboxed app stores the database
+and partial downloads below its own Application Support container; absolute
+container paths are resolved at runtime and are never hard-coded.
+
+Completed, failed, cancelled, and paused tasks remain until the user chooses
+**Remove from History**. Removing history also removes partial data and
+diagnostics, but never deletes a finalized file. **Delete Downloaded File** is a
+separate confirmed action. Finalized downloads stay in Downloads or another
+user-selected directory, and security-scoped bookmarks preserve access to
+custom destinations across launches.
 
 ## Build
 

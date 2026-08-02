@@ -1,7 +1,8 @@
+import SDMCore
 import SwiftUI
 
 struct DownloadLogRow: View {
-    let entry: DownloadLogEntry
+    let entry: DownloadDiagnosticEvent
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -20,25 +21,7 @@ struct DownloadLogRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "\(entry.level.rawValue), \(entry.timestamp.formatted()), \(entry.message)"
+            "\(entry.level.title), \(entry.timestamp.formatted()), \(entry.message)"
         )
-    }
-}
-
-private extension DownloadLogLevel {
-    var systemImage: String {
-        switch self {
-        case .info: "info.circle"
-        case .warning: "exclamationmark.triangle"
-        case .error: "xmark.octagon.fill"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .info: .secondary
-        case .warning: .orange
-        case .error: .red
-        }
     }
 }

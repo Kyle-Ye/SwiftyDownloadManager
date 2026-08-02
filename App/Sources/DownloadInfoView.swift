@@ -64,6 +64,9 @@ struct DownloadInfoView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 560)
+        .task(id: downloadID) {
+            await service.refreshLogs(for: downloadID)
+        }
         .alert(item: $presentedError) { error in
             Alert(
                 title: Text(error.title),

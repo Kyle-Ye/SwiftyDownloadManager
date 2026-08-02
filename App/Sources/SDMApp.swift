@@ -25,7 +25,7 @@ struct SDMApp: App {
         .defaultSize(width: 760, height: 620)
 
         Settings {
-            SettingsView()
+            SettingsView(databaseURL: downloadService.databaseURL)
         }
     }
 }

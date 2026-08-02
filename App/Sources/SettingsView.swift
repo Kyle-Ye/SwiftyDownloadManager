@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("defaultConnectionCount") private var defaultConnectionCount = 8
+    let databaseURL: URL?
 
     var body: some View {
         Form {
@@ -17,14 +18,22 @@ struct SettingsView: View {
             Section("Engine") {
                 LabeledContent("Version", value: SDMCoreInfo.engineVersion)
                 LabeledContent("ABI", value: String(SDMCoreInfo.engineABIVersion))
+                if let databaseURL {
+                    LabeledContent("History database") {
+                        Text(databaseURL.path(percentEncoded: false))
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
             }
         }
         .formStyle(.grouped)
         .padding()
-        .frame(width: 520, height: 260)
+        .frame(width: 560, height: 320)
     }
 }
 
 #Preview {
-    SettingsView()
+    SettingsView(databaseURL: nil)
 }

@@ -15,7 +15,7 @@ enum DownloadCommand: CaseIterable, Identifiable {
         case .resume: "Resume"
         case .cancel: "Cancel"
         case .retry: "Retry"
-        case .remove: "Remove"
+        case .remove: "Remove from History"
         }
     }
 

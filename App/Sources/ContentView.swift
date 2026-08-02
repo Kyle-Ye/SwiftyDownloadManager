@@ -56,9 +56,10 @@ struct ContentView: View {
             NewDownloadView(
                 defaultConnectionCount: defaultConnectionCount,
                 destinationDirectory: service.defaultDestinationDirectory
-            ) { url, connectionCount in
+            ) { url, destinationDirectory, connectionCount in
                 _ = try await service.enqueue(
                     url: url,
+                    destinationDirectory: destinationDirectory,
                     connectionCount: connectionCount
                 )
             }
@@ -85,6 +86,9 @@ struct ContentView: View {
                 Text(initializationError)
                     .textSelection(.enabled)
             }
+        } else if service.isLoadingHistory {
+            ProgressView("Loading Download History…")
+                .controlSize(.large)
         } else if visibleSnapshots.isEmpty {
             ContentUnavailableView {
                 Label(emptyTitle, systemImage: selectedFilter.systemImage)
@@ -143,7 +147,8 @@ struct ContentView: View {
                     DownloadActionsMenu(
                         snapshot: snapshot,
                         isBusy: service.commandInFlightIDs.contains(snapshot.id),
-                        showInfo: { openInfo(snapshot.id) }
+                        showInfo: { openInfo(snapshot.id) },
+                        deleteFile: { deleteFileAndHistory(snapshot) }
                     ) { command in
                         perform(command, on: snapshot.id)
                     }
@@ -222,6 +227,22 @@ struct ContentView: View {
         }
     }
 
+    private func deleteFileAndHistory(_ snapshot: DownloadSnapshot) {
+        Task { @MainActor in
+            do {
+                try await service.deleteDownloadedFileAndHistory(for: snapshot.id)
+                if selectedDownloadID == snapshot.id {
+                    selectedDownloadID = nil
+                }
+            } catch {
+                presentedError = PresentedDownloadError(
+                    title: "Could Not Delete Downloaded File",
+                    error: error
+                )
+            }
+        }
+    }
+
     private func openInfo(_ id: DownloadID) {
         openWindow(value: id)
     }
@@ -274,7 +295,9 @@ private struct DownloadActionsMenu: View {
     let snapshot: DownloadSnapshot
     let isBusy: Bool
     let showInfo: () -> Void
+    let deleteFile: () -> Void
     let perform: (DownloadCommand) -> Void
+    @State private var confirmsFileDeletion = false
 
     var body: some View {
         Menu("Download Actions", systemImage: isBusy ? "ellipsis.circle.fill" : "ellipsis.circle") {
@@ -292,10 +315,31 @@ private struct DownloadActionsMenu: View {
                 }
                 .disabled(isBusy)
             }
+
+            if snapshot.state == .completed, snapshot.destinationURL != nil {
+                Divider()
+                Button(
+                    "Delete Downloaded File…",
+                    systemImage: "trash",
+                    role: .destructive
+                ) {
+                    confirmsFileDeletion = true
+                }
+                .disabled(isBusy)
+            }
         }
         .menuStyle(.borderlessButton)
         .labelStyle(.iconOnly)
         .help("Download Actions")
+        .confirmationDialog(
+            "Delete Downloaded File?",
+            isPresented: $confirmsFileDeletion
+        ) {
+            Button("Delete File and Remove History", role: .destructive, action: deleteFile)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(snapshot.displayFilename) will be permanently deleted from disk.")
+        }
     }
 }
 

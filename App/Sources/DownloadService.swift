@@ -8,58 +8,59 @@ import SDMCore
 @MainActor
 final class DownloadService {
     private(set) var snapshots: [DownloadSnapshot]
+    private(set) var isLoadingHistory: Bool
     private(set) var commandInFlightIDs: Set<DownloadID> = []
-    private(set) var logsByDownloadID: [DownloadID: [DownloadLogEntry]] = [:]
+    private(set) var logsByDownloadID: [DownloadID: [DownloadDiagnosticEvent]] = [:]
 
     let defaultDestinationDirectory: URL
+    let databaseURL: URL?
     let initializationError: String?
 
     private let manager: DownloadManager?
+    private let destinationBookmarks: DestinationBookmarkStore?
     @ObservationIgnored
     nonisolated(unsafe) private var observationTask: Task<Void, Never>?
     @ObservationIgnored private var previousSnapshots: [DownloadID: DownloadSnapshot] = [:]
-    @ObservationIgnored private var lastLoggedProgressBuckets: [DownloadID: Int] = [:]
 
     init(
         configuration: DownloadManagerConfiguration,
-        destinationDirectory: URL = FileManager.default.temporaryDirectory
+        destinationDirectory: URL = FileManager.default.temporaryDirectory,
+        destinationBookmarks: DestinationBookmarkStore? = nil
     ) throws {
         manager = try DownloadManager(configuration: configuration)
+        self.destinationBookmarks = destinationBookmarks
         defaultDestinationDirectory = destinationDirectory
+        databaseURL = configuration.databaseURL
         initializationError = nil
         snapshots = []
+        isLoadingHistory = true
         startObserving()
     }
 
     private init(
         manager: DownloadManager?,
         destinationDirectory: URL,
+        databaseURL: URL?,
+        destinationBookmarks: DestinationBookmarkStore?,
         initializationError: String?,
         snapshots: [DownloadSnapshot]
     ) {
         self.manager = manager
+        self.destinationBookmarks = destinationBookmarks
         defaultDestinationDirectory = destinationDirectory
+        self.databaseURL = databaseURL
         self.initializationError = initializationError
         self.snapshots = []
+        isLoadingHistory = false
         startObserving()
         ingest(snapshots)
     }
 
     static func live(fileManager: FileManager = .default) -> DownloadService {
         do {
-            let applicationSupport = try fileManager.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )
-            let root = applicationSupport.appending(
-                path: "SwiftyDownloadManager",
-                directoryHint: .isDirectory
-            )
-            let temporaryDirectory = root.appending(
-                path: "PartialDownloads",
-                directoryHint: .isDirectory
+            let storagePaths = try AppStoragePaths.live(fileManager: fileManager)
+            let destinationBookmarks = try? DestinationBookmarkStore(
+                storeURL: storagePaths.destinationBookmarksURL
             )
             guard let destinationDirectory = fileManager.urls(
                 for: .downloadsDirectory,
@@ -70,22 +71,17 @@ final class DownloadService {
                 )
             }
 
-            try fileManager.createDirectory(
-                at: temporaryDirectory,
-                withIntermediateDirectories: true
-            )
-            let configuration = DownloadManagerConfiguration(
-                databaseURL: root.appending(path: "downloads.sqlite3"),
-                temporaryDirectory: temporaryDirectory
-            )
             return try DownloadService(
-                configuration: configuration,
-                destinationDirectory: destinationDirectory
+                configuration: storagePaths.managerConfiguration,
+                destinationDirectory: destinationDirectory,
+                destinationBookmarks: destinationBookmarks
             )
         } catch {
             return DownloadService(
                 manager: nil,
                 destinationDirectory: fileManager.temporaryDirectory,
+                databaseURL: nil,
+                destinationBookmarks: nil,
                 initializationError: Self.message(for: error),
                 snapshots: []
             )
@@ -96,6 +92,8 @@ final class DownloadService {
         DownloadService(
             manager: nil,
             destinationDirectory: FileManager.default.temporaryDirectory,
+            databaseURL: nil,
+            destinationBookmarks: nil,
             initializationError: nil,
             snapshots: snapshots
         )
@@ -107,28 +105,27 @@ final class DownloadService {
         connectionCount: Int
     ) async throws -> DownloadID {
         let manager = try requiredManager()
+        let requestedDestination = destinationDirectory ?? defaultDestinationDirectory
+        let authorizedDestination: URL
+        if requestedDestination.standardizedFileURL !=
+            defaultDestinationDirectory.standardizedFileURL {
+            guard let destinationBookmarks else {
+                throw ServiceError.unavailable(
+                    "Persistent access to custom download folders is unavailable."
+                )
+            }
+            authorizedDestination = try destinationBookmarks.authorize(
+                requestedDestination
+            )
+        } else {
+            authorizedDestination = requestedDestination
+        }
         let request = DownloadRequest(
             url: url,
-            destinationDirectory: destinationDirectory ?? defaultDestinationDirectory,
+            destinationDirectory: authorizedDestination,
             connectionLimit: connectionCount
         )
-        appendLog(
-            to: request.id,
-            level: .info,
-            message: "Add requested with \(connectionCount) connection(s): \(url.absoluteString)"
-        )
-        do {
-            let id = try await manager.enqueue(request)
-            appendLog(to: id, level: .info, message: "Download accepted by the engine.")
-            return id
-        } catch {
-            appendLog(
-                to: request.id,
-                level: .error,
-                message: "Add failed: \(Self.message(for: error))"
-            )
-            throw error
-        }
+        return try await manager.enqueue(request)
     }
 
     func perform(_ command: DownloadCommand, on id: DownloadID) async throws {
@@ -136,33 +133,44 @@ final class DownloadService {
         guard commandInFlightIDs.insert(id).inserted else { return }
         defer { commandInFlightIDs.remove(id) }
 
-        appendLog(to: id, level: .info, message: "\(command.title) requested.")
-        do {
-            switch command {
-            case .pause:
-                try await manager.pause(id)
-            case .resume:
-                try await manager.resume(id)
-            case .cancel:
-                try await manager.cancel(id)
-            case .retry:
-                try await manager.retry(id)
-            case .remove:
-                try await manager.remove(id)
-            }
-            appendLog(to: id, level: .info, message: "\(command.title) accepted.")
-        } catch {
-            appendLog(
-                to: id,
-                level: .error,
-                message: "\(command.title) failed: \(Self.message(for: error))"
-            )
-            throw error
+        switch command {
+        case .pause:
+            try await manager.pause(id)
+        case .resume:
+            try await manager.resume(id)
+        case .cancel:
+            try await manager.cancel(id)
+        case .retry:
+            try await manager.retry(id)
+        case .remove:
+            try await manager.remove(id)
         }
     }
 
-    func logs(for id: DownloadID) -> [DownloadLogEntry] {
+    func logs(for id: DownloadID) -> [DownloadDiagnosticEvent] {
         logsByDownloadID[id] ?? []
+    }
+
+    func refreshLogs(for id: DownloadID) async {
+        guard let manager else { return }
+        do {
+            logsByDownloadID[id] = try await manager.diagnosticEvents(for: id)
+        } catch let error as DownloadError where error.code == .notFound {
+            logsByDownloadID[id] = nil
+        } catch {
+            // Snapshot observation remains usable when diagnostics cannot load.
+        }
+    }
+
+    func deleteDownloadedFileAndHistory(for id: DownloadID) async throws {
+        let manager = try requiredManager()
+        guard let snapshot = snapshots.first(where: { $0.id == id }),
+              snapshot.state == .completed,
+              let destinationURL = snapshot.destinationURL else {
+            throw ServiceError.unavailable("The completed download file is unavailable.")
+        }
+        try FileManager.default.removeItem(at: destinationURL)
+        try await manager.remove(id)
     }
 
     func shutdown() async {
@@ -171,6 +179,7 @@ final class DownloadService {
         if let manager {
             await manager.shutdown()
         }
+        destinationBookmarks?.stopAllAccess()
     }
 
     deinit {
@@ -190,78 +199,20 @@ final class DownloadService {
     private func ingest(_ nextSnapshots: [DownloadSnapshot]) {
         let nextByID = Dictionary(uniqueKeysWithValues: nextSnapshots.map { ($0.id, $0) })
         for snapshot in nextSnapshots {
-            recordChanges(from: previousSnapshots[snapshot.id], to: snapshot)
+            let previous = previousSnapshots[snapshot.id]
+            if previous == nil || previous?.state != snapshot.state ||
+                previous?.error != snapshot.error {
+                Task { [weak self] in
+                    await self?.refreshLogs(for: snapshot.id)
+                }
+            }
         }
         for removedID in previousSnapshots.keys where nextByID[removedID] == nil {
-            appendLog(to: removedID, level: .info, message: "Removed from download history.")
-            lastLoggedProgressBuckets[removedID] = nil
+            logsByDownloadID[removedID] = nil
         }
         previousSnapshots = nextByID
         snapshots = nextSnapshots
-    }
-
-    private func recordChanges(
-        from previous: DownloadSnapshot?,
-        to current: DownloadSnapshot
-    ) {
-        if let previous {
-            if previous.state != current.state {
-                appendLog(
-                    to: current.id,
-                    level: current.state == .failed ? .error : .info,
-                    message: "State changed: \(previous.state.title) → \(current.state.title)."
-                )
-            }
-        } else {
-            appendLog(
-                to: current.id,
-                level: .info,
-                message: "Loaded \(current.displayFilename) in state \(current.state.title)."
-            )
-        }
-
-        if previous?.error != current.error, let error = current.error {
-            appendLog(
-                to: current.id,
-                level: .error,
-                message: "Engine error \(error.code.rawValue): \(error.message)"
-            )
-        }
-
-        if previous?.state != .completed, current.state == .completed,
-           let destinationURL = current.destinationURL {
-            appendLog(
-                to: current.id,
-                level: .info,
-                message: "Finalized at \(destinationURL.path(percentEncoded: false))."
-            )
-        }
-
-        guard let progress = current.progressFraction else { return }
-        let bucket = min(Int(progress * 10), 10)
-        let previousBucket = lastLoggedProgressBuckets[current.id] ?? -1
-        guard bucket > previousBucket else { return }
-        lastLoggedProgressBuckets[current.id] = bucket
-        if bucket > 0 {
-            appendLog(
-                to: current.id,
-                level: .info,
-                message: "Progress reached \(bucket * 10)%."
-            )
-        }
-    }
-
-    private func appendLog(
-        to id: DownloadID,
-        level: DownloadLogLevel,
-        message: String
-    ) {
-        var entries = logsByDownloadID[id, default: []]
-        entries.append(DownloadLogEntry(level: level, message: message))
-        if entries.count > 500 {
-            entries.removeFirst(entries.count - 500)
-        }
-        logsByDownloadID[id] = entries
+        isLoadingHistory = false
     }
 
     private func requiredManager() throws -> DownloadManager {

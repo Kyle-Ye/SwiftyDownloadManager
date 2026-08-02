@@ -3,7 +3,7 @@
 # Tuist and Xcode generated output
 **/.build/
 **/Derived/
-/DerivedData/
+/DerivedData*/
 **/*.xcodeproj/
 **/*.xcworkspace/
 /Tuist/.build/

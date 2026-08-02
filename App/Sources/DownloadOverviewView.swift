@@ -62,6 +62,22 @@ struct DownloadOverviewView: View {
             }
 
             Section("Activity") {
+                LabeledContent("Added") {
+                    Text(snapshot.createdAt, format: .dateTime)
+                        .textSelection(.enabled)
+                }
+                if let lastAttemptAt = snapshot.lastAttemptAt {
+                    LabeledContent("Last try") {
+                        Text(lastAttemptAt, format: .dateTime)
+                            .textSelection(.enabled)
+                    }
+                }
+                if let completedAt = snapshot.completedAt {
+                    LabeledContent("Completed") {
+                        Text(completedAt, format: .dateTime)
+                            .textSelection(.enabled)
+                    }
+                }
                 LabeledContent("Last updated") {
                     Text(snapshot.updatedAt, format: .dateTime)
                         .textSelection(.enabled)

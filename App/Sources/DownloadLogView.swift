@@ -1,12 +1,13 @@
+import SDMCore
 import SwiftUI
 
 struct DownloadLogView: View {
-    let entries: [DownloadLogEntry]
+    let entries: [DownloadDiagnosticEvent]
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Session Activity")
+                Text("Activity History")
                     .font(.headline)
                 Text("Up to 500 recent events")
                     .foregroundStyle(.secondary)
@@ -49,7 +50,7 @@ struct DownloadLogView: View {
             let timestamp = entry.timestamp.formatted(
                 .dateTime.year().month().day().hour().minute().second()
             )
-            return "\(timestamp) [\(entry.level.rawValue.uppercased())] \(entry.message)"
+            return "\(timestamp) [\(entry.level.title.uppercased())] \(entry.message)"
         }
         .joined(separator: "\n")
         NSPasteboard.general.clearContents()

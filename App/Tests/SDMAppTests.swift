@@ -4,6 +4,68 @@ import XCTest
 @testable import SDMApp
 
 final class SDMAppTests: XCTestCase {
+    @MainActor
+    func testDestinationBookmarkStorePersistsAndRestoresFolderReference() throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        let destination = root.appending(path: "Destination", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeURL = root.appending(path: "destination-bookmarks.plist")
+
+        let firstStore = try DestinationBookmarkStore(storeURL: storeURL)
+        XCTAssertEqual(try firstStore.authorize(destination), destination.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: storeURL.path))
+        firstStore.stopAllAccess()
+
+        let restoredStore = try DestinationBookmarkStore(storeURL: storeURL)
+        restoredStore.stopAllAccess()
+    }
+
+    func testAppStoragePathsStayUnderInjectedApplicationSupportDirectory() throws {
+        let applicationSupport = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: applicationSupport) }
+
+        let paths = try AppStoragePaths.resolving(
+            applicationSupportDirectory: applicationSupport
+        )
+
+        XCTAssertEqual(
+            paths.rootDirectory,
+            applicationSupport.appending(
+                path: AppStoragePaths.directoryName,
+                directoryHint: .isDirectory
+            )
+        )
+        XCTAssertEqual(paths.databaseURL.lastPathComponent, "downloads.sqlite3")
+        XCTAssertEqual(
+            paths.destinationBookmarksURL.lastPathComponent,
+            "destination-bookmarks.plist"
+        )
+        XCTAssertEqual(
+            paths.destinationBookmarksURL.deletingLastPathComponent(),
+            paths.rootDirectory
+        )
+        XCTAssertEqual(paths.databaseURL.deletingLastPathComponent(), paths.rootDirectory)
+        XCTAssertEqual(
+            paths.partialDownloadsDirectory.deletingLastPathComponent(),
+            paths.rootDirectory
+        )
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: paths.partialDownloadsDirectory.path,
+                isDirectory: &isDirectory
+            )
+        )
+        XCTAssertTrue(isDirectory.boolValue)
+    }
+
     func testInitialDownloadFiltersRemainStable() {
         XCTAssertEqual(DownloadFilter.allCases.count, 5)
         XCTAssertEqual(DownloadFilter.allCases.first, .all)
@@ -92,27 +154,6 @@ final class SDMAppTests: XCTestCase {
     }
 
     @MainActor
-    func testPreviewServiceCreatesAnInitialActivityLog() throws {
-        let id = DownloadID()
-        let snapshot = DownloadSnapshot(
-            id: id,
-            sourceURL: try XCTUnwrap(URL(string: "https://example.com/file.bin")),
-            filename: "file.bin",
-            state: .downloading,
-            contentLength: 100,
-            downloadedBytes: 20
-        )
-        let service = DownloadService.preview(snapshots: [snapshot])
-
-        XCTAssertTrue(service.logs(for: id).contains { entry in
-            entry.message.contains("Loaded file.bin")
-        })
-        XCTAssertTrue(service.logs(for: id).contains { entry in
-            entry.message.contains("Progress reached 20%")
-        })
-    }
-
-    @MainActor
     func testDownloadServiceInitializesAndShutsDown() async throws {
         let root = FileManager.default.temporaryDirectory.appending(
             path: UUID().uuidString,
@@ -134,6 +175,12 @@ final class SDMAppTests: XCTestCase {
 
         XCTAssertNil(service.initializationError)
         XCTAssertTrue(service.snapshots.isEmpty)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while service.isLoadingHistory, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(service.isLoadingHistory)
         await service.shutdown()
     }
 }

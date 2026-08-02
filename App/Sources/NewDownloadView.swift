@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct NewDownloadView: View {
     @Environment(\.dismiss) private var dismiss
@@ -6,17 +7,18 @@ struct NewDownloadView: View {
     @State private var connectionCount: Int
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var showsDestinationPicker = false
+    @State private var destinationDirectory: URL
 
-    let destinationDirectory: URL
-    private let onSubmit: @MainActor (URL, Int) async throws -> Void
+    private let onSubmit: @MainActor (URL, URL, Int) async throws -> Void
 
     init(
         defaultConnectionCount: Int,
         destinationDirectory: URL,
-        onSubmit: @escaping @MainActor (URL, Int) async throws -> Void
+        onSubmit: @escaping @MainActor (URL, URL, Int) async throws -> Void
     ) {
         _connectionCount = State(initialValue: defaultConnectionCount)
-        self.destinationDirectory = destinationDirectory
+        _destinationDirectory = State(initialValue: destinationDirectory)
         self.onSubmit = onSubmit
     }
 
@@ -43,10 +45,15 @@ struct NewDownloadView: View {
                 Stepper("Connections: \(connectionCount)", value: $connectionCount, in: 1 ... 16)
 
                 LabeledContent("Destination") {
-                    Text(destinationDirectory.path(percentEncoded: false))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundStyle(.secondary)
+                    HStack {
+                        Text(destinationDirectory.path(percentEncoded: false))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                        Button("Choose…") {
+                            showsDestinationPicker = true
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -74,7 +81,11 @@ struct NewDownloadView: View {
                         errorMessage = nil
                         defer { isSubmitting = false }
                         do {
-                            try await onSubmit(validatedURL, connectionCount)
+                            try await onSubmit(
+                                validatedURL,
+                                destinationDirectory,
+                                connectionCount
+                            )
                             dismiss()
                         } catch {
                             errorMessage = DownloadService.message(for: error)
@@ -93,6 +104,17 @@ struct NewDownloadView: View {
         .padding(24)
         .frame(width: 560)
         .interactiveDismissDisabled(isSubmitting)
+        .fileImporter(
+            isPresented: $showsDestinationPicker,
+            allowedContentTypes: [.folder]
+        ) { result in
+            do {
+                destinationDirectory = try result.get()
+                errorMessage = nil
+            } catch {
+                errorMessage = DownloadService.message(for: error)
+            }
+        }
     }
 }
 
@@ -100,5 +122,5 @@ struct NewDownloadView: View {
     NewDownloadView(
         defaultConnectionCount: 8,
         destinationDirectory: FileManager.default.temporaryDirectory
-    ) { _, _ in }
+    ) { _, _, _ in }
 }
