@@ -80,9 +80,14 @@ func waitForSnapshot(
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
     while clock.now < deadline {
-        let snapshot = try await manager.snapshot(for: id)
-        if predicate(snapshot) {
-            return snapshot
+        do {
+            let snapshot = try await manager.snapshot(for: id)
+            if predicate(snapshot) {
+                return snapshot
+            }
+        } catch let error as DownloadError where error.code == .notFound {
+            // Engine restoration happens on its serialized worker before the
+            // first polling tick, so a newly created manager can briefly be empty.
         }
         try await Task.sleep(for: .milliseconds(10))
     }

@@ -1,4 +1,5 @@
 #include "SDMEngine.h"
+#include "DownloadStore.h"
 
 #include <curl/curl.h>
 
@@ -161,6 +162,7 @@ public:
         if (multi == nullptr) {
             throw std::runtime_error("curl_multi_init failed");
         }
+        store = std::make_unique<DownloadStore>(config.database_path);
         worker = std::jthread([this](std::stop_token stop_token) {
             run(stop_token);
         });
@@ -195,6 +197,8 @@ public:
         bool accepts_ranges = false;
         std::uint32_t server_connection_limit = 1;
         std::vector<Segment> segments;
+        std::string etag;
+        std::string last_modified;
         std::uint64_t write_offset = 0;
         Clock::time_point transfer_started = Clock::now();
         Clock::time_point last_published = Clock::now();
@@ -204,6 +208,7 @@ public:
         Impl *owner = nullptr;
         Task *task = nullptr;
         CURL *easy = nullptr;
+        curl_slist *request_headers = nullptr;
         TransferKind kind = TransferKind::probe;
         std::string error_buffer = std::string(CURL_ERROR_SIZE, '\0');
         std::string status_line;
@@ -434,6 +439,7 @@ private:
     }
 
     void run(std::stop_token stop_token) noexcept {
+        restore_tasks();
         while (!stop_token.stop_requested()) {
             process_commands();
             schedule_queued_tasks();
@@ -466,6 +472,9 @@ private:
         stop_all_transfers();
         for (auto &[id, task] : tasks) {
             (void)id;
+            update_snapshot_segments(*task);
+            task->snapshot.downloaded_bytes = downloaded_bytes(*task);
+            persist_task(*task);
             close_file(*task);
         }
         std::lock_guard lock(mutex);
@@ -487,6 +496,63 @@ private:
                 commands.pop_front();
             }
             process_command(std::move(command));
+        }
+    }
+
+    void restore_tasks() noexcept {
+        try {
+            for (auto &stored : store->load_all()) {
+                auto task = std::make_unique<Task>();
+                task->request = std::move(stored.request);
+                task->snapshot = std::move(stored.snapshot);
+                task->temporary_path = std::move(stored.temporary_path);
+                task->destination_path = task->snapshot.destination_url;
+                task->accepts_ranges = stored.accepts_ranges;
+                task->server_connection_limit = stored.server_connection_limit;
+                task->segments = task->snapshot.segments;
+                task->etag = std::move(stored.etag);
+                task->last_modified = std::move(stored.last_modified);
+                if (task->segments.empty()) {
+                    task->write_offset = task->snapshot.downloaded_bytes;
+                }
+
+                switch (task->snapshot.state) {
+                case DownloadState::probing:
+                case DownloadState::downloading:
+                case DownloadState::pausing:
+                case DownloadState::retrying:
+                case DownloadState::finalizing:
+                    task->snapshot.state = DownloadState::paused;
+                    break;
+                default:
+                    break;
+                }
+
+                std::error_code error;
+                if (task->snapshot.state == DownloadState::completed &&
+                    (task->destination_path.empty() ||
+                     !std::filesystem::exists(task->destination_path, error))) {
+                    task->snapshot.state = DownloadState::failed;
+                    task->snapshot.error_code = Result::io_error;
+                    task->snapshot.error_message = "Finalized file no longer exists";
+                } else if (task->snapshot.downloaded_bytes > 0 &&
+                           (task->temporary_path.empty() ||
+                            !std::filesystem::exists(task->temporary_path, error))) {
+                    task->write_offset = 0;
+                    reset_segments(*task);
+                    task->snapshot.downloaded_bytes = 0;
+                }
+
+                auto id = task->request.id;
+                tasks.insert_or_assign(id, std::move(task));
+                publish_snapshot(*tasks.at(id));
+            }
+        } catch (const std::exception &error) {
+            std::lock_guard lock(mutex);
+            emit_locked(Event{
+                .kind = EventKind::engine_stopped,
+                .result = Result::persistence_error,
+            });
         }
     }
 
@@ -518,6 +584,13 @@ private:
                 result = Result::not_found;
             } else {
                 result = apply_command(*iterator->second, command.kind);
+                if (result == Result::ok && command.kind == CommandKind::remove) {
+                    try {
+                        store->remove(command.id);
+                    } catch (...) {
+                        result = Result::persistence_error;
+                    }
+                }
                 if (result == Result::ok && command.kind == CommandKind::remove) {
                     {
                         std::lock_guard lock(mutex);
@@ -717,6 +790,21 @@ private:
                     const auto range = std::to_string(segment.next) + "-" +
                         std::to_string(segment.end);
                     curl_easy_setopt(transfer->easy, CURLOPT_RANGE, range.c_str());
+                    const auto &validator = !task.etag.empty()
+                        ? task.etag
+                        : task.last_modified;
+                    if (!validator.empty()) {
+                        const auto header = "If-Range: " + validator;
+                        transfer->request_headers = curl_slist_append(
+                            transfer->request_headers,
+                            header.c_str()
+                        );
+                        curl_easy_setopt(
+                            transfer->easy,
+                            CURLOPT_HTTPHEADER,
+                            transfer->request_headers
+                        );
+                    }
                 }
                 add_transfer(task, std::move(transfer));
             }
@@ -727,7 +815,7 @@ private:
     void add_transfer(Task &task, std::unique_ptr<Transfer> transfer) {
         auto *easy = transfer->easy;
         if (curl_multi_add_handle(multi, easy) != CURLM_OK) {
-            curl_easy_cleanup(easy);
+            cleanup_easy(*transfer);
             fail_task(task, Result::network_error, "Unable to add curl transfer");
             return;
         }
@@ -768,7 +856,7 @@ private:
             if (transfer->task != nullptr) {
                 transfer->task->active_handles.erase(message->easy_handle);
             }
-            curl_easy_cleanup(message->easy_handle);
+            cleanup_easy(*transfer);
             transfer->easy = nullptr;
             finish_transfer(*transfer, message->data.result);
         }
@@ -842,6 +930,14 @@ private:
             iterator != transfer.headers.end()) {
             task.accepts_ranges = lowercase(iterator->second).find("bytes") !=
                 std::string::npos;
+        }
+        if (const auto iterator = transfer.headers.find("etag");
+            iterator != transfer.headers.end()) {
+            task.etag = iterator->second;
+        }
+        if (const auto iterator = transfer.headers.find("last-modified");
+            iterator != transfer.headers.end()) {
+            task.last_modified = iterator->second;
         }
         if (task.request.filename.empty()) {
             if (const auto iterator = transfer.headers.find("content-disposition");
@@ -1023,7 +1119,7 @@ private:
             const auto iterator = transfers.find(handle);
             if (iterator != transfers.end()) {
                 curl_multi_remove_handle(multi, iterator->first);
-                curl_easy_cleanup(iterator->first);
+                cleanup_easy(*iterator->second);
                 transfers.erase(iterator);
             }
         }
@@ -1036,7 +1132,7 @@ private:
                 transfer->task->active_handles.clear();
             }
             curl_multi_remove_handle(multi, easy);
-            curl_easy_cleanup(easy);
+            cleanup_easy(*transfer);
         }
         transfers.clear();
     }
@@ -1074,6 +1170,17 @@ private:
         }
     }
 
+    static void cleanup_easy(Transfer &transfer) noexcept {
+        if (transfer.easy != nullptr) {
+            curl_easy_cleanup(transfer.easy);
+            transfer.easy = nullptr;
+        }
+        if (transfer.request_headers != nullptr) {
+            curl_slist_free_all(transfer.request_headers);
+            transfer.request_headers = nullptr;
+        }
+    }
+
     static void remove_temporary_file(Task &task) noexcept {
         if (!task.temporary_path.empty()) {
             std::error_code error;
@@ -1082,7 +1189,9 @@ private:
     }
 
     void publish_snapshot(Task &task) {
+        update_snapshot_segments(task);
         task.snapshot.updated_milliseconds = current_milliseconds();
+        persist_task(task);
         std::lock_guard lock(mutex);
         snapshots_by_id.insert_or_assign(task.snapshot.id, task.snapshot);
         emit_locked(Event{
@@ -1090,6 +1199,24 @@ private:
             .kind = EventKind::snapshot_changed,
             .result = task.snapshot.error_code,
         });
+    }
+
+    void persist_task(Task &task) noexcept {
+        try {
+            store->save(PersistedDownload{
+                .request = task.request,
+                .snapshot = task.snapshot,
+                .temporary_path = task.temporary_path.string(),
+                .accepts_ranges = task.accepts_ranges,
+                .server_connection_limit = task.server_connection_limit,
+                .etag = task.etag,
+                .last_modified = task.last_modified,
+            });
+        } catch (...) {
+            task.snapshot.state = DownloadState::failed;
+            task.snapshot.error_code = Result::persistence_error;
+            task.snapshot.error_message = "Unable to persist download state";
+        }
     }
 
     void emit_locked(Event event) {
@@ -1108,6 +1235,7 @@ private:
 
     EngineConfig config;
     CURLM *multi = nullptr;
+    std::unique_ptr<DownloadStore> store;
     mutable std::mutex mutex;
     std::condition_variable condition;
     std::deque<Command> commands;
