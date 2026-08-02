@@ -1,8 +1,9 @@
 # SDM HTTP Range Fixture
 
 This local-only server provides deterministic HTTP behavior for SDM download
-engine development. It uses a thread per connection, supports single HTTP byte
-ranges, and serves a 1 KiB zero-filled file.
+engine development. It implements HTTP/1.1 persistent connections, byte-range
+requests, `If-Range`, single-part `206` responses, multipart
+`multipart/byteranges` responses, and `416` responses.
 
 ## Run
 
@@ -12,32 +13,69 @@ From the repository root:
 python3 Fixture/range_server.py
 ```
 
-Endpoints:
+The server automatically loads [`config.json`](config.json) at startup. The
+following fields can be changed there:
 
-- `http://127.0.0.1:8080/1kb-zero.bin` — 1,024 zero bytes
-- `http://127.0.0.1:8080/health` — readiness check
+| Field | Meaning |
+| --- | --- |
+| `host` | Listening interface |
+| `port` | Listening TCP port |
+| `max_connections` | Concurrent file transfers and ranges per request |
+| `file_size` | Virtual `/empty.bin` size in bytes |
+| `bytes_per_second` | `/empty.bin` transfer rate per connection |
+| `chunk_size` | `/empty.bin` streaming write size |
 
-The file body is limited to **20 B/s per connection** by default. A complete
-single-connection transfer therefore takes about 51.2 seconds. Eight parallel
-128-byte range requests each take about 6.4 seconds, making connection-level
-parallelism visible without requiring a large fixture.
-
-Inspect the metadata or request one segment:
+CLI arguments can override the main multi-connection fields for one run:
 
 ```bash
-curl --head http://127.0.0.1:8080/1kb-zero.bin
-curl --range 0-127 --output part-0.bin \
-  http://127.0.0.1:8080/1kb-zero.bin
+python3 Fixture/range_server.py \
+  --max-connections <count> \
+  --file-size <bytes> \
+  --bytes-per-second <bytes-per-second>
 ```
 
-The server supports closed, open-ended, and suffix byte ranges. Invalid or
-unsatisfiable ranges return `416` with `Content-Range: bytes */1024`. Stable
-`ETag` and `Last-Modified` values make pause/resume and `If-Range` behavior
-repeatable.
+Endpoints:
 
-Use `--bytes-per-second 0` to disable throttling or `--port 0` to let the OS
-choose an available port. This fixture binds to loopback by default and is not
-intended for deployment.
+- `http://127.0.0.1:8080/empty.bin` — the configurable virtual zero-filled file
+  used for single- and multi-connection tests.
+- `http://127.0.0.1:8080/health` — readiness check.
+
+The response body is generated while streaming. `file_size` controls the
+reported representation size and Range bounds without creating or allocating a
+matching file on disk.
+
+## Connection and Range limits
+
+`max_connections` limits both:
+
+- the number of file response bodies that the server transfers concurrently;
+- the number of comma-separated ranges accepted in one `Range` request.
+
+Requests beyond the concurrent connection limit wait for a slot. A request
+containing too many ranges receives `400`; an unsatisfiable range receives
+`416` with `Content-Range: bytes */<size>`. Multiple satisfiable ranges receive
+a standards-compatible `multipart/byteranges` body.
+
+The response header `X-SDM-Max-Connections` exposes the configured limit for
+fixture diagnostics. It is not a standard HTTP negotiation header. HTTP only
+lets a server advertise range support using `Accept-Ranges: bytes`; the client
+still decides how many connections to open. Therefore the configured maximum
+is a ceiling, not a guarantee that NDM or SDM will create that many connections.
+
+For NDM multi-connection testing, use `/empty.bin`.
+
+## Inspect
+
+```bash
+curl --head http://127.0.0.1:8080/empty.bin
+curl --range 0-127 --output part-0.bin \
+  http://127.0.0.1:8080/empty.bin
+curl --header 'Range: bytes=0-9,100-109' \
+  http://127.0.0.1:8080/empty.bin
+```
+
+Request logs include the `Range` value and current/maximum active transfers,
+which makes client connection behavior visible.
 
 ## Test
 
@@ -45,5 +83,6 @@ intended for deployment.
 python3 -m unittest discover -s Fixture/tests -v
 ```
 
-The test suite verifies metadata, full and partial responses, `416` handling,
-eight-part reconstruction, per-connection throttling, and concurrent serving.
+The test suite verifies configuration, virtual-file streaming, single and
+multipart ranges, persistent connections, multi-part reconstruction,
+throttling, and enforcement of the concurrent transfer limit.

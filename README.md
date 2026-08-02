@@ -36,10 +36,9 @@ Run the threaded Range server used by download-engine integration tests:
 python3 Fixture/range_server.py
 ```
 
-It serves a 1 KiB zero-filled file at
-`http://127.0.0.1:8080/1kb-zero.bin` and limits each connection to 20 B/s.
-See [`Fixture/README.md`](Fixture/README.md) for supported Range behavior and
-test commands.
+It serves a configurable virtual file at
+`http://127.0.0.1:8080/empty.bin`. See [`Fixture/README.md`](Fixture/README.md)
+for configuration, Range behavior, and test commands.
 
 ## Naming
 
