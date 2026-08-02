@@ -130,7 +130,8 @@ final class EngineBridge: @unchecked Sendable {
                 sdm_engine_copy_snapshot(handle, idView, &rawSnapshot)
             }
             try Self.check(result, operation: "copy snapshot")
-            return try Self.makeSnapshot(&rawSnapshot)
+            let segments = try Self.copySegments(handle: handle, id: id.description)
+            return try Self.makeSnapshot(&rawSnapshot, segments: segments)
         }
     }
 
@@ -163,7 +164,9 @@ final class EngineBridge: @unchecked Sendable {
             try Self.check(copyResult, operation: "copy snapshots")
             return try rawSnapshots.prefix(copiedCount).map { raw in
                 var mutableRaw = raw
-                return try Self.makeSnapshot(&mutableRaw)
+                let id = Self.string(from: &mutableRaw.id)
+                let segments = try Self.copySegments(handle: handle, id: id)
+                return try Self.makeSnapshot(&mutableRaw, segments: segments)
             }
         }
     }
@@ -196,7 +199,8 @@ final class EngineBridge: @unchecked Sendable {
     }
 
     private static func makeSnapshot(
-        _ raw: inout sdm_download_snapshot_t
+        _ raw: inout sdm_download_snapshot_t,
+        segments: [DownloadSegmentSnapshot]
     ) throws -> DownloadSnapshot {
         let idText = string(from: &raw.id)
         let sourceText = string(from: &raw.source_url)
@@ -237,12 +241,47 @@ final class EngineBridge: @unchecked Sendable {
             estimatedTimeRemaining: raw.estimated_seconds_remaining == 0
                 ? nil
                 : .seconds(Int64(raw.estimated_seconds_remaining)),
-            segments: [],
+            segments: segments,
             error: error,
             updatedAt: Date(
                 timeIntervalSince1970: Double(raw.updated_milliseconds) / 1_000
             )
         )
+    }
+
+    private static func copySegments(
+        handle: OpaquePointer,
+        id: String
+    ) throws -> [DownloadSegmentSnapshot] {
+        var requiredCount = 0
+        let countResult = withStringView(id) { idView in
+            sdm_engine_copy_segments(handle, idView, nil, 0, &requiredCount)
+        }
+        try check(countResult, operation: "count segments")
+        guard requiredCount > 0 else { return [] }
+
+        var rawSegments = Array(repeating: sdm_segment_snapshot_t(), count: requiredCount)
+        var copiedCount = 0
+        let copyResult = withStringView(id) { idView in
+            rawSegments.withUnsafeMutableBufferPointer { buffer in
+                sdm_engine_copy_segments(
+                    handle,
+                    idView,
+                    buffer.baseAddress,
+                    buffer.count,
+                    &copiedCount
+                )
+            }
+        }
+        try check(copyResult, operation: "copy segments")
+        return rawSegments.prefix(copiedCount).map {
+            DownloadSegmentSnapshot(
+                ordinal: Int($0.ordinal),
+                start: $0.start,
+                end: $0.end,
+                next: $0.next
+            )
+        }
     }
 
     private static func withStringView<Result>(

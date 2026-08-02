@@ -50,6 +50,7 @@ struct DownloadSnapshot final {
     std::uint64_t bytes_per_second = 0;
     std::uint64_t estimated_seconds_remaining = 0;
     std::uint32_t segment_count = 0;
+    std::vector<Segment> segments;
     Result error_code = Result::ok;
     std::string error_message;
     std::uint64_t updated_milliseconds = 0;

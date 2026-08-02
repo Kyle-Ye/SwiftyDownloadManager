@@ -73,6 +73,15 @@ void copy_snapshot(
     copy_c_string(destination.error_message, source.error_message);
 }
 
+void copy_segment(const sdm::Segment &source, sdm_segment_snapshot_t &destination) {
+    destination = {};
+    destination.struct_size = sizeof(sdm_segment_snapshot_t);
+    destination.ordinal = source.ordinal;
+    destination.start = source.start;
+    destination.end = source.end;
+    destination.next = source.next;
+}
+
 } // namespace
 
 uint32_t sdm_engine_abi_version(void) {
@@ -250,6 +259,41 @@ sdm_result_t sdm_engine_copy_snapshots(
         return capacity < values.size()
             ? SDM_RESULT_INVALID_ARGUMENT
             : SDM_RESULT_OK;
+    } catch (...) {
+        return SDM_RESULT_INTERNAL_ERROR;
+    }
+}
+
+sdm_result_t sdm_engine_copy_segments(
+    sdm_engine_t *engine,
+    sdm_string_view_t download_id,
+    sdm_segment_snapshot_t *segments,
+    size_t capacity,
+    size_t *out_count
+) {
+    if (engine == nullptr || !engine->value || out_count == nullptr ||
+        (capacity > 0 && segments == nullptr)) {
+        return SDM_RESULT_INVALID_ARGUMENT;
+    }
+
+    try {
+        const auto snapshot = engine->value->snapshot(copy_string(download_id));
+        if (!snapshot) {
+            return SDM_RESULT_NOT_FOUND;
+        }
+        *out_count = snapshot->segments.size();
+        if (capacity == 0) {
+            return SDM_RESULT_OK;
+        }
+        const auto count = std::min(snapshot->segments.size(), capacity);
+        for (std::size_t index = 0; index < count; ++index) {
+            copy_segment(snapshot->segments[index], segments[index]);
+        }
+        return capacity < snapshot->segments.size()
+            ? SDM_RESULT_INVALID_ARGUMENT
+            : SDM_RESULT_OK;
+    } catch (const std::invalid_argument &) {
+        return SDM_RESULT_INVALID_ARGUMENT;
     } catch (...) {
         return SDM_RESULT_INTERNAL_ERROR;
     }

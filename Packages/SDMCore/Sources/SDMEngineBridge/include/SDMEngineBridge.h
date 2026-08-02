@@ -98,6 +98,14 @@ typedef struct {
     char error_message[SDM_ERROR_MESSAGE_CAPACITY];
 } sdm_download_snapshot_t;
 
+typedef struct {
+    uint32_t struct_size;
+    uint32_t ordinal;
+    uint64_t start;
+    uint64_t end;
+    uint64_t next;
+} sdm_segment_snapshot_t;
+
 uint32_t sdm_engine_abi_version(void);
 const char *sdm_engine_version(void);
 
@@ -134,6 +142,13 @@ sdm_result_t sdm_engine_copy_snapshot(
 sdm_result_t sdm_engine_copy_snapshots(
     sdm_engine_t *engine,
     sdm_download_snapshot_t *snapshots,
+    size_t capacity,
+    size_t *out_count
+);
+sdm_result_t sdm_engine_copy_segments(
+    sdm_engine_t *engine,
+    sdm_string_view_t download_id,
+    sdm_segment_snapshot_t *segments,
     size_t capacity,
     size_t *out_count
 );

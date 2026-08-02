@@ -27,7 +27,7 @@ final class SingleConnectionDownloadTests: XCTestCase {
         XCTAssertEqual(completed.state, .completed, completed.error?.message ?? "")
         XCTAssertEqual(completed.contentLength, 64 * 1024)
         XCTAssertEqual(completed.downloadedBytes, 64 * 1024)
-        XCTAssertEqual(completed.segments.count, 0)
+        XCTAssertEqual(completed.segments.count, 1)
         let destinationURL = try XCTUnwrap(completed.destinationURL)
         XCTAssertEqual(try Data(contentsOf: destinationURL), fixturePattern(offset: 0, length: 64 * 1024))
 

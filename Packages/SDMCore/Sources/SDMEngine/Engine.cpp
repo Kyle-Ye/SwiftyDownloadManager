@@ -10,6 +10,7 @@
 #include <deque>
 #include <fcntl.h>
 #include <filesystem>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -95,6 +96,33 @@ std::optional<std::uint64_t> parse_unsigned(std::string_view text) {
     return result;
 }
 
+struct ContentRange final {
+    std::uint64_t start = 0;
+    std::uint64_t end = 0;
+    std::uint64_t total = 0;
+};
+
+std::optional<ContentRange> parse_content_range(std::string value) {
+    value = trim(std::move(value));
+    if (value.rfind("bytes ", 0) != 0) {
+        return std::nullopt;
+    }
+    const auto dash = value.find('-', 6);
+    const auto slash = value.find('/', dash == std::string::npos ? 6 : dash + 1);
+    if (dash == std::string::npos || slash == std::string::npos) {
+        return std::nullopt;
+    }
+    const auto start = parse_unsigned(std::string_view(value).substr(6, dash - 6));
+    const auto end = parse_unsigned(
+        std::string_view(value).substr(dash + 1, slash - dash - 1)
+    );
+    const auto total = parse_unsigned(std::string_view(value).substr(slash + 1));
+    if (!start || !end || !total || *end < *start || *end >= *total) {
+        return std::nullopt;
+    }
+    return ContentRange{.start = *start, .end = *end, .total = *total};
+}
+
 std::string content_disposition_filename(std::string_view value) {
     auto lower = lowercase(std::string(value));
     const auto marker = lower.find("filename=");
@@ -163,9 +191,10 @@ public:
         std::filesystem::path temporary_path;
         std::filesystem::path destination_path;
         int file_descriptor = -1;
-        CURL *active_handle = nullptr;
+        std::unordered_set<CURL *> active_handles;
         bool accepts_ranges = false;
         std::uint32_t server_connection_limit = 1;
+        std::vector<Segment> segments;
         std::uint64_t write_offset = 0;
         Clock::time_point transfer_started = Clock::now();
         Clock::time_point last_published = Clock::now();
@@ -179,13 +208,17 @@ public:
         std::string error_buffer = std::string(CURL_ERROR_SIZE, '\0');
         std::string status_line;
         std::unordered_map<std::string, std::string> headers;
+        std::uint32_t segment_ordinal = std::numeric_limits<std::uint32_t>::max();
         std::uint64_t start_offset = 0;
+        std::uint64_t end_offset = 0;
         std::uint64_t expected_bytes = 0;
         std::uint64_t received_bytes = 0;
         std::optional<std::uint64_t> content_length;
         std::string effective_url;
         long response_status = 0;
         bool expects_partial_response = false;
+        bool response_validated = false;
+        bool protocol_failed = false;
         bool write_failed = false;
     };
 
@@ -345,9 +378,21 @@ private:
             return 0;
         }
 
-        if (transfer.expects_partial_response && transfer.response_status != 206) {
-            transfer.write_failed = true;
-            return 0;
+        if (transfer.expects_partial_response && !transfer.response_validated) {
+            const auto iterator = transfer.headers.find("content-range");
+            const auto content_range = iterator == transfer.headers.end()
+                ? std::nullopt
+                : parse_content_range(iterator->second);
+            if (transfer.response_status != 206 || !content_range ||
+                content_range->start != transfer.start_offset ||
+                content_range->end != transfer.end_offset ||
+                transfer.task == nullptr ||
+                !transfer.task->snapshot.content_length_known ||
+                content_range->total != transfer.task->snapshot.content_length) {
+                transfer.protocol_failed = true;
+                return 0;
+            }
+            transfer.response_validated = true;
         }
         if (!transfer.expects_partial_response &&
             (transfer.response_status < 200 || transfer.response_status >= 300)) {
@@ -372,7 +417,12 @@ private:
             written += static_cast<std::size_t>(result);
         }
         transfer.received_bytes += byte_count;
-        transfer.task->write_offset = transfer.start_offset + transfer.received_bytes;
+        if (transfer.segment_ordinal < transfer.task->segments.size()) {
+            transfer.task->segments[transfer.segment_ordinal].next =
+                transfer.start_offset + transfer.received_bytes;
+        } else {
+            transfer.task->write_offset = transfer.start_offset + transfer.received_bytes;
+        }
         return byte_count;
     }
 
@@ -501,7 +551,7 @@ private:
 
         switch (command) {
         case CommandKind::pause:
-            remove_transfer(task);
+            remove_transfers(task);
             task.snapshot.state = DownloadState::paused;
             close_file(task);
             break;
@@ -509,15 +559,16 @@ private:
             task.snapshot.state = DownloadState::queued;
             break;
         case CommandKind::cancel:
-            remove_transfer(task);
+            remove_transfers(task);
             close_file(task);
             remove_temporary_file(task);
             task.snapshot.state = DownloadState::cancelled;
             task.snapshot.downloaded_bytes = 0;
             task.write_offset = 0;
+            reset_segments(task);
             break;
         case CommandKind::retry:
-            remove_transfer(task);
+            remove_transfers(task);
             close_file(task);
             remove_temporary_file(task);
             task.snapshot.state = DownloadState::queued;
@@ -525,9 +576,10 @@ private:
             task.snapshot.error_code = Result::ok;
             task.snapshot.error_message.clear();
             task.write_offset = 0;
+            reset_segments(task);
             break;
         case CommandKind::remove:
-            remove_transfer(task);
+            remove_transfers(task);
             close_file(task);
             remove_temporary_file(task);
             return Result::ok;
@@ -542,7 +594,7 @@ private:
         std::size_t active_tasks = 0;
         for (const auto &[id, task] : tasks) {
             (void)id;
-            if (task->active_handle != nullptr) {
+            if (!task->active_handles.empty()) {
                 ++active_tasks;
             }
         }
@@ -553,15 +605,16 @@ private:
                 break;
             }
             if (task->snapshot.state != DownloadState::queued ||
-                task->active_handle != nullptr) {
+                !task->active_handles.empty()) {
                 continue;
             }
-            if (task->snapshot.content_length_known || task->write_offset > 0) {
+            if (task->snapshot.content_length_known || task->write_offset > 0 ||
+                !task->segments.empty()) {
                 start_body(*task);
             } else {
                 start_probe(*task);
             }
-            if (task->active_handle != nullptr) {
+            if (!task->active_handles.empty()) {
                 ++active_tasks;
             }
         }
@@ -619,36 +672,55 @@ private:
         if (!prepare_file(task)) {
             return;
         }
-        auto transfer = make_transfer(task, TransferKind::body);
-        if (!transfer) {
-            return;
-        }
-        transfer->start_offset = task.write_offset;
-        if (task.snapshot.content_length_known) {
-            transfer->expected_bytes = task.snapshot.content_length - task.write_offset;
-        }
-
-        if (task.write_offset > 0 && task.accepts_ranges &&
-            task.snapshot.content_length_known) {
-            transfer->expects_partial_response = true;
-            const auto range = std::to_string(task.write_offset) + "-" +
-                std::to_string(task.snapshot.content_length - 1);
-            curl_easy_setopt(transfer->easy, CURLOPT_RANGE, range.c_str());
-        } else if (task.write_offset > 0) {
-            if (::ftruncate(task.file_descriptor, 0) != 0) {
-                fail_task(task, Result::io_error, "Unable to restart partial file");
-                return;
-            }
-            task.write_offset = 0;
-            task.snapshot.downloaded_bytes = 0;
-            transfer->start_offset = 0;
+        if (task.segments.empty() && task.snapshot.content_length_known &&
+            task.snapshot.content_length > 0) {
+            const auto connection_limit = task.accepts_ranges
+                ? std::min(task.request.connection_limit, task.server_connection_limit)
+                : 1U;
+            task.segments = plan_segments(
+                task.snapshot.content_length,
+                connection_limit,
+                config.maximum_connections_per_download
+            );
         }
 
         task.transfer_started = Clock::now();
         task.last_published = task.transfer_started;
         task.snapshot.state = DownloadState::downloading;
-        task.snapshot.segment_count = 1;
-        add_transfer(task, std::move(transfer));
+        task.snapshot.segment_count = static_cast<std::uint32_t>(task.segments.size());
+        task.snapshot.segments = task.segments;
+
+        if (task.segments.empty()) {
+            auto transfer = make_transfer(task, TransferKind::body);
+            if (!transfer) {
+                return;
+            }
+            transfer->start_offset = task.write_offset;
+            add_transfer(task, std::move(transfer));
+        } else {
+            const bool must_use_ranges = task.segments.size() > 1 ||
+                task.segments.front().next > task.segments.front().start;
+            for (auto &segment : task.segments) {
+                if (segment.next > segment.end) {
+                    continue;
+                }
+                auto transfer = make_transfer(task, TransferKind::body);
+                if (!transfer) {
+                    return;
+                }
+                transfer->segment_ordinal = segment.ordinal;
+                transfer->start_offset = segment.next;
+                transfer->end_offset = segment.end;
+                transfer->expected_bytes = segment.end - segment.next + 1;
+                if (must_use_ranges) {
+                    transfer->expects_partial_response = true;
+                    const auto range = std::to_string(segment.next) + "-" +
+                        std::to_string(segment.end);
+                    curl_easy_setopt(transfer->easy, CURLOPT_RANGE, range.c_str());
+                }
+                add_transfer(task, std::move(transfer));
+            }
+        }
         publish_snapshot(task);
     }
 
@@ -659,7 +731,7 @@ private:
             fail_task(task, Result::network_error, "Unable to add curl transfer");
             return;
         }
-        task.active_handle = easy;
+        task.active_handles.insert(easy);
         transfers.insert_or_assign(easy, std::move(transfer));
     }
 
@@ -694,7 +766,7 @@ private:
                 transfer->effective_url = effective_url;
             }
             if (transfer->task != nullptr) {
-                transfer->task->active_handle = nullptr;
+                transfer->task->active_handles.erase(message->easy_handle);
             }
             curl_easy_cleanup(message->easy_handle);
             transfer->easy = nullptr;
@@ -704,6 +776,10 @@ private:
 
     void finish_transfer(Transfer &transfer, CURLcode curl_result) {
         auto &task = *transfer.task;
+        if (transfer.protocol_failed) {
+            fail_task(task, Result::protocol_error, "Range response metadata did not match request");
+            return;
+        }
         if (curl_result != CURLE_OK || transfer.write_failed) {
             const auto message = transfer.error_buffer.c_str()[0] != '\0'
                 ? std::string(transfer.error_buffer.c_str())
@@ -729,10 +805,15 @@ private:
             return;
         }
 
-        task.snapshot.downloaded_bytes = task.write_offset;
         if (transfer.expected_bytes > 0 &&
             transfer.received_bytes != transfer.expected_bytes) {
             fail_task(task, Result::protocol_error, "Response length did not match metadata");
+            return;
+        }
+        update_snapshot_segments(task);
+        task.snapshot.downloaded_bytes = downloaded_bytes(task);
+        if (!task.active_handles.empty()) {
+            publish_snapshot(task);
             return;
         }
         if (task.snapshot.content_length_known &&
@@ -820,7 +901,7 @@ private:
                 return false;
             }
         }
-        if (task.snapshot.content_length_known && task.write_offset == 0 &&
+        if (task.snapshot.content_length_known && downloaded_bytes(task) == 0 &&
             ::ftruncate(
                 task.file_descriptor,
                 static_cast<off_t>(task.snapshot.content_length)
@@ -892,7 +973,8 @@ private:
                 now - task->last_published < std::chrono::milliseconds(50)) {
                 continue;
             }
-            task->snapshot.downloaded_bytes = task->write_offset;
+            update_snapshot_segments(*task);
+            task->snapshot.downloaded_bytes = downloaded_bytes(*task);
             const auto elapsed = std::chrono::duration<double>(
                 now - task->transfer_started
             ).count();
@@ -913,7 +995,7 @@ private:
     }
 
     void fail_task(Task &task, Result result, std::string message) {
-        remove_transfer(task);
+        remove_transfers(task);
         close_file(task);
         task.snapshot.state = DownloadState::failed;
         task.snapshot.error_code = result;
@@ -924,11 +1006,10 @@ private:
     }
 
     void fail_active_transfers(Result result, const std::string &message) {
-        std::vector<Task *> affected;
-        affected.reserve(transfers.size());
+        std::unordered_set<Task *> affected;
         for (const auto &[easy, transfer] : transfers) {
             (void)easy;
-            affected.push_back(transfer->task);
+            affected.insert(transfer->task);
         }
         stop_all_transfers();
         for (auto *task : affected) {
@@ -936,28 +1017,54 @@ private:
         }
     }
 
-    void remove_transfer(Task &task) {
-        if (task.active_handle == nullptr) {
-            return;
+    void remove_transfers(Task &task) {
+        const auto handles = task.active_handles;
+        for (auto *handle : handles) {
+            const auto iterator = transfers.find(handle);
+            if (iterator != transfers.end()) {
+                curl_multi_remove_handle(multi, iterator->first);
+                curl_easy_cleanup(iterator->first);
+                transfers.erase(iterator);
+            }
         }
-        const auto iterator = transfers.find(task.active_handle);
-        if (iterator != transfers.end()) {
-            curl_multi_remove_handle(multi, iterator->first);
-            curl_easy_cleanup(iterator->first);
-            transfers.erase(iterator);
-        }
-        task.active_handle = nullptr;
+        task.active_handles.clear();
     }
 
     void stop_all_transfers() {
         for (auto &[easy, transfer] : transfers) {
             if (transfer->task != nullptr) {
-                transfer->task->active_handle = nullptr;
+                transfer->task->active_handles.clear();
             }
             curl_multi_remove_handle(multi, easy);
             curl_easy_cleanup(easy);
         }
         transfers.clear();
+    }
+
+    static void reset_segments(Task &task) {
+        for (auto &segment : task.segments) {
+            segment.next = segment.start;
+        }
+        update_snapshot_segments(task);
+    }
+
+    static std::uint64_t downloaded_bytes(const Task &task) noexcept {
+        if (task.segments.empty()) {
+            return task.write_offset;
+        }
+        std::uint64_t result = 0;
+        for (const auto &segment : task.segments) {
+            const auto next = std::min(segment.next, segment.end + 1);
+            if (next > segment.start) {
+                result += next - segment.start;
+            }
+        }
+        return result;
+    }
+
+    static void update_snapshot_segments(Task &task) {
+        task.snapshot.segment_count = static_cast<std::uint32_t>(task.segments.size());
+        task.snapshot.segments = task.segments;
     }
 
     static void close_file(Task &task) noexcept {
