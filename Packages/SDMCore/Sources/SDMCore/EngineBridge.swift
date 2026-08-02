@@ -65,8 +65,8 @@ final class EngineBridge: @unchecked Sendable {
             var commandID: UInt64 = 0
             let filename = request.filename ?? ""
 
-            let result = try Self.withStringView(request.id.description) { idView in
-                try Self.withStringView(request.url.absoluteString) { urlView in
+            let result = Self.withStringView(request.id.description) { idView in
+                Self.withStringView(request.url.absoluteString) { urlView in
                     Self.withStringView(
                         request.destinationDirectory.path(percentEncoded: false)
                     ) { destinationView in

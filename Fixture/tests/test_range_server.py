@@ -19,6 +19,7 @@ from Fixture.range_server import (
     FixtureConfig,
     FixtureHTTPServer,
     create_server,
+    pattern_bytes,
 )
 
 
@@ -72,17 +73,17 @@ class RangeServerTests(unittest.TestCase):
         self.assertEqual(response.headers["Content-Disposition"], 'attachment; filename="empty.bin"')
         self.assertEqual(response.read(), b"")
 
-    def test_full_get_returns_configured_zero_filled_file(self) -> None:
+    def test_full_get_returns_configured_pattern_file(self) -> None:
         with fetch(self.file_url) as response:
             self.assertEqual(response.status, 200)
-            self.assertEqual(response.read(), bytes(self.config.file_size))
+            self.assertEqual(response.read(), pattern_bytes(0, self.config.file_size))
 
     def test_range_get_returns_partial_content(self) -> None:
         with fetch(self.file_url, range_header="bytes=100-199") as response:
             self.assertEqual(response.status, 206)
             self.assertEqual(response.headers["Content-Range"], "bytes 100-199/8192")
             self.assertEqual(response.headers["Content-Length"], "100")
-            self.assertEqual(response.read(), bytes(100))
+            self.assertEqual(response.read(), pattern_bytes(100, 100))
 
     def test_suffix_and_open_ended_ranges_are_supported(self) -> None:
         with fetch(self.file_url, range_header="bytes=-16") as response:
@@ -143,7 +144,7 @@ class RangeServerTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=8) as executor:
             parts = list(executor.map(fetch_part, ranges))
 
-        self.assertEqual(b"".join(parts), bytes(8192))
+        self.assertEqual(b"".join(parts), pattern_bytes(0, 8192))
 
     def test_http_11_connection_can_be_reused(self) -> None:
         connection = HTTPConnection(
@@ -154,13 +155,13 @@ class RangeServerTests(unittest.TestCase):
         try:
             connection.request("GET", EMPTY_FILE_PATH, headers={"Range": "bytes=0-9"})
             first_response = connection.getresponse()
-            self.assertEqual(first_response.read(), bytes(10))
+            self.assertEqual(first_response.read(), pattern_bytes(0, 10))
             first_socket = connection.sock
             self.assertIsNotNone(first_socket)
 
             connection.request("GET", EMPTY_FILE_PATH, headers={"Range": "bytes=10-19"})
             second_response = connection.getresponse()
-            self.assertEqual(second_response.read(), bytes(10))
+            self.assertEqual(second_response.read(), pattern_bytes(10, 10))
             self.assertIs(connection.sock, first_socket)
         finally:
             connection.close()
@@ -186,7 +187,10 @@ class RangeServerTests(unittest.TestCase):
                 bodies = list(executor.map(fetch_body, ranges))
             elapsed = time.monotonic() - started_at
 
-        self.assertEqual(bodies, [bytes(40)] * 4)
+        self.assertEqual(
+            bodies,
+            [pattern_bytes(start, 40) for start in range(0, 160, 40)],
+        )
         self.assertEqual(server.peak_active_transfers, 2)
         self.assertGreaterEqual(elapsed, 1.7)
         self.assertLess(elapsed, 4.0)

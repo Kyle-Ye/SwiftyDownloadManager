@@ -84,7 +84,7 @@ class FixtureConfig:
 
 
 @dataclass(frozen=True)
-class ZeroResource:
+class VirtualResource:
     path: str
     name: str
     size: int
@@ -93,7 +93,19 @@ class ZeroResource:
 
     @property
     def etag(self) -> str:
-        return f'"sdm-fixture-zero-{self.size}-v2"'
+        return f'"sdm-fixture-pattern-{self.size}-v1"'
+
+
+@dataclass(frozen=True)
+class ResourceSlice:
+    offset: int
+    length: int
+
+
+def pattern_bytes(offset: int, length: int) -> bytes:
+    """Return deterministic non-zero content for a representation slice."""
+
+    return bytes((((offset + index) * 31 + 17) % 251) + 1 for index in range(length))
 
 
 def _parse_range_spec(value: str, size: int) -> tuple[int, int] | None:
@@ -191,9 +203,9 @@ class FixtureHTTPServer(ThreadingHTTPServer):
                 self.active_transfers -= 1
             self._transfer_slots.release()
 
-    def resource_for_path(self, path: str) -> ZeroResource | None:
+    def resource_for_path(self, path: str) -> VirtualResource | None:
         if path == EMPTY_FILE_PATH:
-            return ZeroResource(
+            return VirtualResource(
                 path=path,
                 name=EMPTY_FILE_NAME,
                 size=self.config.file_size,
@@ -237,7 +249,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         if resource is None:
             self._send_empty_response(404)
             return
-        self._serve_zero_file(resource, include_body=include_body)
+        self._serve_virtual_file(resource, include_body=include_body)
 
     def _serve_health(self, *, include_body: bool) -> None:
         body = b"ok\n"
@@ -248,9 +260,9 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         if include_body:
             self.wfile.write(body)
 
-    def _serve_zero_file(
+    def _serve_virtual_file(
         self,
-        resource: ZeroResource,
+        resource: VirtualResource,
         *,
         include_body: bool,
     ) -> None:
@@ -282,25 +294,27 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
 
         if include_body:
             with self.fixture_server.transfer_slot():
-                self._send_zero_response(resource, ranges, include_body=True)
+                self._send_virtual_response(resource, ranges, include_body=True)
         else:
-            self._send_zero_response(resource, ranges, include_body=False)
+            self._send_virtual_response(resource, ranges, include_body=False)
 
-    def _send_zero_response(
+    def _send_virtual_response(
         self,
-        resource: ZeroResource,
+        resource: VirtualResource,
         ranges: Sequence[tuple[int, int]],
         *,
         include_body: bool,
     ) -> None:
         if not ranges:
-            body_parts: list[bytes | int] = [resource.size]
+            body_parts: list[bytes | ResourceSlice] = [
+                ResourceSlice(offset=0, length=resource.size)
+            ]
             status = 200
             content_type = "application/octet-stream"
             content_range = None
         elif len(ranges) == 1:
             start, end = ranges[0]
-            body_parts = [end - start + 1]
+            body_parts = [ResourceSlice(offset=start, length=end - start + 1)]
             status = 206
             content_type = "application/octet-stream"
             content_range = f"bytes {start}-{end}/{resource.size}"
@@ -311,7 +325,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             content_range = None
 
         content_length = sum(
-            len(part) if isinstance(part, bytes) else part for part in body_parts
+            len(part) if isinstance(part, bytes) else part.length for part in body_parts
         )
         self.send_response(status)
         self._send_file_headers(
@@ -332,10 +346,10 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
 
     def _multipart_body_parts(
         self,
-        resource: ZeroResource,
+        resource: VirtualResource,
         ranges: Sequence[tuple[int, int]],
-    ) -> list[bytes | int]:
-        body_parts: list[bytes | int] = []
+    ) -> list[bytes | ResourceSlice]:
+        body_parts: list[bytes | ResourceSlice] = []
         for start, end in ranges:
             body_parts.extend(
                 [
@@ -345,7 +359,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                         f"Content-Range: bytes {start}-{end}/{resource.size}\r\n"
                         "\r\n"
                     ).encode("ascii"),
-                    end - start + 1,
+                    ResourceSlice(offset=start, length=end - start + 1),
                     b"\r\n",
                 ]
             )
@@ -354,7 +368,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
 
     def _send_range_error(
         self,
-        resource: ZeroResource,
+        resource: VirtualResource,
         *,
         status: int,
         reason: str,
@@ -372,7 +386,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
 
     def _send_file_headers(
         self,
-        resource: ZeroResource,
+        resource: VirtualResource,
         *,
         content_length: int,
         content_type: str,
@@ -396,7 +410,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
 
     def _write_throttled(
         self,
-        body_parts: Sequence[bytes | int],
+        body_parts: Sequence[bytes | ResourceSlice],
         *,
         bytes_per_second: int,
         chunk_size: int,
@@ -411,7 +425,11 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                         for offset in range(0, len(part), chunk_size)
                     )
                 else:
-                    chunks = self._zero_chunks(part, chunk_size=chunk_size)
+                    chunks = self._pattern_chunks(
+                        part.offset,
+                        part.length,
+                        chunk_size=chunk_size,
+                    )
 
                 for chunk in chunks:
                     if bytes_per_second:
@@ -427,11 +445,17 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             return
 
     @staticmethod
-    def _zero_chunks(byte_count: int, *, chunk_size: int) -> Iterator[bytes]:
+    def _pattern_chunks(
+        offset: int,
+        byte_count: int,
+        *,
+        chunk_size: int,
+    ) -> Iterator[bytes]:
         remaining = byte_count
         while remaining:
             length = min(remaining, chunk_size)
-            yield bytes(length)
+            yield pattern_bytes(offset, length)
+            offset += length
             remaining -= length
 
     def log_message(self, format: str, *args: object) -> None:

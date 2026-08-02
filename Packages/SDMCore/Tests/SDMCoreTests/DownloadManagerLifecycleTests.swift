@@ -4,6 +4,8 @@ import XCTest
 
 final class DownloadManagerLifecycleTests: XCTestCase {
     func testManagerProcessesLifecycleCommandsAndUpdates() async throws {
+        let fixture = try FixtureServer(fileSize: 32 * 1024, bytesPerSecond: 1024)
+        defer { fixture.stop() }
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -14,9 +16,9 @@ final class DownloadManagerLifecycleTests: XCTestCase {
             temporaryDirectory: root.appending(path: "partial", directoryHint: .isDirectory)
         ))
         let request = DownloadRequest(
-            url: try XCTUnwrap(URL(string: "http://127.0.0.1/empty.bin")),
+            url: fixture.fileURL,
             destinationDirectory: root,
-            connectionLimit: 8
+            connectionLimit: 1
         )
 
         let updateTask = Task { () -> DownloadUpdate? in
@@ -30,18 +32,19 @@ final class DownloadManagerLifecycleTests: XCTestCase {
 
         let id = try await manager.enqueue(request)
         XCTAssertEqual(id, request.id)
-        let queuedSnapshot = try await manager.snapshot(for: id)
-        XCTAssertEqual(queuedSnapshot.state, .queued)
         let update = await updateTask.value
         XCTAssertNotNil(update)
 
+        _ = try await waitForSnapshot(manager, id: id) {
+            $0.state == .downloading
+        }
         try await manager.pause(id)
         let pausedSnapshot = try await manager.snapshot(for: id)
         XCTAssertEqual(pausedSnapshot.state, .paused)
 
         try await manager.resume(id)
         let resumedSnapshot = try await manager.snapshot(for: id)
-        XCTAssertEqual(resumedSnapshot.state, .queued)
+        XCTAssertTrue([.queued, .downloading].contains(resumedSnapshot.state))
 
         try await manager.cancel(id)
         let cancelledSnapshot = try await manager.snapshot(for: id)
@@ -49,7 +52,7 @@ final class DownloadManagerLifecycleTests: XCTestCase {
 
         try await manager.retry(id)
         let retriedSnapshot = try await manager.snapshot(for: id)
-        XCTAssertEqual(retriedSnapshot.state, .queued)
+        XCTAssertTrue([.queued, .downloading].contains(retriedSnapshot.state))
 
         try await manager.pause(id)
         try await manager.remove(id)
