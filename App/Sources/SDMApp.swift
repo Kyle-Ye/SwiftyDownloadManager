@@ -10,6 +10,9 @@ struct SDMApp: App {
             ContentView(service: downloadService)
         }
         .defaultSize(width: 1_080, height: 680)
+        .commands {
+            DownloadCommands()
+        }
 
         WindowGroup("Download Info", for: DownloadID.self) { $downloadID in
             if let downloadID {

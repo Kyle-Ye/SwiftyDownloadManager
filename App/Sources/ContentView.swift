@@ -25,6 +25,14 @@ struct ContentView: View {
         return service.snapshots.first { $0.id == selectedDownloadID }
     }
 
+    private var availableNewURLAction: (() -> Void)? {
+        if service.initializationError == nil {
+            presentNewDownload
+        } else {
+            nil
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
             List(DownloadFilter.allCases, selection: $selection) { filter in
@@ -65,6 +73,7 @@ struct ContentView: View {
         .onChange(of: selection) { _, _ in
             selectedDownloadID = nil
         }
+        .focusedSceneValue(\.newURLAction, availableNewURLAction)
     }
 
     @ViewBuilder
@@ -82,9 +91,7 @@ struct ContentView: View {
             } description: {
                 Text(emptyDescription)
             } actions: {
-                Button("New Download") {
-                    showsNewDownload = true
-                }
+                Button("New Download", action: presentNewDownload)
                 .keyboardShortcut("n", modifiers: .command)
             }
         } else {
@@ -175,9 +182,7 @@ struct ContentView: View {
         }
 
         ToolbarItem(placement: .primaryAction) {
-            Button("New Download", systemImage: "plus") {
-                showsNewDownload = true
-            }
+            Button("New Download", systemImage: "plus", action: presentNewDownload)
             .keyboardShortcut("n", modifiers: .command)
             .disabled(service.initializationError != nil)
         }
@@ -216,6 +221,10 @@ struct ContentView: View {
 
     private func openInfo(_ id: DownloadID) {
         openWindow(value: id)
+    }
+
+    private func presentNewDownload() {
+        showsNewDownload = true
     }
 }
 
