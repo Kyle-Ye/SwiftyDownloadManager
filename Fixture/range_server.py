@@ -25,6 +25,9 @@ DEFAULT_CHUNK_SIZE = 16 * 1024
 
 EMPTY_FILE_PATH = "/empty.bin"
 FLAKY_FILE_PATH = "/flaky-once.bin"
+HEAD_FALLBACK_FILE_PATH = "/head-fallback.bin"
+NO_RANGE_FILE_PATH = "/no-range.bin"
+REDIRECT_FILE_PATH = "/redirect.bin"
 EMPTY_FILE_NAME = "empty.bin"
 EMPTY_FILE_LAST_MODIFIED = "Wed, 01 Jan 2025 00:00:00 GMT"
 MULTIPART_BOUNDARY = "sdm-fixture-boundary"
@@ -207,7 +210,12 @@ class FixtureHTTPServer(ThreadingHTTPServer):
             self._transfer_slots.release()
 
     def resource_for_path(self, path: str) -> VirtualResource | None:
-        if path in (EMPTY_FILE_PATH, FLAKY_FILE_PATH):
+        if path in (
+            EMPTY_FILE_PATH,
+            FLAKY_FILE_PATH,
+            HEAD_FALLBACK_FILE_PATH,
+            NO_RANGE_FILE_PATH,
+        ):
             return VirtualResource(
                 path=path,
                 name=EMPTY_FILE_NAME,
@@ -254,6 +262,15 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         if path == "/health":
             self._serve_health(include_body=include_body)
             return
+        if path == REDIRECT_FILE_PATH:
+            self.send_response(302)
+            self.send_header("Location", EMPTY_FILE_PATH)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if not include_body and path == HEAD_FALLBACK_FILE_PATH:
+            self._send_empty_response(405)
+            return
         if include_body and path == FLAKY_FILE_PATH and \
                 self.fixture_server.consume_first_failure(path):
             self._send_retryable_response()
@@ -281,6 +298,8 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         include_body: bool,
     ) -> None:
         range_header = self.headers.get("Range")
+        if resource.path == NO_RANGE_FILE_PATH:
+            range_header = None
         if_range = self.headers.get("If-Range")
         if range_header and if_range not in (
             None,
@@ -405,7 +424,8 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         content_length: int,
         content_type: str,
     ) -> None:
-        self.send_header("Accept-Ranges", "bytes")
+        if resource.path != NO_RANGE_FILE_PATH:
+            self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(content_length))
         self.send_header("Content-Disposition", f'attachment; filename="{resource.name}"')

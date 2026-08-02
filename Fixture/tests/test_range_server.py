@@ -16,6 +16,9 @@ from Fixture.range_server import (
     DEFAULT_MAX_CONNECTIONS,
     EMPTY_FILE_PATH,
     FLAKY_FILE_PATH,
+    HEAD_FALLBACK_FILE_PATH,
+    NO_RANGE_FILE_PATH,
+    REDIRECT_FILE_PATH,
     MULTIPART_BOUNDARY,
     FixtureConfig,
     FixtureHTTPServer,
@@ -137,6 +140,29 @@ class RangeServerTests(unittest.TestCase):
         self.assertEqual(context.exception.headers["Retry-After"], "0")
 
         with fetch(url) as response:
+            self.assertEqual(response.read(), pattern_bytes(0, self.config.file_size))
+
+    def test_head_fallback_endpoint_rejects_head_but_accepts_range_get(self) -> None:
+        url = self.base_url + HEAD_FALLBACK_FILE_PATH
+        with self.assertRaises(HTTPError) as context:
+            urlopen(Request(url, method="HEAD"), timeout=10)
+        self.assertEqual(context.exception.code, 405)
+
+        with fetch(url, range_header="bytes=0-0") as response:
+            self.assertEqual(response.status, 206)
+            self.assertEqual(response.headers["Content-Range"], "bytes 0-0/8192")
+            self.assertEqual(response.read(), pattern_bytes(0, 1))
+
+    def test_no_range_endpoint_ignores_range_requests(self) -> None:
+        url = self.base_url + NO_RANGE_FILE_PATH
+        with fetch(url, range_header="bytes=10-19") as response:
+            self.assertEqual(response.status, 200)
+            self.assertIsNone(response.headers["Accept-Ranges"])
+            self.assertEqual(response.read(), pattern_bytes(0, self.config.file_size))
+
+    def test_redirect_endpoint_resolves_to_empty_file(self) -> None:
+        with fetch(self.base_url + REDIRECT_FILE_PATH) as response:
+            self.assertEqual(response.url, self.file_url)
             self.assertEqual(response.read(), pattern_bytes(0, self.config.file_size))
 
     def test_eight_ranges_reconstruct_the_configured_fixture(self) -> None:

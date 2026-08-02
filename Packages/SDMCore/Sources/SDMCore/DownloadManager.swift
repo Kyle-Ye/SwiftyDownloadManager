@@ -1,6 +1,11 @@
 import Foundation
 import SDMEngineBridge
 
+/// Actor-isolated owner of the native SDM download engine.
+///
+/// Keep the manager alive while downloads are active and call ``shutdown()``
+/// during application termination. All file and transport work stays on the
+/// C++ engine thread; snapshots returned here are immutable Swift values.
 public actor DownloadManager {
     private let configuration: DownloadManagerConfiguration
     private let bridge: EngineBridge
@@ -22,6 +27,7 @@ public actor DownloadManager {
         bridge = try EngineBridge(configuration: configuration)
     }
 
+    /// Validates and accepts a direct HTTP or HTTPS download.
     public func enqueue(_ request: DownloadRequest) async throws -> DownloadID {
         try validate(request)
         startPollingIfNeeded()
@@ -50,14 +56,17 @@ public actor DownloadManager {
         try await submit(SDM_COMMAND_REMOVE, id: id)
     }
 
+    /// Returns the engine's latest value snapshot for one download.
     public func snapshot(for id: DownloadID) throws -> DownloadSnapshot {
         try bridge.snapshot(for: id)
     }
 
+    /// Returns the latest snapshots ordered by their update timestamp.
     public func allSnapshots() throws -> [DownloadSnapshot] {
         try bridge.allSnapshots()
     }
 
+    /// Produces coalesced newest-value updates suitable for a UI subscriber.
     public func updates() -> AsyncStream<DownloadUpdate> {
         startPollingIfNeeded()
         let token = UUID()
@@ -75,6 +84,7 @@ public actor DownloadManager {
         }
     }
 
+    /// Stops polling, joins the engine thread, and finishes update streams.
     public func shutdown() async {
         guard !isShutDown else { return }
         isShutDown = true

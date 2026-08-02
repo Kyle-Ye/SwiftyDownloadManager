@@ -184,6 +184,7 @@ public:
 
     enum class TransferKind {
         probe,
+        probe_range,
         body,
     };
 
@@ -378,7 +379,7 @@ private:
     ) noexcept {
         const auto byte_count = size * count;
         auto &transfer = *static_cast<Transfer *>(context);
-        if (transfer.kind == TransferKind::probe) {
+        if (transfer.kind != TransferKind::body) {
             return byte_count;
         }
         if (transfer.task == nullptr || transfer.task->file_descriptor < 0) {
@@ -551,7 +552,7 @@ private:
                 task_order.push_back(id);
                 publish_snapshot(*tasks.at(id));
             }
-        } catch (const std::exception &error) {
+        } catch (const std::exception &) {
             std::lock_guard lock(mutex);
             emit_locked(Event{
                 .kind = EventKind::engine_stopped,
@@ -758,6 +759,15 @@ private:
         publish_snapshot(task);
     }
 
+    void start_probe_range(Task &task) {
+        auto transfer = make_transfer(task, TransferKind::probe_range);
+        if (!transfer) {
+            return;
+        }
+        curl_easy_setopt(transfer->easy, CURLOPT_RANGE, "0-0");
+        add_transfer(task, std::move(transfer));
+    }
+
     void start_body(Task &task) {
         if (!prepare_file(task)) {
             return;
@@ -899,9 +909,10 @@ private:
             if (transfer->task != nullptr) {
                 transfer->task->active_handles.erase(message->easy_handle);
             }
+            const auto curl_result = message->data.result;
             cleanup_easy(*transfer);
             transfer->easy = nullptr;
-            finish_transfer(*transfer, message->data.result);
+            finish_transfer(*transfer, curl_result);
         }
     }
 
@@ -922,6 +933,11 @@ private:
             }
             return;
         }
+        if (transfer.kind == TransferKind::probe &&
+            (transfer.response_status == 405 || transfer.response_status == 501)) {
+            start_probe_range(task);
+            return;
+        }
         if (transfer.response_status < 200 || transfer.response_status >= 300) {
             const auto message = "HTTP status " + std::to_string(transfer.response_status);
             if (transfer.response_status == 408 || transfer.response_status == 429 ||
@@ -933,7 +949,8 @@ private:
             return;
         }
 
-        if (transfer.kind == TransferKind::probe) {
+        if (transfer.kind == TransferKind::probe ||
+            transfer.kind == TransferKind::probe_range) {
             finish_probe(task, transfer);
             return;
         }
@@ -961,7 +978,20 @@ private:
         task.snapshot.final_url = transfer.effective_url.empty()
             ? task.request.url
             : transfer.effective_url;
-        if (transfer.content_length) {
+        if (transfer.kind == TransferKind::probe_range) {
+            const auto iterator = transfer.headers.find("content-range");
+            const auto range = iterator == transfer.headers.end()
+                ? std::nullopt
+                : parse_content_range(iterator->second);
+            if (transfer.response_status != 206 || !range || range->start != 0 ||
+                range->end != 0) {
+                fail_task(task, Result::protocol_error, "Range probe returned invalid metadata");
+                return;
+            }
+            task.snapshot.content_length_known = true;
+            task.snapshot.content_length = range->total;
+            task.accepts_ranges = true;
+        } else if (transfer.content_length) {
             task.snapshot.content_length_known = true;
             task.snapshot.content_length = *transfer.content_length;
         } else if (const auto iterator = transfer.headers.find("content-length");

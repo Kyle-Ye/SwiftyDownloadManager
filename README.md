@@ -5,10 +5,12 @@ manager. The application UI is built with Swift and SwiftUI. Its download
 engine is implemented in C++ and distributed to the app through a local
 SwiftPM package and a Tuist-generated Xcode project.
 
-The repository is under active development. The M0 repository and build
-bootstrap is complete; M1 will define the engine lifecycle contracts and
-consume the local HTTP range fixture. Project planning is maintained outside
-the application repository in the surrounding workspace.
+The core download stack now supports HTTP probing, single and segmented Range
+transfers, pause/resume/cancel/retry, bounded scheduling and bandwidth,
+SQLite-backed recovery, and atomic file finalization. The SwiftUI application
+remains intentionally small while its presentation model is built on top of
+the stable `SDMCore` actor API. Project planning is maintained outside the
+application repository in the surrounding workspace.
 
 ## Build
 
@@ -22,11 +24,14 @@ xcodebuild build \
   -destination 'platform=macOS,arch=arm64'
 ```
 
-The core package can be verified independently:
+Run the complete local validation suite:
 
 ```bash
-swift test --package-path Packages/SDMCore
+bash Scripts/test.sh
 ```
+
+Swift integration tests start isolated Fixture processes on ephemeral loopback
+ports and clean them up automatically.
 
 ## Local HTTP fixture
 
@@ -39,6 +44,12 @@ python3 Fixture/range_server.py
 It serves a configurable virtual file at
 `http://127.0.0.1:8080/empty.bin`. See [`Fixture/README.md`](Fixture/README.md)
 for configuration, Range behavior, and test commands.
+
+## SDMCore
+
+Applications import only `SDMCore`; C++, libcurl, SQLite, worker threads, and
+file descriptors remain behind its C ABI. See [`Docs/SDMCore.md`](Docs/SDMCore.md)
+for lifecycle and integration guidance.
 
 ## Naming
 

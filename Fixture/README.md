@@ -41,6 +41,11 @@ Endpoints:
 - `http://127.0.0.1:8080/health` — readiness check.
 - `http://127.0.0.1:8080/flaky-once.bin` — returns one retryable response,
   then serves the same virtual content for retry tests.
+- `http://127.0.0.1:8080/head-fallback.bin` — rejects `HEAD` and supports a
+  one-byte Range probe.
+- `http://127.0.0.1:8080/no-range.bin` — ignores Range and forces safe
+  single-connection behavior.
+- `http://127.0.0.1:8080/redirect.bin` — redirects to `/empty.bin`.
 
 The response body is generated from each byte's absolute offset while streaming.
 `file_size` controls the reported representation size and Range bounds without

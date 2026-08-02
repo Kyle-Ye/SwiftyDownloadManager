@@ -1,5 +1,6 @@
 import Foundation
 
+/// Stable UUID-backed identity persisted by the engine.
 public struct DownloadID: Hashable, Codable, Sendable, CustomStringConvertible {
     public let rawValue: UUID
 
@@ -32,6 +33,7 @@ public enum DownloadConflictPolicy: UInt32, Sendable, Codable, CaseIterable {
     case fail = 2
 }
 
+/// Immutable input used to enqueue one direct download.
 public struct DownloadRequest: Sendable, Equatable {
     public let id: DownloadID
     public let url: URL
@@ -60,6 +62,7 @@ public struct DownloadRequest: Sendable, Equatable {
     }
 }
 
+/// Filesystem locations and process-wide concurrency limits for one engine.
 public struct DownloadManagerConfiguration: Sendable, Equatable {
     public let databaseURL: URL
     public let temporaryDirectory: URL
@@ -99,6 +102,7 @@ public struct DownloadSegmentSnapshot: Sendable, Codable, Equatable, Identifiabl
     }
 }
 
+/// Immutable engine truth for presentation or diagnostics.
 public struct DownloadSnapshot: Sendable, Codable, Equatable, Identifiable {
     public let id: DownloadID
     public let sourceURL: URL
