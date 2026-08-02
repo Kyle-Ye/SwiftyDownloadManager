@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 import threading
 import time
@@ -28,7 +29,13 @@ FLAKY_FILE_PATH = "/flaky-once.bin"
 HEAD_FALLBACK_FILE_PATH = "/head-fallback.bin"
 NO_RANGE_FILE_PATH = "/no-range.bin"
 REDIRECT_FILE_PATH = "/redirect.bin"
+SINGLE_CONNECTION_FILE_PATH = "/single-connection.bin"
+HALFWAY_FAILURE_FILE_PATH = "/fails-halfway.bin"
+VERY_SLOW_FILE_PATH = "/very-slow.bin"
 EMPTY_FILE_NAME = "empty.bin"
+VERY_SLOW_FILE_SIZE = 1024 * 1024
+VERY_SLOW_BYTES_PER_SECOND = 1024
+VERY_SLOW_CHUNK_SIZE = 1024
 EMPTY_FILE_LAST_MODIFIED = "Wed, 01 Jan 2025 00:00:00 GMT"
 MULTIPART_BOUNDARY = "sdm-fixture-boundary"
 
@@ -94,6 +101,8 @@ class VirtualResource:
     size: int
     bytes_per_second: int
     chunk_size: int
+    supports_ranges: bool = True
+    fail_after_bytes: int | None = None
 
     @property
     def etag(self) -> str:
@@ -222,6 +231,35 @@ class FixtureHTTPServer(ThreadingHTTPServer):
                 size=self.config.file_size,
                 bytes_per_second=self.config.bytes_per_second,
                 chunk_size=self.config.chunk_size,
+                supports_ranges=path != NO_RANGE_FILE_PATH,
+            )
+        if path == SINGLE_CONNECTION_FILE_PATH:
+            return VirtualResource(
+                path=path,
+                name="single-connection.bin",
+                size=self.config.file_size,
+                bytes_per_second=self.config.bytes_per_second,
+                chunk_size=self.config.chunk_size,
+                supports_ranges=False,
+            )
+        if path == HALFWAY_FAILURE_FILE_PATH:
+            return VirtualResource(
+                path=path,
+                name="fails-halfway.bin",
+                size=self.config.file_size,
+                bytes_per_second=self.config.bytes_per_second,
+                chunk_size=self.config.chunk_size,
+                supports_ranges=False,
+                fail_after_bytes=max(self.config.file_size // 2, 1),
+            )
+        if path == VERY_SLOW_FILE_PATH:
+            return VirtualResource(
+                path=path,
+                name="very-slow.bin",
+                size=VERY_SLOW_FILE_SIZE,
+                bytes_per_second=VERY_SLOW_BYTES_PER_SECOND,
+                chunk_size=VERY_SLOW_CHUNK_SIZE,
+                supports_ranges=False,
             )
         return None
 
@@ -234,7 +272,7 @@ class FixtureHTTPServer(ThreadingHTTPServer):
 
 
 class FixtureRequestHandler(BaseHTTPRequestHandler):
-    """Serve deterministic zero-filled files with HTTP Range semantics."""
+    """Serve deterministic virtual files with configurable failure behavior."""
 
     protocol_version = "HTTP/1.1"
     server_version = "SDMFixture/2.0"
@@ -298,7 +336,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         include_body: bool,
     ) -> None:
         range_header = self.headers.get("Range")
-        if resource.path == NO_RANGE_FILE_PATH:
+        if not resource.supports_ranges:
             range_header = None
         if_range = self.headers.get("If-Range")
         if range_header and if_range not in (
@@ -375,6 +413,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                 body_parts,
                 bytes_per_second=resource.bytes_per_second,
                 chunk_size=resource.chunk_size,
+                fail_after_bytes=resource.fail_after_bytes,
             )
 
     def _multipart_body_parts(
@@ -424,7 +463,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         content_length: int,
         content_type: str,
     ) -> None:
-        if resource.path != NO_RANGE_FILE_PATH:
+        if resource.supports_ranges:
             self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(content_length))
@@ -434,8 +473,12 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header(
             "X-SDM-Max-Connections",
-            str(self.fixture_server.config.max_connections),
+            str(
+                self.fixture_server.config.max_connections
+                if resource.supports_ranges else 1
+            ),
         )
+        self.send_header("X-SDM-Bytes-Per-Second", str(resource.bytes_per_second))
 
     def _send_empty_response(self, status: int) -> None:
         self.send_response(status)
@@ -454,6 +497,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         *,
         bytes_per_second: int,
         chunk_size: int,
+        fail_after_bytes: int | None,
     ) -> None:
         started_at = time.monotonic()
         sent = 0
@@ -472,6 +516,12 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                     )
 
                 for chunk in chunks:
+                    if fail_after_bytes is not None:
+                        remaining_before_failure = fail_after_bytes - sent
+                        if remaining_before_failure <= 0:
+                            self._abort_connection()
+                            return
+                        chunk = chunk[:remaining_before_failure]
                     if bytes_per_second:
                         target_time = started_at + (sent + len(chunk)) / bytes_per_second
                         delay = target_time - time.monotonic()
@@ -480,9 +530,22 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
                     self.wfile.flush()
                     sent += len(chunk)
+                    if fail_after_bytes is not None and sent >= fail_after_bytes:
+                        self._abort_connection()
+                        return
         except (BrokenPipeError, ConnectionResetError):
             # Pausing or cancelling a download closes the client socket normally.
             return
+
+    def _abort_connection(self) -> None:
+        """Close the socket without completing the advertised response body."""
+
+        self.close_connection = True
+        try:
+            self.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.connection.close()
 
     @staticmethod
     def _pattern_chunks(
@@ -558,7 +621,11 @@ def main() -> None:
         f"SDM Fixture listening on {base_url}\n"
         f"  file: {base_url}{EMPTY_FILE_PATH} "
         f"({config.file_size} bytes, {config.bytes_per_second} B/s per connection)\n"
-        f"  max concurrent connections: {config.max_connections}",
+        f"  max concurrent connections: {config.max_connections}\n"
+        "  scenarios:\n"
+        f"    single connection: {base_url}{SINGLE_CONNECTION_FILE_PATH}\n"
+        f"    fails halfway: {base_url}{HALFWAY_FAILURE_FILE_PATH}\n"
+        f"    very slow: {base_url}{VERY_SLOW_FILE_PATH}",
         flush=True,
     )
 

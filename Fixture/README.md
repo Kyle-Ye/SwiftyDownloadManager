@@ -45,6 +45,12 @@ Endpoints:
   one-byte Range probe.
 - `http://127.0.0.1:8080/no-range.bin` — ignores Range and forces safe
   single-connection behavior.
+- `http://127.0.0.1:8080/single-connection.bin` — an explicit manual-test
+  resource that advertises no Range support and always uses one connection.
+- `http://127.0.0.1:8080/fails-halfway.bin` — advertises a full response but
+  closes its single connection after exactly half of the body on every try.
+- `http://127.0.0.1:8080/very-slow.bin` — a fixed 1 MiB single-connection
+  resource limited to 1 KiB/s for long-running pause, resume, and UI tests.
 - `http://127.0.0.1:8080/redirect.bin` — redirects to `/empty.bin`.
 
 The response body is generated from each byte's absolute offset while streaming.

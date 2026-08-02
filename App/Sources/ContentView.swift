@@ -2,6 +2,7 @@ import SDMCore
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.openWindow) private var openWindow
     let service: DownloadService
     @AppStorage("defaultConnectionCount") private var defaultConnectionCount = 8
     @State private var selection: DownloadFilter? = .all
@@ -131,12 +132,24 @@ struct ContentView: View {
                 TableColumn("") { snapshot in
                     DownloadActionsMenu(
                         snapshot: snapshot,
-                        isBusy: service.commandInFlightIDs.contains(snapshot.id)
+                        isBusy: service.commandInFlightIDs.contains(snapshot.id),
+                        showInfo: { openInfo(snapshot.id) }
                     ) { command in
                         perform(command, on: snapshot.id)
                     }
                 }
                 .width(34)
+            }
+            .contextMenu(forSelectionType: DownloadID.self) { ids in
+                if let id = ids.first {
+                    Button("Show Info", systemImage: "info.circle") {
+                        openInfo(id)
+                    }
+                }
+            } primaryAction: { ids in
+                if let id = ids.first {
+                    openInfo(id)
+                }
             }
         }
     }
@@ -145,6 +158,11 @@ struct ContentView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
             if let selectedSnapshot {
+                Button("Info", systemImage: "info.circle") {
+                    openInfo(selectedSnapshot.id)
+                }
+                .keyboardShortcut("i", modifiers: .command)
+
                 ForEach(selectedSnapshot.availableCommands) { command in
                     Button(role: command.role) {
                         perform(command, on: selectedSnapshot.id)
@@ -195,6 +213,10 @@ struct ContentView: View {
             }
         }
     }
+
+    private func openInfo(_ id: DownloadID) {
+        openWindow(value: id)
+    }
 }
 
 private struct DownloadNameCell: View {
@@ -202,7 +224,7 @@ private struct DownloadNameCell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(snapshot.filename.isEmpty ? snapshot.sourceURL.lastPathComponent : snapshot.filename)
+            Text(snapshot.displayFilename)
                 .lineLimit(1)
             Text(snapshot.sourceURL.host() ?? snapshot.sourceURL.absoluteString)
                 .font(.caption)
@@ -239,21 +261,28 @@ private struct DownloadProgressCell: View {
 private struct DownloadActionsMenu: View {
     let snapshot: DownloadSnapshot
     let isBusy: Bool
+    let showInfo: () -> Void
     let perform: (DownloadCommand) -> Void
 
     var body: some View {
         Menu("Download Actions", systemImage: isBusy ? "ellipsis.circle.fill" : "ellipsis.circle") {
+            Button("Show Info", systemImage: "info.circle", action: showInfo)
+
+            if !snapshot.availableCommands.isEmpty {
+                Divider()
+            }
+
             ForEach(snapshot.availableCommands) { command in
                 Button(role: command.role) {
                     perform(command)
                 } label: {
                     Label(command.title, systemImage: command.systemImage)
                 }
+                .disabled(isBusy)
             }
         }
         .menuStyle(.borderlessButton)
         .labelStyle(.iconOnly)
-        .disabled(isBusy || snapshot.availableCommands.isEmpty)
         .help("Download Actions")
     }
 }

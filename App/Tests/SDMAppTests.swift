@@ -51,6 +51,46 @@ final class SDMAppTests: XCTestCase {
         XCTAssertEqual(snapshot.progressFraction, 1)
     }
 
+    func testDisplayFilenameUsesFinalDestinationName() throws {
+        let snapshot = DownloadSnapshot(
+            id: DownloadID(),
+            sourceURL: try XCTUnwrap(URL(string: "https://example.com/empty.bin")),
+            destinationURL: URL(fileURLWithPath: "/tmp/empty (2).bin"),
+            filename: "empty.bin",
+            state: .completed
+        )
+
+        XCTAssertEqual(snapshot.displayFilename, "empty (2).bin")
+    }
+
+    func testInfoSectionsRemainStable() {
+        XCTAssertEqual(
+            DownloadInfoSection.allCases,
+            [.overview, .connections, .log]
+        )
+    }
+
+    @MainActor
+    func testPreviewServiceCreatesAnInitialActivityLog() throws {
+        let id = DownloadID()
+        let snapshot = DownloadSnapshot(
+            id: id,
+            sourceURL: try XCTUnwrap(URL(string: "https://example.com/file.bin")),
+            filename: "file.bin",
+            state: .downloading,
+            contentLength: 100,
+            downloadedBytes: 20
+        )
+        let service = DownloadService.preview(snapshots: [snapshot])
+
+        XCTAssertTrue(service.logs(for: id).contains { entry in
+            entry.message.contains("Loaded file.bin")
+        })
+        XCTAssertTrue(service.logs(for: id).contains { entry in
+            entry.message.contains("Progress reached 20%")
+        })
+    }
+
     @MainActor
     func testDownloadServiceInitializesAndShutsDown() async throws {
         let root = FileManager.default.temporaryDirectory.appending(

@@ -10,8 +10,10 @@ transfers, pause/resume/cancel/retry, bounded scheduling and bandwidth,
 SQLite-backed recovery, and atomic file finalization. The SwiftUI application
 uses `DownloadService` to enqueue direct URLs, observe engine snapshots, show
 filterable progress and status, and issue pause, resume, cancel, retry, and
-remove commands. Project planning is maintained outside the application
-repository in the surrounding workspace.
+remove commands. Every task can open a live Info window with transfer metadata,
+per-connection progress, lifecycle controls, and a bounded session activity
+log. Project planning is maintained outside the application repository in the
+surrounding workspace.
 
 ## Build
 

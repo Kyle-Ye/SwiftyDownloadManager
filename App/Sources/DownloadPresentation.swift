@@ -62,6 +62,16 @@ extension DownloadState {
 }
 
 extension DownloadSnapshot {
+    var displayFilename: String {
+        if let destinationURL, !destinationURL.lastPathComponent.isEmpty {
+            return destinationURL.lastPathComponent
+        }
+        if !filename.isEmpty {
+            return filename
+        }
+        return sourceURL.lastPathComponent
+    }
+
     var progressFraction: Double? {
         guard let contentLength, contentLength > 0 else { return nil }
         let boundedBytes = min(downloadedBytes, contentLength)
@@ -70,6 +80,13 @@ extension DownloadSnapshot {
 
     var availableCommands: [DownloadCommand] {
         DownloadCommand.allCases.filter(state.allows)
+    }
+}
+
+extension DownloadSegmentSnapshot {
+    var progressFraction: Double? {
+        guard totalBytes > 0 else { return nil }
+        return Double(min(downloadedBytes, totalBytes)) / Double(totalBytes)
     }
 }
 

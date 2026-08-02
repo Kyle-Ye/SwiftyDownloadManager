@@ -9,6 +9,7 @@ import SDMCore
 final class DownloadService {
     private(set) var snapshots: [DownloadSnapshot]
     private(set) var commandInFlightIDs: Set<DownloadID> = []
+    private(set) var logsByDownloadID: [DownloadID: [DownloadLogEntry]] = [:]
 
     let defaultDestinationDirectory: URL
     let initializationError: String?
@@ -16,6 +17,8 @@ final class DownloadService {
     private let manager: DownloadManager?
     @ObservationIgnored
     nonisolated(unsafe) private var observationTask: Task<Void, Never>?
+    @ObservationIgnored private var previousSnapshots: [DownloadID: DownloadSnapshot] = [:]
+    @ObservationIgnored private var lastLoggedProgressBuckets: [DownloadID: Int] = [:]
 
     init(
         configuration: DownloadManagerConfiguration,
@@ -37,8 +40,9 @@ final class DownloadService {
         self.manager = manager
         defaultDestinationDirectory = destinationDirectory
         self.initializationError = initializationError
-        self.snapshots = snapshots
+        self.snapshots = []
         startObserving()
+        ingest(snapshots)
     }
 
     static func live(fileManager: FileManager = .default) -> DownloadService {
@@ -103,11 +107,28 @@ final class DownloadService {
         connectionCount: Int
     ) async throws -> DownloadID {
         let manager = try requiredManager()
-        return try await manager.enqueue(DownloadRequest(
+        let request = DownloadRequest(
             url: url,
             destinationDirectory: destinationDirectory ?? defaultDestinationDirectory,
             connectionLimit: connectionCount
-        ))
+        )
+        appendLog(
+            to: request.id,
+            level: .info,
+            message: "Add requested with \(connectionCount) connection(s): \(url.absoluteString)"
+        )
+        do {
+            let id = try await manager.enqueue(request)
+            appendLog(to: id, level: .info, message: "Download accepted by the engine.")
+            return id
+        } catch {
+            appendLog(
+                to: request.id,
+                level: .error,
+                message: "Add failed: \(Self.message(for: error))"
+            )
+            throw error
+        }
     }
 
     func perform(_ command: DownloadCommand, on id: DownloadID) async throws {
@@ -115,18 +136,33 @@ final class DownloadService {
         guard commandInFlightIDs.insert(id).inserted else { return }
         defer { commandInFlightIDs.remove(id) }
 
-        switch command {
-        case .pause:
-            try await manager.pause(id)
-        case .resume:
-            try await manager.resume(id)
-        case .cancel:
-            try await manager.cancel(id)
-        case .retry:
-            try await manager.retry(id)
-        case .remove:
-            try await manager.remove(id)
+        appendLog(to: id, level: .info, message: "\(command.title) requested.")
+        do {
+            switch command {
+            case .pause:
+                try await manager.pause(id)
+            case .resume:
+                try await manager.resume(id)
+            case .cancel:
+                try await manager.cancel(id)
+            case .retry:
+                try await manager.retry(id)
+            case .remove:
+                try await manager.remove(id)
+            }
+            appendLog(to: id, level: .info, message: "\(command.title) accepted.")
+        } catch {
+            appendLog(
+                to: id,
+                level: .error,
+                message: "\(command.title) failed: \(Self.message(for: error))"
+            )
+            throw error
         }
+    }
+
+    func logs(for id: DownloadID) -> [DownloadLogEntry] {
+        logsByDownloadID[id] ?? []
     }
 
     func shutdown() async {
@@ -146,9 +182,86 @@ final class DownloadService {
         observationTask = Task { [weak self, manager] in
             for await update in await manager.updates() {
                 guard !Task.isCancelled else { return }
-                self?.snapshots = update.snapshots
+                self?.ingest(update.snapshots)
             }
         }
+    }
+
+    private func ingest(_ nextSnapshots: [DownloadSnapshot]) {
+        let nextByID = Dictionary(uniqueKeysWithValues: nextSnapshots.map { ($0.id, $0) })
+        for snapshot in nextSnapshots {
+            recordChanges(from: previousSnapshots[snapshot.id], to: snapshot)
+        }
+        for removedID in previousSnapshots.keys where nextByID[removedID] == nil {
+            appendLog(to: removedID, level: .info, message: "Removed from download history.")
+            lastLoggedProgressBuckets[removedID] = nil
+        }
+        previousSnapshots = nextByID
+        snapshots = nextSnapshots
+    }
+
+    private func recordChanges(
+        from previous: DownloadSnapshot?,
+        to current: DownloadSnapshot
+    ) {
+        if let previous {
+            if previous.state != current.state {
+                appendLog(
+                    to: current.id,
+                    level: current.state == .failed ? .error : .info,
+                    message: "State changed: \(previous.state.title) → \(current.state.title)."
+                )
+            }
+        } else {
+            appendLog(
+                to: current.id,
+                level: .info,
+                message: "Loaded \(current.displayFilename) in state \(current.state.title)."
+            )
+        }
+
+        if previous?.error != current.error, let error = current.error {
+            appendLog(
+                to: current.id,
+                level: .error,
+                message: "Engine error \(error.code.rawValue): \(error.message)"
+            )
+        }
+
+        if previous?.state != .completed, current.state == .completed,
+           let destinationURL = current.destinationURL {
+            appendLog(
+                to: current.id,
+                level: .info,
+                message: "Finalized at \(destinationURL.path(percentEncoded: false))."
+            )
+        }
+
+        guard let progress = current.progressFraction else { return }
+        let bucket = min(Int(progress * 10), 10)
+        let previousBucket = lastLoggedProgressBuckets[current.id] ?? -1
+        guard bucket > previousBucket else { return }
+        lastLoggedProgressBuckets[current.id] = bucket
+        if bucket > 0 {
+            appendLog(
+                to: current.id,
+                level: .info,
+                message: "Progress reached \(bucket * 10)%."
+            )
+        }
+    }
+
+    private func appendLog(
+        to id: DownloadID,
+        level: DownloadLogLevel,
+        message: String
+    ) {
+        var entries = logsByDownloadID[id, default: []]
+        entries.append(DownloadLogEntry(level: level, message: message))
+        if entries.count > 500 {
+            entries.removeFirst(entries.count - 500)
+        }
+        logsByDownloadID[id] = entries
     }
 
     private func requiredManager() throws -> DownloadManager {

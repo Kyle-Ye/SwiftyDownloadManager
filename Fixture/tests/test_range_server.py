@@ -6,7 +6,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import replace
-from http.client import HTTPConnection, HTTPResponse
+from http.client import HTTPConnection, HTTPResponse, IncompleteRead
 from typing import Iterator
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -16,9 +16,14 @@ from Fixture.range_server import (
     DEFAULT_MAX_CONNECTIONS,
     EMPTY_FILE_PATH,
     FLAKY_FILE_PATH,
+    HALFWAY_FAILURE_FILE_PATH,
     HEAD_FALLBACK_FILE_PATH,
     NO_RANGE_FILE_PATH,
     REDIRECT_FILE_PATH,
+    SINGLE_CONNECTION_FILE_PATH,
+    VERY_SLOW_BYTES_PER_SECOND,
+    VERY_SLOW_FILE_PATH,
+    VERY_SLOW_FILE_SIZE,
     MULTIPART_BOUNDARY,
     FixtureConfig,
     FixtureHTTPServer,
@@ -159,6 +164,42 @@ class RangeServerTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertIsNone(response.headers["Accept-Ranges"])
             self.assertEqual(response.read(), pattern_bytes(0, self.config.file_size))
+
+    def test_single_connection_endpoint_disables_ranges(self) -> None:
+        url = self.base_url + SINGLE_CONNECTION_FILE_PATH
+        head = urlopen(Request(url, method="HEAD"), timeout=10)
+        self.assertIsNone(head.headers["Accept-Ranges"])
+        self.assertEqual(head.headers["X-SDM-Max-Connections"], "1")
+
+        with fetch(url, range_header="bytes=10-19") as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), pattern_bytes(0, self.config.file_size))
+
+    def test_halfway_failure_closes_each_response_mid_body(self) -> None:
+        url = self.base_url + HALFWAY_FAILURE_FILE_PATH
+        expected_length = self.config.file_size // 2
+
+        for _ in range(2):
+            with fetch(url) as response:
+                self.assertEqual(response.headers["Content-Length"], "8192")
+                self.assertEqual(response.headers["X-SDM-Max-Connections"], "1")
+                with self.assertRaises(IncompleteRead) as context:
+                    response.read()
+                self.assertEqual(
+                    context.exception.partial,
+                    pattern_bytes(0, expected_length),
+                )
+
+    def test_very_slow_endpoint_has_a_fixed_single_connection_profile(self) -> None:
+        url = self.base_url + VERY_SLOW_FILE_PATH
+        response = urlopen(Request(url, method="HEAD"), timeout=10)
+        self.assertEqual(response.headers["Content-Length"], str(VERY_SLOW_FILE_SIZE))
+        self.assertEqual(
+            response.headers["X-SDM-Bytes-Per-Second"],
+            str(VERY_SLOW_BYTES_PER_SECOND),
+        )
+        self.assertEqual(response.headers["X-SDM-Max-Connections"], "1")
+        self.assertIsNone(response.headers["Accept-Ranges"])
 
     def test_redirect_endpoint_resolves_to_empty_file(self) -> None:
         with fetch(self.base_url + REDIRECT_FILE_PATH) as response:
