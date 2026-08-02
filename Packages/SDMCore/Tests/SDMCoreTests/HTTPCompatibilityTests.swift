@@ -3,6 +3,37 @@ import XCTest
 @testable import SDMCore
 
 final class HTTPCompatibilityTests: XCTestCase {
+    func testUnknownLengthHTMLCompletesWithMIMEInferredFilename() async throws {
+        let fixture = try FixtureServer()
+        defer { fixture.stop() }
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = try DownloadManager(configuration: .init(
+            databaseURL: root.appending(path: "downloads.sqlite3"),
+            temporaryDirectory: root.appending(path: "partial", directoryHint: .isDirectory)
+        ))
+
+        let snapshot = try await download(
+            manager: manager,
+            url: fixture.baseURL.appending(path: "github-like/pull/923"),
+            destination: root.appending(path: "dynamic-html"),
+            connections: 8
+        )
+
+        XCTAssertNil(snapshot.contentLength)
+        XCTAssertEqual(snapshot.filename, "923.html")
+        XCTAssertTrue(snapshot.segments.isEmpty)
+        XCTAssertGreaterThan(snapshot.downloadedBytes, 0)
+        let destinationURL = try XCTUnwrap(snapshot.destinationURL)
+        XCTAssertEqual(destinationURL.lastPathComponent, "923.html")
+        let contents = try String(contentsOf: destinationURL, encoding: .utf8)
+        XCTAssertTrue(contents.hasPrefix("<!doctype html>\n"))
+        XCTAssertTrue(contents.contains("<title>OpenSwiftUI Pull Request 923</title>"))
+        await manager.shutdown()
+    }
+
     func testHeadFallbackNoRangeDowngradeAndRedirectMetadata() async throws {
         let fileSize = 96 * 1024
         let fixture = try FixtureServer(fileSize: fileSize)

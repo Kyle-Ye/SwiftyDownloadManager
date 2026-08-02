@@ -14,6 +14,8 @@ from urllib.request import Request, urlopen
 from Fixture.range_server import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_MAX_CONNECTIONS,
+    DYNAMIC_HTML_BODY,
+    DYNAMIC_HTML_PATH,
     EMPTY_FILE_PATH,
     FLAKY_FILE_PATH,
     HALFWAY_FAILURE_FILE_PATH,
@@ -200,6 +202,25 @@ class RangeServerTests(unittest.TestCase):
         )
         self.assertEqual(response.headers["X-SDM-Max-Connections"], "1")
         self.assertIsNone(response.headers["Accept-Ranges"])
+
+    def test_dynamic_html_has_unknown_length_and_wildcard_range_total(self) -> None:
+        url = self.base_url + DYNAMIC_HTML_PATH
+        head = urlopen(Request(url, method="HEAD"), timeout=10)
+        self.assertEqual(head.status, 200)
+        self.assertEqual(head.headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertEqual(head.headers["Accept-Ranges"], "bytes")
+        self.assertIsNone(head.headers["Content-Length"])
+        self.assertIsNone(head.headers["Content-Disposition"])
+
+        with fetch(url) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIsNone(response.headers["Content-Length"])
+            self.assertEqual(response.read(), DYNAMIC_HTML_BODY)
+
+        with fetch(url, range_header="bytes=0-0") as response:
+            self.assertEqual(response.status, 206)
+            self.assertEqual(response.headers["Content-Range"], "bytes 0-0/*")
+            self.assertEqual(response.read(), DYNAMIC_HTML_BODY[:1])
 
     def test_redirect_endpoint_resolves_to_empty_file(self) -> None:
         with fetch(self.base_url + REDIRECT_FILE_PATH) as response:

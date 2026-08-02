@@ -51,12 +51,16 @@ Endpoints:
   closes its single connection after exactly half of the body on every try.
 - `http://127.0.0.1:8080/very-slow.bin` — a fixed 1 MiB single-connection
   resource limited to 1 KiB/s for long-running pause, resume, and UI tests.
+- `http://127.0.0.1:8080/github-like/pull/923` — a dynamic HTML page whose
+  successful HEAD response has no length and whose GET body uses chunked
+  transfer encoding, matching the reported GitHub pull-request use case.
 - `http://127.0.0.1:8080/redirect.bin` — redirects to `/empty.bin`.
 
-The response body is generated from each byte's absolute offset while streaming.
-`file_size` controls the reported representation size and Range bounds without
-creating or allocating a matching file on disk. The pattern makes misplaced,
-overlapping, or missing segment writes visible in byte-for-byte tests.
+The binary fixture bodies are generated from each byte's absolute offset while
+streaming. `file_size` controls their reported representation size and Range
+bounds without creating or allocating a matching file on disk. The pattern
+makes misplaced, overlapping, or missing segment writes visible in
+byte-for-byte tests.
 
 ## Connection and Range limits
 

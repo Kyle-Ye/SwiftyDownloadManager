@@ -100,7 +100,7 @@ std::optional<std::uint64_t> parse_unsigned(std::string_view text) {
 struct ContentRange final {
     std::uint64_t start = 0;
     std::uint64_t end = 0;
-    std::uint64_t total = 0;
+    std::optional<std::uint64_t> total;
 };
 
 std::optional<ContentRange> parse_content_range(std::string value) {
@@ -117,11 +117,41 @@ std::optional<ContentRange> parse_content_range(std::string value) {
     const auto end = parse_unsigned(
         std::string_view(value).substr(dash + 1, slash - dash - 1)
     );
-    const auto total = parse_unsigned(std::string_view(value).substr(slash + 1));
-    if (!start || !end || !total || *end < *start || *end >= *total) {
+    const auto total_text = std::string_view(value).substr(slash + 1);
+    std::optional<std::uint64_t> total;
+    if (total_text != "*") {
+        total = parse_unsigned(total_text);
+        if (!total) {
+            return std::nullopt;
+        }
+    }
+    if (!start || !end || *end < *start || (total && *end >= *total)) {
         return std::nullopt;
     }
-    return ContentRange{.start = *start, .end = *end, .total = *total};
+    return ContentRange{.start = *start, .end = *end, .total = total};
+}
+
+std::string extension_for_content_type(std::string value) {
+    const auto separator = value.find(';');
+    if (separator != std::string::npos) {
+        value.erase(separator);
+    }
+    value = lowercase(trim(std::move(value)));
+    if (value == "text/html") {
+        return ".html";
+    }
+    return {};
+}
+
+std::string infer_filename_extension(std::string filename, std::string_view content_type) {
+    if (!std::filesystem::path(filename).extension().empty()) {
+        return filename;
+    }
+    const auto extension = extension_for_content_type(std::string(content_type));
+    if (!extension.empty()) {
+        filename += extension;
+    }
+    return sanitize_filename(std::move(filename));
 }
 
 std::string content_disposition_filename(std::string_view value) {
@@ -395,9 +425,10 @@ private:
             if (transfer.response_status != 206 || !content_range ||
                 content_range->start != transfer.start_offset ||
                 content_range->end != transfer.end_offset ||
+                !content_range->total ||
                 transfer.task == nullptr ||
                 !transfer.task->snapshot.content_length_known ||
-                content_range->total != transfer.task->snapshot.content_length) {
+                *content_range->total != transfer.task->snapshot.content_length) {
                 transfer.protocol_failed = true;
                 return 0;
             }
@@ -769,6 +800,11 @@ private:
     }
 
     void start_body(Task &task) {
+        if (!task.snapshot.content_length_known && task.segments.empty() &&
+            task.write_offset > 0) {
+            task.write_offset = 0;
+            task.snapshot.downloaded_bytes = 0;
+        }
         if (!prepare_file(task)) {
             return;
         }
@@ -988,9 +1024,13 @@ private:
                 fail_task(task, Result::protocol_error, "Range probe returned invalid metadata");
                 return;
             }
-            task.snapshot.content_length_known = true;
-            task.snapshot.content_length = range->total;
-            task.accepts_ranges = true;
+            if (range->total) {
+                task.snapshot.content_length_known = true;
+                task.snapshot.content_length = *range->total;
+                task.accepts_ranges = true;
+            } else {
+                task.accepts_ranges = false;
+            }
         } else if (transfer.content_length) {
             task.snapshot.content_length_known = true;
             task.snapshot.content_length = *transfer.content_length;
@@ -1014,13 +1054,24 @@ private:
             iterator != transfer.headers.end()) {
             task.last_modified = iterator->second;
         }
+        bool response_supplied_filename = false;
         if (task.request.filename.empty()) {
             if (const auto iterator = transfer.headers.find("content-disposition");
                 iterator != transfer.headers.end()) {
                 const auto name = content_disposition_filename(iterator->second);
                 if (!name.empty()) {
                     task.snapshot.filename = name;
+                    response_supplied_filename = true;
                 }
+            }
+        }
+        if (task.request.filename.empty() && !response_supplied_filename) {
+            if (const auto iterator = transfer.headers.find("content-type");
+                iterator != transfer.headers.end()) {
+                task.snapshot.filename = infer_filename_extension(
+                    std::move(task.snapshot.filename),
+                    iterator->second
+                );
             }
         }
         if (const auto iterator = transfer.headers.find("x-sdm-max-connections");
@@ -1032,8 +1083,7 @@ private:
                 ));
             }
         }
-        task.snapshot.state = DownloadState::queued;
-        publish_snapshot(task);
+        start_body(task);
     }
 
     bool prepare_file(Task &task) {
@@ -1072,10 +1122,12 @@ private:
                 return false;
             }
         }
-        if (task.snapshot.content_length_known && downloaded_bytes(task) == 0 &&
+        if (downloaded_bytes(task) == 0 &&
             ::ftruncate(
                 task.file_descriptor,
-                static_cast<off_t>(task.snapshot.content_length)
+                task.snapshot.content_length_known
+                    ? static_cast<off_t>(task.snapshot.content_length)
+                    : 0
             ) != 0) {
             fail_task(task, Result::io_error, "Unable to allocate temporary file");
             return false;

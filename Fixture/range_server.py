@@ -32,12 +32,18 @@ REDIRECT_FILE_PATH = "/redirect.bin"
 SINGLE_CONNECTION_FILE_PATH = "/single-connection.bin"
 HALFWAY_FAILURE_FILE_PATH = "/fails-halfway.bin"
 VERY_SLOW_FILE_PATH = "/very-slow.bin"
+DYNAMIC_HTML_PATH = "/github-like/pull/923"
 EMPTY_FILE_NAME = "empty.bin"
 VERY_SLOW_FILE_SIZE = 1024 * 1024
 VERY_SLOW_BYTES_PER_SECOND = 1024
 VERY_SLOW_CHUNK_SIZE = 1024
 EMPTY_FILE_LAST_MODIFIED = "Wed, 01 Jan 2025 00:00:00 GMT"
 MULTIPART_BOUNDARY = "sdm-fixture-boundary"
+DYNAMIC_HTML_BODY = (
+    b"<!doctype html>\n"
+    b'<html lang="en"><head><title>OpenSwiftUI Pull Request 923</title></head>'
+    b"<body>GitHub-like unknown-length response.</body></html>\n"
+)
 
 
 class RangeNotSatisfiable(ValueError):
@@ -300,6 +306,9 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         if path == "/health":
             self._serve_health(include_body=include_body)
             return
+        if path == DYNAMIC_HTML_PATH:
+            self._serve_dynamic_html(include_body=include_body)
+            return
         if path == REDIRECT_FILE_PATH:
             self.send_response(302)
             self.send_header("Location", EMPTY_FILE_PATH)
@@ -328,6 +337,49 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         if include_body:
             self.wfile.write(body)
+
+    def _serve_dynamic_html(self, *, include_body: bool) -> None:
+        """Mimic a GitHub HTML page whose representation length is unknown."""
+
+        body = DYNAMIC_HTML_BODY
+        status = 200
+        content_range: str | None = None
+        range_header = self.headers.get("Range")
+        if range_header:
+            try:
+                ranges = parse_byte_ranges(range_header, len(body), max_ranges=1)
+            except (RangeLimitExceeded, RangeNotSatisfiable):
+                self._send_empty_response(416)
+                return
+            start, end = ranges[0]
+            body = body[start : end + 1]
+            status = 206
+            content_range = f"bytes {start}-{end}/*"
+
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "no-store")
+        if content_range:
+            self.send_header("Content-Range", content_range)
+        if include_body:
+            self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+
+        if include_body:
+            with self.fixture_server.transfer_slot():
+                self._write_chunked(body)
+
+    def _write_chunked(self, body: bytes) -> None:
+        chunk_size = self.fixture_server.config.chunk_size
+        for offset in range(0, len(body), chunk_size):
+            chunk = body[offset : offset + chunk_size]
+            self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
+            self.wfile.write(chunk)
+            self.wfile.write(b"\r\n")
+            self.wfile.flush()
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
 
     def _serve_virtual_file(
         self,
@@ -625,7 +677,8 @@ def main() -> None:
         "  scenarios:\n"
         f"    single connection: {base_url}{SINGLE_CONNECTION_FILE_PATH}\n"
         f"    fails halfway: {base_url}{HALFWAY_FAILURE_FILE_PATH}\n"
-        f"    very slow: {base_url}{VERY_SLOW_FILE_PATH}",
+        f"    very slow: {base_url}{VERY_SLOW_FILE_PATH}\n"
+        f"    unknown-length HTML: {base_url}{DYNAMIC_HTML_PATH}",
         flush=True,
     )
 
