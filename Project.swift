@@ -45,7 +45,9 @@ let project = Project(
             settings: .settings(base: [
                 "CODE_SIGN_STYLE": "Automatic",
                 "ENABLE_HARDENED_RUNTIME": "YES",
-                "PRODUCT_NAME": "SDMApp",
+                "EXECUTABLE_NAME": "SDMApp",
+                "PRODUCT_MODULE_NAME": "SDMApp",
+                "PRODUCT_NAME": "Swifty Download Manager",
             ]),
             metadata: .metadata(tags: [
                 "tag:feature:downloads",
