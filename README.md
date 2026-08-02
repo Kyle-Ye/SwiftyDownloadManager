@@ -8,9 +8,10 @@ SwiftPM package and a Tuist-generated Xcode project.
 The core download stack now supports HTTP probing, single and segmented Range
 transfers, pause/resume/cancel/retry, bounded scheduling and bandwidth,
 SQLite-backed recovery, and atomic file finalization. The SwiftUI application
-remains intentionally small while its presentation model is built on top of
-the stable `SDMCore` actor API. Project planning is maintained outside the
-application repository in the surrounding workspace.
+uses `DownloadService` to enqueue direct URLs, observe engine snapshots, show
+filterable progress and status, and issue pause, resume, cancel, retry, and
+remove commands. Project planning is maintained outside the application
+repository in the surrounding workspace.
 
 ## Build
 

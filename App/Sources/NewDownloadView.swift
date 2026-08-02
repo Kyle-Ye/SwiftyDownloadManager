@@ -3,7 +3,22 @@ import SwiftUI
 struct NewDownloadView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var urlText = ""
-    @State private var connectionCount = 8
+    @State private var connectionCount: Int
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    let destinationDirectory: URL
+    private let onSubmit: @MainActor (URL, Int) async throws -> Void
+
+    init(
+        defaultConnectionCount: Int,
+        destinationDirectory: URL,
+        onSubmit: @escaping @MainActor (URL, Int) async throws -> Void
+    ) {
+        _connectionCount = State(initialValue: defaultConnectionCount)
+        self.destinationDirectory = destinationDirectory
+        self.onSubmit = onSubmit
+    }
 
     private var validatedURL: URL? {
         guard let url = URL(string: urlText),
@@ -26,8 +41,22 @@ struct NewDownloadView: View {
                     .textFieldStyle(.roundedBorder)
 
                 Stepper("Connections: \(connectionCount)", value: $connectionCount, in: 1 ... 16)
+
+                LabeledContent("Destination") {
+                    Text(destinationDirectory.path(percentEncoded: false))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+                }
             }
             .formStyle(.grouped)
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
 
             HStack {
                 Spacer()
@@ -36,19 +65,40 @@ struct NewDownloadView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
+                .disabled(isSubmitting)
 
                 Button("Add") {
-                    dismiss()
+                    guard let validatedURL else { return }
+                    Task { @MainActor in
+                        isSubmitting = true
+                        errorMessage = nil
+                        defer { isSubmitting = false }
+                        do {
+                            try await onSubmit(validatedURL, connectionCount)
+                            dismiss()
+                        } catch {
+                            errorMessage = DownloadService.message(for: error)
+                        }
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(validatedURL == nil)
+                .disabled(validatedURL == nil || isSubmitting)
+
+                if isSubmitting {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
         }
         .padding(24)
-        .frame(width: 520)
+        .frame(width: 560)
+        .interactiveDismissDisabled(isSubmitting)
     }
 }
 
 #Preview {
-    NewDownloadView()
+    NewDownloadView(
+        defaultConnectionCount: 8,
+        destinationDirectory: FileManager.default.temporaryDirectory
+    ) { _, _ in }
 }

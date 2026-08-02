@@ -1,3 +1,4 @@
+import SDMCore
 import SwiftUI
 
 enum DownloadFilter: String, CaseIterable, Identifiable {
@@ -21,6 +22,21 @@ enum DownloadFilter: String, CaseIterable, Identifiable {
             "checkmark.circle"
         case .failed:
             "exclamationmark.triangle"
+        }
+    }
+
+    func includes(_ state: DownloadState) -> Bool {
+        switch self {
+        case .all:
+            true
+        case .downloading:
+            [.probing, .downloading, .pausing, .retrying, .finalizing].contains(state)
+        case .queued:
+            [.created, .queued, .paused].contains(state)
+        case .completed:
+            state == .completed
+        case .failed:
+            [.failed, .cancelled].contains(state)
         }
     }
 }

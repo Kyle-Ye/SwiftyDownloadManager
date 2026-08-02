@@ -2,43 +2,262 @@ import SDMCore
 import SwiftUI
 
 struct ContentView: View {
+    let service: DownloadService
+    @AppStorage("defaultConnectionCount") private var defaultConnectionCount = 8
     @State private var selection: DownloadFilter? = .all
+    @State private var selectedDownloadID: DownloadID?
     @State private var showsNewDownload = false
+    @State private var presentedError: PresentedDownloadError?
+
+    private var selectedFilter: DownloadFilter {
+        selection ?? .all
+    }
+
+    private var visibleSnapshots: [DownloadSnapshot] {
+        service.snapshots
+            .filter { selectedFilter.includes($0.state) }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var selectedSnapshot: DownloadSnapshot? {
+        guard let selectedDownloadID else { return nil }
+        return service.snapshots.first { $0.id == selectedDownloadID }
+    }
 
     var body: some View {
         NavigationSplitView {
             List(DownloadFilter.allCases, selection: $selection) { filter in
-                Label(filter.rawValue, systemImage: filter.systemImage)
-                    .tag(filter)
+                HStack {
+                    Label(filter.rawValue, systemImage: filter.systemImage)
+                    Spacer()
+                    Text(filterCount(filter), format: .number)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .tag(filter)
             }
             .navigationTitle("Downloads")
             .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 280)
         } detail: {
+            detail
+                .navigationTitle(selectedFilter.rawValue)
+                .toolbar { toolbarContent }
+        }
+        .sheet(isPresented: $showsNewDownload) {
+            NewDownloadView(
+                defaultConnectionCount: defaultConnectionCount,
+                destinationDirectory: service.defaultDestinationDirectory
+            ) { url, connectionCount in
+                _ = try await service.enqueue(
+                    url: url,
+                    connectionCount: connectionCount
+                )
+            }
+        }
+        .alert(item: $presentedError) { error in
+            Alert(
+                title: Text(error.title),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        .onChange(of: selection) { _, _ in
+            selectedDownloadID = nil
+        }
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        if let initializationError = service.initializationError {
             ContentUnavailableView {
-                Label("No Downloads", systemImage: "arrow.down.circle")
+                Label("Download Engine Unavailable", systemImage: "exclamationmark.triangle")
             } description: {
-                Text("Add a direct HTTP or HTTPS URL to start a download.")
+                Text(initializationError)
+                    .textSelection(.enabled)
+            }
+        } else if visibleSnapshots.isEmpty {
+            ContentUnavailableView {
+                Label(emptyTitle, systemImage: selectedFilter.systemImage)
+            } description: {
+                Text(emptyDescription)
             } actions: {
                 Button("New Download") {
                     showsNewDownload = true
                 }
                 .keyboardShortcut("n", modifiers: .command)
             }
-            .navigationTitle(selection?.rawValue ?? "Downloads")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button("New Download", systemImage: "plus") {
-                        showsNewDownload = true
+        } else {
+            Table(visibleSnapshots, selection: $selectedDownloadID) {
+                TableColumn("Name") { snapshot in
+                    DownloadNameCell(snapshot: snapshot)
+                }
+                .width(min: 180, ideal: 260)
+
+                TableColumn("Size") { snapshot in
+                    Text(DownloadFormatting.bytes(snapshot.contentLength))
+                        .monospacedDigit()
+                }
+                .width(min: 72, ideal: 90)
+
+                TableColumn("Progress") { snapshot in
+                    DownloadProgressCell(snapshot: snapshot)
+                }
+                .width(min: 140, ideal: 190)
+
+                TableColumn("Status") { snapshot in
+                    Label(snapshot.state.title, systemImage: snapshot.state.systemImage)
+                        .foregroundStyle(snapshot.state.tint)
+                }
+                .width(min: 110, ideal: 130)
+
+                TableColumn("Speed") { snapshot in
+                    Text(DownloadFormatting.speed(snapshot.bytesPerSecond))
+                        .monospacedDigit()
+                }
+                .width(min: 80, ideal: 100)
+
+                TableColumn("Remaining") { snapshot in
+                    Text(DownloadFormatting.duration(snapshot.estimatedTimeRemaining))
+                        .monospacedDigit()
+                }
+                .width(min: 72, ideal: 90)
+
+                TableColumn("Updated") { snapshot in
+                    Text(snapshot.updatedAt, style: .relative)
+                        .foregroundStyle(.secondary)
+                }
+                .width(min: 74, ideal: 90)
+
+                TableColumn("") { snapshot in
+                    DownloadActionsMenu(
+                        snapshot: snapshot,
+                        isBusy: service.commandInFlightIDs.contains(snapshot.id)
+                    ) { command in
+                        perform(command, on: snapshot.id)
                     }
+                }
+                .width(34)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup {
+            if let selectedSnapshot {
+                ForEach(selectedSnapshot.availableCommands) { command in
+                    Button(role: command.role) {
+                        perform(command, on: selectedSnapshot.id)
+                    } label: {
+                        Label(command.title, systemImage: command.systemImage)
+                    }
+                    .disabled(service.commandInFlightIDs.contains(selectedSnapshot.id))
                 }
             }
         }
-        .sheet(isPresented: $showsNewDownload) {
-            NewDownloadView()
+
+        ToolbarItem(placement: .primaryAction) {
+            Button("New Download", systemImage: "plus") {
+                showsNewDownload = true
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(service.initializationError != nil)
+        }
+    }
+
+    private var emptyTitle: String {
+        selectedFilter == .all ? "No Downloads" : "No \(selectedFilter.rawValue)"
+    }
+
+    private var emptyDescription: String {
+        if selectedFilter == .all {
+            return "Add a direct HTTP or HTTPS URL to start a download."
+        }
+        return "Downloads matching this filter will appear here."
+    }
+
+    private func filterCount(_ filter: DownloadFilter) -> Int {
+        service.snapshots.count { filter.includes($0.state) }
+    }
+
+    private func perform(_ command: DownloadCommand, on id: DownloadID) {
+        Task { @MainActor in
+            do {
+                try await service.perform(command, on: id)
+                if command == .remove, selectedDownloadID == id {
+                    selectedDownloadID = nil
+                }
+            } catch {
+                presentedError = PresentedDownloadError(
+                    title: "Could Not \(command.title)",
+                    error: error
+                )
+            }
         }
     }
 }
 
+private struct DownloadNameCell: View {
+    let snapshot: DownloadSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(snapshot.filename.isEmpty ? snapshot.sourceURL.lastPathComponent : snapshot.filename)
+                .lineLimit(1)
+            Text(snapshot.sourceURL.host() ?? snapshot.sourceURL.absoluteString)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .help(snapshot.sourceURL.absoluteString)
+    }
+}
+
+private struct DownloadProgressCell: View {
+    let snapshot: DownloadSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let progress = snapshot.progressFraction {
+                ProgressView(value: progress)
+                Text(progress, format: .percent.precision(.fractionLength(0)))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            } else {
+                ProgressView()
+                Text(DownloadFormatting.bytes(snapshot.downloadedBytes))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct DownloadActionsMenu: View {
+    let snapshot: DownloadSnapshot
+    let isBusy: Bool
+    let perform: (DownloadCommand) -> Void
+
+    var body: some View {
+        Menu("Download Actions", systemImage: isBusy ? "ellipsis.circle.fill" : "ellipsis.circle") {
+            ForEach(snapshot.availableCommands) { command in
+                Button(role: command.role) {
+                    perform(command)
+                } label: {
+                    Label(command.title, systemImage: command.systemImage)
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .labelStyle(.iconOnly)
+        .disabled(isBusy || snapshot.availableCommands.isEmpty)
+        .help("Download Actions")
+    }
+}
+
 #Preview {
-    ContentView()
+    ContentView(service: .preview())
 }
