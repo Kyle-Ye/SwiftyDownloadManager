@@ -6,9 +6,9 @@ engine is implemented in C++ and distributed to the app through a local
 SwiftPM package and a Tuist-generated Xcode project.
 
 The repository is under active development. The M0 repository and build
-bootstrap is complete; M1 will define the engine lifecycle contracts and local
-HTTP range fixture. Project planning is maintained outside the application
-repository in the surrounding workspace.
+bootstrap is complete; M1 will define the engine lifecycle contracts and
+consume the local HTTP range fixture. Project planning is maintained outside
+the application repository in the surrounding workspace.
 
 ## Build
 
@@ -27,6 +27,19 @@ The core package can be verified independently:
 ```bash
 swift test --package-path Packages/SDMCore
 ```
+
+## Local HTTP fixture
+
+Run the threaded Range server used by download-engine integration tests:
+
+```bash
+python3 Fixture/range_server.py
+```
+
+It serves a 1 KiB zero-filled file at
+`http://127.0.0.1:8080/1kb-zero.bin` and limits each connection to 20 B/s.
+See [`Fixture/README.md`](Fixture/README.md) for supported Range behavior and
+test commands.
 
 ## Naming
 
