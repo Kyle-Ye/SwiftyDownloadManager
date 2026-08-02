@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string_view>
 
+#include "SDMEngineDomain.h"
+
 namespace sdm {
 
 inline constexpr std::uint32_t engine_abi_version = 1;

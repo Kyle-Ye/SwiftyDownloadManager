@@ -42,9 +42,15 @@ let package = Package(
             dependencies: ["SDMEngineBridge"],
             path: "Sources/SDMCore"
         ),
+        .target(
+            name: "SDMEngineTestSupport",
+            dependencies: ["SDMEngine"],
+            path: "Tests/SDMEngineTestSupport",
+            publicHeadersPath: "include"
+        ),
         .testTarget(
             name: "SDMCoreTests",
-            dependencies: ["SDMCore"],
+            dependencies: ["SDMCore", "SDMEngineTestSupport"],
             path: "Tests/SDMCoreTests"
         ),
     ],
