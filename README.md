@@ -50,6 +50,20 @@ bash Scripts/test.sh
 Swift integration tests start isolated Fixture processes on ephemeral loopback
 ports and clean them up automatically.
 
+## Safari extension
+
+The macOS app embeds a Safari Web Extension that sends direct HTTP and HTTPS
+download links to SDM. Run the containing app once, open **Settings > Safari
+Extension**, enable it in Safari, and grant access to the websites where it
+should operate. Links with a `download` attribute and common downloadable file
+extensions are captured automatically. Use **Download with SDM** from Safari's
+link context menu for download endpoints without a recognizable filename.
+
+Holding a modifier key while clicking bypasses SDM and preserves Safari's
+normal link handling. This first version forwards direct GET URLs and suggested
+filenames; authenticated requests that depend on browser-only cookies or custom
+headers are not yet transferred.
+
 ## Local HTTP fixture
 
 Run the threaded Range server used by download-engine integration tests:
