@@ -43,6 +43,7 @@ let project = Project(
                 .external(name: "SDMCore"),
             ],
             settings: .settings(base: [
+                "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
                 "CODE_SIGN_STYLE": "Automatic",
                 "ENABLE_HARDENED_RUNTIME": "YES",
                 "EXECUTABLE_NAME": "SDMApp",
