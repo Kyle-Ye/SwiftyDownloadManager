@@ -1,5 +1,6 @@
 import Foundation
 import SDMCore
+import SwiftUI
 import XCTest
 @testable import SDMApp
 
@@ -280,6 +281,23 @@ final class SDMAppTests: XCTestCase {
         XCTAssertFalse(
             delegate.applicationShouldTerminateAfterLastWindowClosed(.shared)
         )
+    }
+
+    @MainActor
+    func testMenuBarDownloadRowsContributeIntrinsicHeight() throws {
+        let snapshot = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000001",
+            state: .downloading,
+            createdAt: 10,
+            updatedAt: 20
+        )
+        let hostingView = NSHostingView(
+            rootView: MenuBarDownloadList(
+                service: DownloadService.preview(snapshots: [snapshot])
+            )
+        )
+
+        XCTAssertGreaterThan(hostingView.fittingSize.height, 70)
     }
 
     @MainActor

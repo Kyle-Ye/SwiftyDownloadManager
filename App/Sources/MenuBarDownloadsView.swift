@@ -2,28 +2,32 @@ import SwiftUI
 
 struct MenuBarDownloadsView: View {
     @Environment(\.openWindow) private var openWindow
-    let service: DownloadService
+    @Bindable var service: DownloadService
 
     var body: some View {
         VStack(spacing: 0) {
             MenuBarDownloadList(service: service)
 
             Divider()
+                .padding(.horizontal, 12)
 
-            VStack {
-                Button(action: openMainWindow) {
-                    Label("Open Swifty Download Manager", systemImage: "macwindow")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            MenuBarActionRow(
+                title: "Open Swifty Download Manager",
+                systemImage: "macwindow",
+                action: openMainWindow
+            )
 
-                Button("Exit", systemImage: "power", action: exitApplication)
-                    .frame(maxWidth: .infinity)
-            }
-            .padding()
+            Divider()
+                .padding(.horizontal, 12)
+
+            MenuBarActionRow(
+                title: "Exit",
+                systemImage: "power",
+                action: exitApplication
+            )
         }
-        .frame(width: 400)
+        .padding(.vertical, 6)
+        .frame(width: 360)
     }
 
     private func openMainWindow() {
