@@ -153,6 +153,135 @@ final class SDMAppTests: XCTestCase {
         )
     }
 
+    func testMenuBarActiveStateClassification() {
+        let activeStates: Set<DownloadState> = [
+            .created,
+            .probing,
+            .queued,
+            .downloading,
+            .pausing,
+            .paused,
+            .retrying,
+            .finalizing,
+        ]
+
+        for state in DownloadState.allCases {
+            XCTAssertEqual(
+                state.isActiveForMenuBar,
+                activeStates.contains(state),
+                "Unexpected menu bar classification for \(state)"
+            )
+        }
+    }
+
+    func testOnlyWorkingStatesUseIndeterminateMenuBarProgress() {
+        let indeterminateStates: Set<DownloadState> = [
+            .probing,
+            .downloading,
+            .retrying,
+            .finalizing,
+        ]
+
+        for state in DownloadState.allCases {
+            XCTAssertEqual(
+                state.showsIndeterminateMenuBarProgress,
+                indeterminateStates.contains(state),
+                "Unexpected indeterminate progress classification for \(state)"
+            )
+        }
+    }
+
+    func testRecentDownloadsPrioritizeActiveAndBackfillHistory() throws {
+        let activeOlder = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000001",
+            state: .paused,
+            createdAt: 10,
+            updatedAt: 20
+        )
+        let activeNewer = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000002",
+            state: .downloading,
+            createdAt: 20,
+            updatedAt: 30
+        )
+        let completedNewest = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000003",
+            state: .completed,
+            createdAt: 30,
+            updatedAt: 100
+        )
+        let failedOlder = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000004",
+            state: .failed,
+            createdAt: 5,
+            updatedAt: 10
+        )
+
+        let result = RecentDownloads.select(
+            from: [completedNewest, activeOlder, failedOlder, activeNewer]
+        )
+
+        XCTAssertEqual(
+            result.map(\.id),
+            [activeNewer.id, activeOlder.id, completedNewest.id, failedOlder.id]
+        )
+    }
+
+    func testRecentDownloadsUseStableOrderingForEqualUpdateTimes() throws {
+        let olderCreation = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000003",
+            state: .queued,
+            createdAt: 10,
+            updatedAt: 30
+        )
+        let higherID = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000002",
+            state: .queued,
+            createdAt: 20,
+            updatedAt: 30
+        )
+        let lowerID = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000001",
+            state: .queued,
+            createdAt: 20,
+            updatedAt: 30
+        )
+
+        let result = RecentDownloads.select(
+            from: [olderCreation, higherID, lowerID]
+        )
+
+        XCTAssertEqual(result.map(\.id), [lowerID.id, higherID.id, olderCreation.id])
+    }
+
+    func testRecentDownloadsLimitResultsToEight() throws {
+        let snapshots = try (0 ..< 10).map { index in
+            try makeSnapshot(
+                id: "00000000-0000-0000-0000-00000000000\(index)",
+                state: .downloading,
+                createdAt: TimeInterval(index),
+                updatedAt: TimeInterval(index)
+            )
+        }
+
+        let result = RecentDownloads.select(from: snapshots)
+
+        XCTAssertEqual(result.count, RecentDownloads.maximumCount)
+        XCTAssertEqual(
+            result.map(\.updatedAt),
+            (2 ... 9).reversed().map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        )
+    }
+
+    @MainActor
+    func testClosingLastWindowKeepsMenuBarApplicationRunning() {
+        let delegate = SDMApplicationDelegate()
+
+        XCTAssertFalse(
+            delegate.applicationShouldTerminateAfterLastWindowClosed(.shared)
+        )
+    }
+
     @MainActor
     func testDownloadServiceInitializesAndShutsDown() async throws {
         let root = FileManager.default.temporaryDirectory.appending(
@@ -182,5 +311,21 @@ final class SDMAppTests: XCTestCase {
         }
         XCTAssertFalse(service.isLoadingHistory)
         await service.shutdown()
+    }
+
+    private func makeSnapshot(
+        id: String,
+        state: DownloadState,
+        createdAt: TimeInterval,
+        updatedAt: TimeInterval
+    ) throws -> DownloadSnapshot {
+        DownloadSnapshot(
+            id: DownloadID(rawValue: try XCTUnwrap(UUID(uuidString: id))),
+            sourceURL: try XCTUnwrap(URL(string: "https://example.com/file.bin")),
+            filename: "file.bin",
+            state: state,
+            createdAt: Date(timeIntervalSince1970: createdAt),
+            updatedAt: Date(timeIntervalSince1970: updatedAt)
+        )
     }
 }
