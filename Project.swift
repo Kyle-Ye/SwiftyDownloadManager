@@ -28,7 +28,7 @@ let project = Project(
                 "CFBundleInfoDictionaryVersion": "6.0",
                 "CFBundleName": "$(PRODUCT_NAME)",
                 "CFBundlePackageType": "APPL",
-                "CFBundleShortVersionString": "0.1.0",
+                "CFBundleShortVersionString": "0.2.0",
                 "CFBundleURLTypes": [
                     [
                         "CFBundleTypeRole": "Editor",
@@ -36,7 +36,7 @@ let project = Project(
                         "CFBundleURLSchemes": ["swifty-download-manager"],
                     ],
                 ],
-                "CFBundleVersion": "1",
+                "CFBundleVersion": "2",
                 "LSApplicationCategoryType": "public.app-category.productivity",
                 "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
                 "NSPrincipalClass": "NSApplication",
@@ -77,8 +77,8 @@ let project = Project(
                 "CFBundleInfoDictionaryVersion": "6.0",
                 "CFBundleName": "$(PRODUCT_NAME)",
                 "CFBundlePackageType": "XPC!",
-                "CFBundleShortVersionString": "0.1.0",
-                "CFBundleVersion": "1",
+                "CFBundleShortVersionString": "0.2.0",
+                "CFBundleVersion": "2",
                 "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
                 "NSExtension": [
                     "NSExtensionPointIdentifier": "com.apple.Safari.web-extension",
