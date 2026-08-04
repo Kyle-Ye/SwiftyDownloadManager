@@ -102,6 +102,7 @@ final class DownloadService {
     func enqueue(
         url: URL,
         destinationDirectory: URL? = nil,
+        suggestedFilename: String? = nil,
         connectionCount: Int
     ) async throws -> DownloadID {
         let manager = try requiredManager()
@@ -123,6 +124,7 @@ final class DownloadService {
         let request = DownloadRequest(
             url: url,
             destinationDirectory: authorizedDestination,
+            filename: suggestedFilename,
             connectionLimit: connectionCount
         )
         return try await manager.enqueue(request)

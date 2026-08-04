@@ -29,6 +29,13 @@ let project = Project(
                 "CFBundleName": "$(PRODUCT_NAME)",
                 "CFBundlePackageType": "APPL",
                 "CFBundleShortVersionString": "0.1.0",
+                "CFBundleURLTypes": [
+                    [
+                        "CFBundleTypeRole": "Editor",
+                        "CFBundleURLName": "top.kyleye.swifty-download-manager.download",
+                        "CFBundleURLSchemes": ["swifty-download-manager"],
+                    ],
+                ],
                 "CFBundleVersion": "1",
                 "LSApplicationCategoryType": "public.app-category.productivity",
                 "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
@@ -40,6 +47,7 @@ let project = Project(
             ],
             entitlements: .file(path: "App/Support/SDMApp.entitlements"),
             dependencies: [
+                .target(name: "SDMSafariExtension"),
                 .external(name: "SDMCore"),
             ],
             settings: .settings(base: [
@@ -53,6 +61,44 @@ let project = Project(
             metadata: .metadata(tags: [
                 "tag:feature:downloads",
                 "tag:layer:ui",
+            ])
+        ),
+        .target(
+            name: "SDMSafariExtension",
+            destinations: .macOS,
+            product: .appExtension,
+            bundleId: "top.kyleye.swifty-download-manager-app.safari-extension",
+            deploymentTargets: .macOS("14.0"),
+            infoPlist: .dictionary([
+                "CFBundleDevelopmentRegion": "en",
+                "CFBundleDisplayName": "Swifty Download Manager Extension",
+                "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+                "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
+                "CFBundleInfoDictionaryVersion": "6.0",
+                "CFBundleName": "$(PRODUCT_NAME)",
+                "CFBundlePackageType": "XPC!",
+                "CFBundleShortVersionString": "0.1.0",
+                "CFBundleVersion": "1",
+                "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
+                "NSExtension": [
+                    "NSExtensionPointIdentifier": "com.apple.Safari.web-extension",
+                    "NSExtensionPrincipalClass": "$(PRODUCT_MODULE_NAME).SafariWebExtensionHandler",
+                ],
+            ]),
+            buildableFolders: [
+                "SafariExtension/Sources",
+                "SafariExtension/Resources",
+            ],
+            entitlements: .file(path: "SafariExtension/Support/SDMSafariExtension.entitlements"),
+            settings: .settings(base: [
+                "APPLICATION_EXTENSION_API_ONLY": "YES",
+                "CODE_SIGN_STYLE": "Automatic",
+                "PRODUCT_NAME": "Swifty Download Manager Extension",
+                "SKIP_INSTALL": "YES",
+            ]),
+            metadata: .metadata(tags: [
+                "tag:feature:browser-extension",
+                "tag:layer:integration",
             ])
         ),
         .target(

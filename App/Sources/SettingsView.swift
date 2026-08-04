@@ -1,9 +1,11 @@
 import SDMCore
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
     @AppStorage(AppStorageKey.defaultConnectionCount) private var defaultConnectionCount = 8
     @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
+    @State private var safariExtensionIsEnabled: Bool?
     let databaseURL: URL?
 
     var body: some View {
@@ -26,6 +28,21 @@ struct SettingsView: View {
                 )
             }
 
+            Section("Safari Extension") {
+                LabeledContent("Status") {
+                    Text(extensionStatusTitle)
+                        .foregroundStyle(extensionStatusColor)
+                }
+
+                Text("Enable the extension in Safari, then allow website access. Download links and the Download with SDM context menu will send supported HTTP and HTTPS files to SDM.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                Button("Open Safari Extension Settings") {
+                    SafariExtensionSupport.showPreferences()
+                }
+            }
+
             Section("Engine") {
                 LabeledContent("Version", value: SDMCoreInfo.engineVersion)
                 LabeledContent("ABI", value: String(SDMCoreInfo.engineABIVersion))
@@ -41,7 +58,35 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-        .frame(width: 560, height: 360)
+        .frame(width: 560, height: 470)
+        .task {
+            await refreshSafariExtensionState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task {
+                await refreshSafariExtensionState()
+            }
+        }
+    }
+
+    private var extensionStatusTitle: String {
+        switch safariExtensionIsEnabled {
+        case true: "Enabled"
+        case false: "Disabled"
+        case nil: "Checking…"
+        }
+    }
+
+    private var extensionStatusColor: Color {
+        switch safariExtensionIsEnabled {
+        case true: .green
+        case false: .secondary
+        case nil: .secondary
+        }
+    }
+
+    private func refreshSafariExtensionState() async {
+        safariExtensionIsEnabled = await SafariExtensionSupport.isEnabled()
     }
 }
 

@@ -74,6 +74,7 @@ struct ContentView: View {
         .onChange(of: selection) { _, _ in
             selectedDownloadID = nil
         }
+        .onOpenURL(perform: handleExternalURL)
         .focusedSceneValue(\.newURLAction, availableNewURLAction)
     }
 
@@ -249,6 +250,25 @@ struct ContentView: View {
 
     private func presentNewDownload() {
         showsNewDownload = true
+    }
+
+    private func handleExternalURL(_ callbackURL: URL) {
+        guard let request = BrowserDownloadRequest(callbackURL: callbackURL) else { return }
+
+        Task { @MainActor in
+            do {
+                _ = try await service.enqueue(
+                    url: request.url,
+                    suggestedFilename: request.suggestedFilename,
+                    connectionCount: defaultConnectionCount
+                )
+            } catch {
+                presentedError = PresentedDownloadError(
+                    title: "Could Not Add Browser Download",
+                    error: error
+                )
+            }
+        }
     }
 }
 

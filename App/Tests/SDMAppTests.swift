@@ -6,6 +6,11 @@ import XCTest
 
 final class SDMAppTests: XCTestCase {
     @MainActor
+    func testSafariExtensionStateLookupReturnsAcrossTheXPCBoundary() async {
+        _ = await SafariExtensionSupport.isEnabled()
+    }
+
+    @MainActor
     func testDestinationBookmarkStorePersistsAndRestoresFolderReference() throws {
         let root = FileManager.default.temporaryDirectory.appending(
             path: UUID().uuidString,
@@ -80,6 +85,40 @@ final class SDMAppTests: XCTestCase {
         )
 
         XCTAssertEqual(request.connectionLimit, 8)
+    }
+
+    func testBrowserDownloadRequestParsesExtensionCallback() throws {
+        var components = URLComponents()
+        components.scheme = BrowserDownloadRequest.callbackScheme
+        components.host = "download"
+        components.queryItems = [
+            URLQueryItem(name: "url", value: "https://example.com/archive.zip?token=a&b=2"),
+            URLQueryItem(name: "filename", value: "release.zip"),
+            URLQueryItem(name: "source", value: "https://example.com/releases"),
+        ]
+
+        let request = try XCTUnwrap(
+            components.url.flatMap(BrowserDownloadRequest.init(callbackURL:))
+        )
+
+        XCTAssertEqual(request.url.absoluteString, "https://example.com/archive.zip?token=a&b=2")
+        XCTAssertEqual(request.suggestedFilename, "release.zip")
+        XCTAssertEqual(request.sourcePageURL?.absoluteString, "https://example.com/releases")
+    }
+
+    func testBrowserDownloadRequestRejectsUntrustedRoutesAndSchemes() throws {
+        let wrongRoute = try XCTUnwrap(
+            URL(string: "swifty-download-manager://settings?url=https://example.com/file.zip")
+        )
+        var components = URLComponents()
+        components.scheme = BrowserDownloadRequest.callbackScheme
+        components.host = "download"
+        components.queryItems = [
+            URLQueryItem(name: "url", value: "file:///tmp/private.txt"),
+        ]
+
+        XCTAssertNil(BrowserDownloadRequest(callbackURL: wrongRoute))
+        XCTAssertNil(components.url.flatMap(BrowserDownloadRequest.init(callbackURL:)))
     }
 
     func testFiltersClassifyDownloadStates() {
