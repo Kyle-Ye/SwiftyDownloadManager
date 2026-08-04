@@ -4,6 +4,6 @@ import XCTest
 final class SDMCoreInfoTests: XCTestCase {
     func testEngineBridgeExposesVersion() {
         XCTAssertEqual(SDMCoreInfo.engineABIVersion, 2)
-        XCTAssertEqual(SDMCoreInfo.engineVersion, "0.2.0-dev")
+        XCTAssertEqual(SDMCoreInfo.engineVersion, "0.3.0-dev")
     }
 }
