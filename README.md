@@ -50,6 +50,9 @@ bash Scripts/test.sh
 Swift integration tests start isolated Fixture processes on ephemeral loopback
 ports and clean them up automatically.
 
+See [`Docs/Releasing.md`](Docs/Releasing.md) for the versioning, validation,
+archive, App packaging, GitHub Release, and post-release development workflow.
+
 ## Safari extension
 
 The macOS app embeds a Safari Web Extension that sends direct HTTP and HTTPS
