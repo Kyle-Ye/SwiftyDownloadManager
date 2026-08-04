@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuBarDownloadsView: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @Bindable var service: DownloadService
 
     var body: some View {
@@ -15,6 +16,12 @@ struct MenuBarDownloadsView: View {
                 title: "Open Swifty Download Manager",
                 systemImage: "macwindow",
                 action: openMainWindow
+            )
+
+            MenuBarActionRow(
+                title: "Settings…",
+                systemImage: "gearshape",
+                action: openSettingsWindow
             )
 
             Divider()
@@ -33,6 +40,11 @@ struct MenuBarDownloadsView: View {
     private func openMainWindow() {
         NSApp.activate()
         openWindow(id: AppWindowID.main)
+    }
+
+    private func openSettingsWindow() {
+        NSApp.activate()
+        openSettings()
     }
 
     private func exitApplication() {
