@@ -6,6 +6,11 @@ import XCTest
 
 final class SDMAppTests: XCTestCase {
     @MainActor
+    func testSafariExtensionStateLookupReturnsAcrossTheXPCBoundary() async {
+        _ = await SafariExtensionSupport.isEnabled()
+    }
+
+    @MainActor
     func testDestinationBookmarkStorePersistsAndRestoresFolderReference() throws {
         let root = FileManager.default.temporaryDirectory.appending(
             path: UUID().uuidString,

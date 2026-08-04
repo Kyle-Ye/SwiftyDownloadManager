@@ -1,5 +1,5 @@
 import SDMCore
-import SafariServices
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -60,10 +60,12 @@ struct SettingsView: View {
         .padding()
         .frame(width: 560, height: 470)
         .task {
-            refreshSafariExtensionState()
+            await refreshSafariExtensionState()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshSafariExtensionState()
+            Task {
+                await refreshSafariExtensionState()
+            }
         }
     }
 
@@ -83,12 +85,8 @@ struct SettingsView: View {
         }
     }
 
-    private func refreshSafariExtensionState() {
-        SFSafariExtensionManager.getStateOfSafariExtension(
-            withIdentifier: SafariExtensionSupport.bundleIdentifier
-        ) { state, _ in
-            safariExtensionIsEnabled = state?.isEnabled
-        }
+    private func refreshSafariExtensionState() async {
+        safariExtensionIsEnabled = await SafariExtensionSupport.isEnabled()
     }
 }
 
