@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "Swifty Download Manager",
   "description": "Send downloadable links from Safari to Swifty Download Manager.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "icons": {
     "16": "icon.svg",
     "32": "icon.svg",

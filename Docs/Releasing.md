@@ -4,9 +4,11 @@ This document describes the current SDM release process. It produces a
 universal macOS application, stores the full Xcode archive locally, and uploads
 only `SwiftyDownloadManager.app.zip` to GitHub Releases.
 
-The current artifact is ad-hoc signed for local testing. It is not Developer ID
-signed or notarized. Public distribution requires a separate signing,
-notarization, and stapling workflow.
+The App and Safari Extension targets are signed with the `Apple Development`
+identity for team `VB7MJ8R223` (`XULEI YE`). This is a real, non-ad-hoc
+development signature. It is not a Developer ID distribution signature and is
+not notarized. Gatekeeper-friendly public distribution requires a separate
+Developer ID signing, notarization, and stapling workflow.
 
 ## Version model
 
@@ -30,6 +32,7 @@ release. After the release is verified, advance the Engine and its test to
 - Xcode and its command-line tools.
 - `mise`, with the repository's pinned Tuist version installed.
 - An authenticated GitHub CLI session with repository write access.
+- A valid `Apple Development` signing identity for team `VB7MJ8R223`.
 - A clean `main` branch synchronized with `origin/main`.
 
 Set release-specific values explicitly. Do not reuse broad system variables for
@@ -37,7 +40,7 @@ release paths.
 
 ```bash
 SDM_VERSION=0.3.0
-SDM_BUILD_NUMBER=3
+SDM_BUILD_NUMBER=4
 SDM_NEXT_DEV_VERSION=0.4.0-dev
 SDM_ARCHIVE_DATE=2026-08-05
 SDM_REPOSITORY=Kyle-Ye/SwiftyDownloadManager
@@ -50,7 +53,8 @@ SDM_VERIFY_DIR="/private/tmp/sdm-app-verify-${SDM_VERSION}"
 SDM_RELEASE_NOTES="The attached asset contains the universal macOS application"
 SDM_RELEASE_NOTES="${SDM_RELEASE_NOTES} (arm64 and x86_64)."
 SDM_RELEASE_NOTES="${SDM_RELEASE_NOTES} Unzip it and move the app to Applications."
-SDM_RELEASE_NOTES="${SDM_RELEASE_NOTES} The app is ad-hoc signed for local testing."
+SDM_RELEASE_NOTES="${SDM_RELEASE_NOTES} The app is signed with Apple Development."
+SDM_RELEASE_NOTES="${SDM_RELEASE_NOTES} It is not notarized."
 ```
 
 Use the actual release date and monotonically increasing build number. Run the
@@ -64,6 +68,7 @@ clean.
 
 ```bash
 gh auth status
+security find-identity -v -p codesigning
 git switch main
 git pull --ff-only origin main
 git status --short --branch
@@ -178,13 +183,13 @@ xcodebuild archive -quiet \
   -scheme SDMApp \
   -configuration Release \
   -destination 'generic/platform=macOS' \
-  -archivePath "${SDM_ARCHIVE_PATH}" \
-  CODE_SIGN_IDENTITY=-
+  -archivePath "${SDM_ARCHIVE_PATH}"
 ```
 
-The current configuration produces an ad-hoc signed Universal application.
-Warnings about a locked connected iOS device or a missing AccentColor are
-non-blocking for this macOS archive, but other warnings should be investigated.
+The current Tuist configuration selects `Apple Development` and team
+`VB7MJ8R223` for both the App and Safari Extension. Warnings about a locked
+connected iOS device or a missing AccentColor are non-blocking for this macOS
+archive, but other warnings should be investigated.
 
 ## 7. Validate the archive
 
@@ -204,6 +209,10 @@ jq -r '.version' \
   "${SDM_EXTENSION_PATH}/Contents/Resources/manifest.json"
 lipo -archs "${SDM_APP_PATH}/Contents/MacOS/SDMApp"
 codesign --verify --deep --strict --verbose=2 "${SDM_APP_PATH}"
+codesign -dv --verbose=4 "${SDM_APP_PATH}" 2>&1 | \
+  rg 'Authority|TeamIdentifier|Signature|Runtime'
+codesign -dv --verbose=4 "${SDM_EXTENSION_PATH}" 2>&1 | \
+  rg 'Authority|TeamIdentifier|Signature|Runtime'
 ```
 
 Expected results:
@@ -213,6 +222,9 @@ Expected results:
 - Manifest version matches `${SDM_VERSION}`.
 - App architectures are `x86_64 arm64`.
 - Deep code-signature verification succeeds.
+- App and Extension report an `Apple Development: XULEI YE` authority.
+- App and Extension report `TeamIdentifier=VB7MJ8R223` and do not report an
+  ad-hoc signature.
 
 ## 8. Package only the App
 

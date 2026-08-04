@@ -28,7 +28,7 @@ let project = Project(
                 "CFBundleInfoDictionaryVersion": "6.0",
                 "CFBundleName": "$(PRODUCT_NAME)",
                 "CFBundlePackageType": "APPL",
-                "CFBundleShortVersionString": "0.2.0",
+                "CFBundleShortVersionString": "0.2.1",
                 "CFBundleURLTypes": [
                     [
                         "CFBundleTypeRole": "Editor",
@@ -36,7 +36,7 @@ let project = Project(
                         "CFBundleURLSchemes": ["swifty-download-manager"],
                     ],
                 ],
-                "CFBundleVersion": "2",
+                "CFBundleVersion": "3",
                 "LSApplicationCategoryType": "public.app-category.productivity",
                 "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
                 "NSPrincipalClass": "NSApplication",
@@ -52,7 +52,9 @@ let project = Project(
             ],
             settings: .settings(base: [
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+                "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
                 "CODE_SIGN_STYLE": "Automatic",
+                "DEVELOPMENT_TEAM": "VB7MJ8R223",
                 "ENABLE_HARDENED_RUNTIME": "YES",
                 "EXECUTABLE_NAME": "SDMApp",
                 "PRODUCT_MODULE_NAME": "SDMApp",
@@ -77,8 +79,8 @@ let project = Project(
                 "CFBundleInfoDictionaryVersion": "6.0",
                 "CFBundleName": "$(PRODUCT_NAME)",
                 "CFBundlePackageType": "XPC!",
-                "CFBundleShortVersionString": "0.2.0",
-                "CFBundleVersion": "2",
+                "CFBundleShortVersionString": "0.2.1",
+                "CFBundleVersion": "3",
                 "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
                 "NSExtension": [
                     "NSExtensionPointIdentifier": "com.apple.Safari.web-extension",
@@ -92,7 +94,9 @@ let project = Project(
             entitlements: .file(path: "SafariExtension/Support/SDMSafariExtension.entitlements"),
             settings: .settings(base: [
                 "APPLICATION_EXTENSION_API_ONLY": "YES",
+                "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
                 "CODE_SIGN_STYLE": "Automatic",
+                "DEVELOPMENT_TEAM": "VB7MJ8R223",
                 "PRODUCT_NAME": "Swifty Download Manager Extension",
                 "SKIP_INSTALL": "YES",
             ]),
