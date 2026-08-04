@@ -5,6 +5,7 @@ import SwiftUI
 struct SDMApp: App {
     @NSApplicationDelegateAdaptor(SDMApplicationDelegate.self)
     private var applicationDelegate
+    @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
     @State private var downloadService = DownloadService.live()
 
     var body: some Scene {
@@ -18,7 +19,8 @@ struct SDMApp: App {
 
         MenuBarExtra(
             "Swifty Download Manager",
-            image: "SDMMenuBarIcon"
+            image: "SDMMenuBarIcon",
+            isInserted: $showsMenuBarIcon
         ) {
             MenuBarDownloadsView(service: downloadService)
         }

@@ -4,7 +4,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     let service: DownloadService
-    @AppStorage("defaultConnectionCount") private var defaultConnectionCount = 8
+    @AppStorage(AppStorageKey.defaultConnectionCount) private var defaultConnectionCount = 8
     @State private var selection: DownloadFilter? = .all
     @State private var selectedDownloadID: DownloadID?
     @State private var showsNewDownload = false
