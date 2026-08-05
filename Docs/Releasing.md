@@ -69,24 +69,37 @@ gh secret list --repo Kyle-Ye/SwiftyDownloadManager
 
 ## Version model
 
-SDM has four release values:
+SDM uses one release version across the App, Safari Extension, Web Extension,
+and Engine. A stable release must not expose a development Engine version.
+For a release such as `0.3.0`, all of these values must be `0.3.0` in the
+tagged release commit:
 
-- App marketing version and build number in `Project.swift`.
-- Safari Extension marketing version and build number in `Project.swift`.
+- App marketing version in `Project.swift`.
+- Safari Extension marketing version in `Project.swift`.
 - Web Extension manifest version in
   `SafariExtension/Resources/manifest.json`.
-- Engine development version in
-  `Packages/SDMCore/Sources/SDMEngine/Engine.cpp`, with a matching test value in
+- Engine version in `Packages/SDMCore/Sources/SDMEngine/Engine.cpp`, with the
+  matching expected value in
   `Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift`.
 
-For a release such as `0.3.0`, update the App, Safari Extension, and manifest to
-`0.3.0` before tagging. Keep the Engine value at `0.3.0-dev` through the
-release. After the release succeeds, advance the Engine and its test to
-`0.4.0-dev` in a separate commit.
+The App and Safari Extension also share a monotonically increasing build
+number in `Project.swift`.
+
+During development, the Engine may use the next version with a `-dev` suffix,
+such as `0.3.0-dev`. Remove the suffix in the release commit before tagging.
+After a mainline release is verified, advance the Engine and its test to the
+next development version, such as `0.4.0-dev`, in a separate commit.
+
+If `main` has already advanced to the next development version, prepare a patch
+release from the corresponding stable tag or release branch. Do not merge the
+newer `main` development line into that branch. The patch release commit must
+set every release version to the patch version and must not contain an Engine
+`-dev` suffix.
 
 ## Prepare a release
 
-Start from a clean `main` synchronized with `origin/main`:
+Start from a clean release branch. For a planned mainline release, synchronize
+`main` first:
 
 ```bash
 git switch main
@@ -94,8 +107,37 @@ git pull --ff-only origin main
 git status --short --branch
 ```
 
-Update both target versions and build numbers in `Project.swift`, then update
-the manifest version. Regenerate the workspace and run all tests:
+Set the release values explicitly:
+
+```bash
+SDM_VERSION=0.3.0
+SDM_BUILD_NUMBER=4
+SDM_NEXT_DEV_VERSION=0.4.0-dev
+```
+
+Update both target versions and build numbers in `Project.swift`, the manifest
+version, the Engine version, and its matching test. The Engine value must equal
+`${SDM_VERSION}` without a `-dev` suffix.
+
+Check all source release values before generating the workspace:
+
+```bash
+test "$(rg -F -c \
+  "\"CFBundleShortVersionString\": \"${SDM_VERSION}\"" Project.swift)" -eq 2
+test "$(rg -F -c \
+  "\"CFBundleVersion\": \"${SDM_BUILD_NUMBER}\"" Project.swift)" -eq 2
+test "$(jq -r '.version' SafariExtension/Resources/manifest.json)" = \
+  "${SDM_VERSION}"
+rg -n -F "return \"${SDM_VERSION}\";" \
+  Packages/SDMCore/Sources/SDMEngine/Engine.cpp
+rg -n -F "SDMCoreInfo.engineVersion, \"${SDM_VERSION}\"" \
+  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
+! rg -n '[0-9]+\.[0-9]+\.[0-9]+-dev' \
+  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
+  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
+```
+
+Regenerate the workspace and run all tests:
 
 ```bash
 mise install
@@ -114,9 +156,18 @@ git diff --check
 Review, commit, and push only the intended release changes:
 
 ```bash
-git add Project.swift SafariExtension/Resources/manifest.json
-git commit -m "chore: prepare 0.3.0 release"
-git push origin main
+git diff -- \
+  Project.swift \
+  SafariExtension/Resources/manifest.json \
+  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
+  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
+git add \
+  Project.swift \
+  SafariExtension/Resources/manifest.json \
+  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
+  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
+git commit -m "chore: prepare ${SDM_VERSION} release"
+git push -u origin "$(git branch --show-current)"
 ```
 
 ## Publish a release
@@ -124,22 +175,24 @@ git push origin main
 Create and push an annotated tag from the release commit:
 
 ```bash
-git tag -a 0.3.0 -m "Swifty Download Manager 0.3.0"
-git push origin 0.3.0
+git tag -a "$SDM_VERSION" \
+  -m "Swifty Download Manager $SDM_VERSION"
+git push origin "$SDM_VERSION"
 ```
 
 The workflow then:
 
-1. Checks out and validates the exact tag.
+1. Checks out the exact tag and validates every source release version.
 2. Generates the Tuist workspace and runs the test suites.
 3. Imports the Developer ID certificate into a temporary keychain.
 4. Archives a universal `arm64` and `x86_64` Release build.
-5. Verifies the App and nested Safari Extension signatures.
-6. Submits the App to Apple with `notarytool` and waits for acceptance.
-7. Staples and validates the notarization ticket, then runs Gatekeeper
+5. Verifies the App, Extension, manifest, and Engine versions against the tag.
+6. Verifies the App and nested Safari Extension signatures.
+7. Submits the App to Apple with `notarytool` and waits for acceptance.
+8. Staples and validates the notarization ticket, then runs Gatekeeper
    assessment.
-8. Packages only `SwiftyDownloadManager.app.zip`.
-9. Creates a GitHub Release with automatically generated changelog notes.
+9. Packages only `SwiftyDownloadManager.app.zip`.
+10. Creates a GitHub Release with automatically generated changelog notes.
 
 Monitor the run and inspect failures with GitHub CLI:
 
@@ -173,7 +226,6 @@ local build paths to release notes.
 Download and verify the exact uploaded App:
 
 ```bash
-SDM_VERSION=0.3.0
 SDM_VERIFY_DIR="$(mktemp -d /private/tmp/sdm-release-verify.XXXXXX)"
 gh release download "$SDM_VERSION" \
   --repo Kyle-Ye/SwiftyDownloadManager \
@@ -184,6 +236,12 @@ ditto -x -k \
   "$SDM_VERIFY_DIR"
 SDM_APP_PATH="$SDM_VERIFY_DIR/Swifty Download Manager.app"
 codesign --verify --deep --strict --verbose=4 "$SDM_APP_PATH"
+SDM_ENGINE_VERSIONS="$(
+  strings "$SDM_APP_PATH/Contents/MacOS/SDMApp" | \
+    rg -x '[0-9]+\.[0-9]+\.[0-9]+(-dev)?' | \
+    sort -u
+)"
+test "$SDM_ENGINE_VERSIONS" = "$SDM_VERSION"
 xcrun stapler validate "$SDM_APP_PATH"
 spctl --assess --type execute --verbose=4 "$SDM_APP_PATH"
 ```
@@ -197,5 +255,10 @@ gh release view "$SDM_VERSION" \
 shasum -a 256 "$SDM_VERIFY_DIR/SwiftyDownloadManager.app.zip"
 ```
 
-After verification, advance the Engine development version and its matching
-test in a separate commit.
+After a mainline release is verified, advance the Engine and its matching test
+to `${SDM_NEXT_DEV_VERSION}`, run the focused version test, and commit the
+development version separately from the release tag.
+
+For a patch release made from a release branch while `main` already carries the
+next development version, skip that step. Return to `main` without merging the
+stable patch version back over its newer Engine development version.

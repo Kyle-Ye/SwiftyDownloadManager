@@ -66,6 +66,39 @@ jobs:
             exit 1
           fi
 
+      - name: Validate release versions
+        run: |
+          set -euo pipefail
+          app_version_count="$(
+            grep -F -c \
+              "\"CFBundleShortVersionString\": \"$RELEASE_TAG\"" \
+              Project.swift || true
+          )"
+          manifest_version="$(
+            plutil -extract version raw -o - \
+              SafariExtension/Resources/manifest.json
+          )"
+          if [[ "$app_version_count" != 2 || \
+                "$manifest_version" != "$RELEASE_TAG" ]]; then
+            echo "Source App, Extension, or manifest version does not match tag $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          engine_source=Packages/SDMCore/Sources/SDMEngine/Engine.cpp
+          engine_test=Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
+          if ! grep -F "return \"$RELEASE_TAG\";" "$engine_source" || \
+             ! grep -F \
+               "SDMCoreInfo.engineVersion, \"$RELEASE_TAG\"" \
+               "$engine_test"; then
+            echo "Engine source or test version does not match tag $RELEASE_TAG" >&2
+            exit 1
+          fi
+          if grep -E '[0-9]+\.[0-9]+\.[0-9]+-dev' \
+            "$engine_source" "$engine_test"; then
+            echo "Stable releases cannot contain a development Engine version" >&2
+            exit 1
+          fi
+
       - name: Generate the Tuist workspace
         run: |
           set -euo pipefail
@@ -128,12 +161,28 @@ jobs:
         run: |
           set -euo pipefail
           app_version="$(plutil -extract CFBundleShortVersionString raw -o - "$APP_PATH/Contents/Info.plist")"
+          app_build="$(plutil -extract CFBundleVersion raw -o - "$APP_PATH/Contents/Info.plist")"
           extension_version="$(plutil -extract CFBundleShortVersionString raw -o - "$EXTENSION_PATH/Contents/Info.plist")"
+          extension_build="$(plutil -extract CFBundleVersion raw -o - "$EXTENSION_PATH/Contents/Info.plist")"
           manifest_version="$(plutil -extract version raw -o - "$EXTENSION_PATH/Contents/Resources/manifest.json")"
           if [[ "$app_version" != "$RELEASE_TAG" || \
                 "$extension_version" != "$RELEASE_TAG" || \
                 "$manifest_version" != "$RELEASE_TAG" ]]; then
             echo "Tag and bundle versions do not match" >&2
+            exit 1
+          fi
+          if [[ "$app_build" != "$extension_build" ]]; then
+            echo "App and Extension build numbers do not match" >&2
+            exit 1
+          fi
+
+          engine_versions="$(
+            strings "$APP_PATH/Contents/MacOS/SDMApp" | \
+              grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-dev)?$' | \
+              sort -u
+          )"
+          if [[ "$engine_versions" != "$RELEASE_TAG" ]]; then
+            echo "Engine version does not match tag $RELEASE_TAG: $engine_versions" >&2
             exit 1
           fi
 
