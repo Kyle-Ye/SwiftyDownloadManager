@@ -1,21 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
-  <title id="title">Swifty Download Manager app icon</title>
-  <desc id="desc">A segmented white download arrow and receiving tray on a Swift-orange rounded square.</desc>
+  <title id="title">Swifty Download Manager Icon Composer foreground</title>
+  <desc id="desc">A segmented white download arrow and receiving tray on a transparent canvas.</desc>
 
-  <defs>
-    <linearGradient id="swiftOrange" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FF563D"/>
-      <stop offset="0.52" stop-color="#F05138"/>
-      <stop offset="1" stop-color="#E94430"/>
-    </linearGradient>
-    <filter id="glyphShadow" x="-12%" y="-12%" width="124%" height="132%">
-      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#A82519" flood-opacity="0.16"/>
-    </filter>
-  </defs>
-
-  <rect width="1024" height="1024" rx="224" fill="url(#swiftOrange)"/>
-
-  <g fill="#FFFDFC" filter="url(#glyphShadow)">
+  <g fill="#FFFFFF">
     <rect x="344" y="180" width="132" height="112" rx="14"/>
     <rect x="548" y="180" width="132" height="112" rx="14"/>
 

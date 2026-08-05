@@ -8,30 +8,35 @@ small sizes.
 
 ## Files
 
-- `SDM-icon-source.svg` is the editable 1024 × 1024 vector source.
-- `SDM-icon-foreground.png` is the 1024 × 1024 transparent Icon Composer layer.
+- `SDM-icon-source.svg` is the editable 1024 × 1024 foreground vector source.
+- `SDM-icon-foreground.png` is the 1024 × 1024 foreground-only Icon Composer
+  layer with a transparent background.
 - `SDM-icon-preview.png` is the 256 × 256 appearance compiled by Xcode.
 - `../../App/Resources/AppIcon.icon` is the shared iOS and macOS Icon Composer
   document consumed by Xcode.
 
 ## Construction
 
-- Tile: restrained Swift-orange gradient centered on `#F05138`
-- Mark: warm white `#FFFDFC`
+- Tile: Icon Composer automatic gradient based on Swift orange `#F05138`
+- Mark: solid white `#FFFFFF` on a transparent canvas
 - Layout: bilateral symmetry with a 16 px center seam in the converging arrow
-- Rendering: vector geometry with one restrained glyph shadow; no generated
-  texture, bevel, glass, or 3D extrusion
+- Rendering: foreground vector geometry only; Icon Composer owns the background,
+  platform mask, corner shape, material treatment, shadow, and appearances
 - App accent: `AccentColor.colorset` uses solid `#F05138`
 
 ## Icon Composer settings
 
-- Background: adaptive `System Light`
+- Background: automatic Swift-orange gradient from `#F05138`
 - Group: `Download Mark`
 - Layer: `Segmented Swift Download`
 - Blur: off
 - Translucency: off
 - Shadow: neutral, 50%
 - Platforms: iOS and macOS
+
+The foreground asset intentionally contains no background, rounded rectangle,
+corner mask, or baked shadow. The Safari Extension icon is a separate standalone
+SVG and therefore retains its own complete orange tile.
 
 ## Generation and refinement prompt
 
