@@ -1,5 +1,8 @@
 (() => {
+  const extensionAPI = globalThis.browser ?? globalThis.chrome;
   const callbackScheme = "swifty-download-manager";
+  const pageBridgeSource = "swifty-download-manager-page-bridge";
+  const pageBridgeToken = globalThis.crypto.randomUUID();
   const downloadableExtensions = new Set([
     "7z", "aac", "apk", "app", "arc", "arj", "avi", "bin", "bz2", "cab",
     "csv", "dmg", "doc", "docx", "epub", "exe", "flac", "gz", "img", "iso",
@@ -34,7 +37,11 @@
   }
 
   function isDownloadLink(link, url) {
-    return link.hasAttribute("download") || downloadableExtensions.has(inferredExtension(url));
+    return link.hasAttribute("download") || isDownloadURL(url);
+  }
+
+  function isDownloadURL(url) {
+    return downloadableExtensions.has(inferredExtension(url));
   }
 
   function suggestedFilename(link) {
@@ -54,6 +61,66 @@
     }
     return url.href;
   }
+
+  function postPageBridgeResponse(id, accepted) {
+    window.postMessage({
+      source: pageBridgeSource,
+      token: pageBridgeToken,
+      type: "downloadResponse",
+      id,
+      accepted,
+    }, window.location.origin);
+  }
+
+  function postPageBridgeInitialization() {
+    window.postMessage({
+      source: pageBridgeSource,
+      token: pageBridgeToken,
+      type: "bridgeInitialize",
+    }, window.location.origin);
+  }
+
+  window.addEventListener("message", (event) => {
+    const message = event.data;
+    if (
+      event.source !== window ||
+      event.origin !== window.location.origin ||
+      message?.source !== pageBridgeSource
+    ) {
+      return;
+    }
+
+    if (message.type === "bridgeReady") {
+      postPageBridgeInitialization();
+      return;
+    }
+
+    if (
+      message.token !== pageBridgeToken ||
+      message.type !== "downloadRequest" ||
+      typeof message.id !== "string"
+    ) {
+      return;
+    }
+
+    const url = parsedHTTPURL(message.url);
+    if (!url || !isDownloadURL(url)) {
+      postPageBridgeResponse(message.id, false);
+      return;
+    }
+
+    void extensionAPI.runtime.sendMessage({
+      type: "captureDownload",
+      url: url.href,
+      sourcePage: window.location.href,
+    }).then((response) => {
+      postPageBridgeResponse(message.id, response?.accepted === true);
+    }).catch(() => {
+      postPageBridgeResponse(message.id, false);
+    });
+  });
+
+  postPageBridgeInitialization();
 
   document.addEventListener("click", (event) => {
     if (

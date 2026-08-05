@@ -1,7 +1,17 @@
+#if os(macOS)
+import AppKit
+#endif
 import SafariServices
 
 final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling, @unchecked Sendable {
     private static let callbackScheme = "swifty-download-manager"
+    #if os(macOS)
+    private static let containingApplicationIdentifier =
+        "top.kyleye.swifty-download-manager-app"
+    private static let callbackNotificationName = Notification.Name(
+        "top.kyleye.swifty-download-manager.browser-callback"
+    )
+    #endif
 
     func beginRequest(with context: NSExtensionContext) {
         guard let item = context.inputItems.first as? NSExtensionItem,
@@ -61,6 +71,21 @@ final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling, @un
             reply(to: context, accepted: false, error: "The app callback URL could not be created.")
             return
         }
+
+        #if os(macOS)
+        if !NSRunningApplication.runningApplications(
+            withBundleIdentifier: Self.containingApplicationIdentifier
+        ).isEmpty {
+            DistributedNotificationCenter.default().postNotificationName(
+                Self.callbackNotificationName,
+                object: callbackURL.absoluteString,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+            reply(to: context, accepted: true, error: nil)
+            return
+        }
+        #endif
 
         let contextBox = ExtensionContextBox(context)
         context.open(callbackURL) { [weak self, contextBox] accepted in

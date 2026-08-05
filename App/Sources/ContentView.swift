@@ -66,6 +66,12 @@ struct ContentView: View {
             selectedDownloadID = nil
         }
         .onOpenURL(perform: handleExternalURL)
+        .onReceive(
+            NotificationCenter.default.publisher(for: .browserDownloadCallback)
+        ) { notification in
+            guard let callbackURL = notification.object as? URL else { return }
+            handleExternalURL(callbackURL)
+        }
         .focusedSceneValue(\.newURLAction, availableNewURLAction)
     }
 
