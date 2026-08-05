@@ -155,6 +155,11 @@ let project = Project(
             dependencies: [
                 .target(name: "SDMApp"),
             ],
+            settings: .settings(base: [
+                "CODE_SIGN_IDENTITY": "Apple Development",
+                "CODE_SIGN_STYLE": "Automatic",
+                "DEVELOPMENT_TEAM": "VB7MJ8R223",
+            ]),
             metadata: .metadata(tags: [
                 "tag:feature:downloads",
                 "tag:layer:tests",
