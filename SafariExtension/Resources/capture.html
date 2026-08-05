@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Open in Swifty Download Manager</title>
+    <link rel="stylesheet" href="capture.css">
+  </head>
+  <body>
+    <main>
+      <div class="icon" aria-hidden="true">&#x2193;</div>
+      <h1>Download with SDM?</h1>
+      <p class="explanation">
+        Safari identified this address as a direct file download. Continue in
+        Swifty Download Manager.
+      </p>
+      <p id="download-url" class="download-url"></p>
+      <a id="open-app" class="primary-action" href="#">Open SDM</a>
+      <p id="error" class="error" hidden>This download URL is invalid.</p>
+    </main>
+    <script src="capture.js"></script>
+  </body>
+</html>

@@ -2,6 +2,14 @@ const extensionAPI = globalThis.browser ?? globalThis.chrome;
 const nativeApplicationIdentifier = "top.kyleye.swifty-download-manager-app";
 const contextMenuIdentifier = "download-with-sdm";
 const callbackScheme = "swifty-download-manager";
+const downloadableExtensions = new Set([
+  "7z", "aac", "apk", "app", "arc", "arj", "avi", "bin", "bz2", "cab",
+  "csv", "dmg", "doc", "docx", "epub", "exe", "flac", "gz", "img", "iso",
+  "jar", "key", "m4a", "m4v", "mkv", "mov", "mp3", "mp4", "mpeg", "mpg",
+  "msi", "numbers", "odf", "ods", "odt", "pages", "pdf", "pkg", "ppt",
+  "pptx", "rar", "rtf", "tar", "tgz", "tif", "tiff", "ts", "txt", "wav",
+  "webm", "wma", "wmv", "xls", "xlsx", "xip", "xz", "zip", "zipx"
+]);
 
 function isHTTPURL(value) {
   try {
@@ -34,6 +42,30 @@ function callbackURL(host, queryItems = {}) {
       url.searchParams.set(name, value);
     }
   }
+  return url.href;
+}
+
+function isDirectDownloadURL(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false;
+    }
+
+    const filename = url.pathname.split("/").pop() ?? "";
+    const separator = filename.lastIndexOf(".");
+    const extension = separator >= 0
+      ? filename.slice(separator + 1).toLowerCase()
+      : "";
+    return downloadableExtensions.has(extension);
+  } catch {
+    return false;
+  }
+}
+
+function capturePageURL(downloadURL) {
+  const url = new URL(extensionAPI.runtime.getURL("capture.html"));
+  url.searchParams.set("url", downloadURL);
   return url.href;
 }
 
@@ -107,3 +139,17 @@ if (extensionAPI.contextMenus?.onClicked) {
 extensionAPI.browserAction.onClicked.addListener((tab) => {
   void openCallbackFromTab(tab, "open", {}, { type: "openApp" });
 });
+
+if (extensionAPI.webNavigation?.onBeforeNavigate) {
+  extensionAPI.webNavigation.onBeforeNavigate.addListener((details) => {
+    if (details.frameId !== 0 || !isDirectDownloadURL(details.url)) {
+      return;
+    }
+
+    void extensionAPI.tabs.update(details.tabId, {
+      url: capturePageURL(details.url),
+    }).catch((error) => {
+      console.error("Unable to capture the direct download navigation", error);
+    });
+  });
+}

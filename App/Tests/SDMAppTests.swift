@@ -10,7 +10,7 @@ final class SDMAppTests: XCTestCase {
         _ = await SafariExtensionSupport.isEnabled()
     }
 
-    func testSafariExtensionManifestUsesNonPersistentBackgroundPage() throws {
+    func testSafariExtensionPackagesDirectNavigationCaptureResources() throws {
         let testBundleURL = Bundle(for: type(of: self)).bundleURL
         let plugInsURL = testBundleURL.deletingLastPathComponent()
         let extensionURL = try XCTUnwrap(
@@ -28,8 +28,13 @@ final class SDMAppTests: XCTestCase {
             JSONSerialization.jsonObject(with: manifestData) as? [String: Any]
         )
         let background = try XCTUnwrap(manifest["background"] as? [String: Any])
+        let permissions = try XCTUnwrap(manifest["permissions"] as? [String])
 
         XCTAssertEqual(background["persistent"] as? Bool, false)
+        XCTAssertTrue(permissions.contains("webNavigation"))
+        XCTAssertNotNil(extensionBundle.url(forResource: "capture", withExtension: "html"))
+        XCTAssertNotNil(extensionBundle.url(forResource: "capture", withExtension: "css"))
+        XCTAssertNotNil(extensionBundle.url(forResource: "capture", withExtension: "js"))
     }
 
     @MainActor
