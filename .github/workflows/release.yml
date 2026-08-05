@@ -25,22 +25,27 @@ jobs:
     timeout-minutes: 60
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-      ARCHIVE_PATH: ${{ runner.temp }}/Swifty Download Manager.xcarchive
-      APP_PATH: ${{ runner.temp }}/Swifty Download Manager.xcarchive/Products/Applications/Swifty Download Manager.app
-      EXTENSION_PATH: ${{ runner.temp }}/Swifty Download Manager.xcarchive/Products/Applications/Swifty Download Manager.app/Contents/PlugIns/Swifty Download Manager Extension.appex
-      CERTIFICATE_PATH: ${{ runner.temp }}/DeveloperIDApplication.p12
-      API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
-      KEYCHAIN_PATH: ${{ runner.temp }}/sdm-signing.keychain-db
-      NOTARY_ARCHIVE: ${{ runner.temp }}/SwiftyDownloadManager-notarization.zip
-      NOTARY_RESULT: ${{ runner.temp }}/notary-result.json
-      RELEASE_ZIP: ${{ runner.temp }}/SwiftyDownloadManager.app.zip
-      VERIFY_DIR: ${{ runner.temp }}/release-verification
     steps:
       - name: Check out the release tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           ref: ${{ env.RELEASE_TAG }}
+
+      - name: Configure release paths
+        run: |
+          {
+            echo "ARCHIVE_PATH=$RUNNER_TEMP/Swifty Download Manager.xcarchive"
+            echo "APP_PATH=$RUNNER_TEMP/Swifty Download Manager.xcarchive/Products/Applications/Swifty Download Manager.app"
+            echo "EXTENSION_PATH=$RUNNER_TEMP/Swifty Download Manager.xcarchive/Products/Applications/Swifty Download Manager.app/Contents/PlugIns/Swifty Download Manager Extension.appex"
+            echo "CERTIFICATE_PATH=$RUNNER_TEMP/DeveloperIDApplication.p12"
+            echo "API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8"
+            echo "KEYCHAIN_PATH=$RUNNER_TEMP/sdm-signing.keychain-db"
+            echo "NOTARY_ARCHIVE=$RUNNER_TEMP/SwiftyDownloadManager-notarization.zip"
+            echo "NOTARY_RESULT=$RUNNER_TEMP/notary-result.json"
+            echo "RELEASE_ZIP=$RUNNER_TEMP/SwiftyDownloadManager.app.zip"
+            echo "VERIFY_DIR=$RUNNER_TEMP/release-verification"
+          } >> "$GITHUB_ENV"
 
       - name: Install pinned tools
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
@@ -218,7 +223,9 @@ jobs:
       - name: Remove signing material
         if: always()
         run: |
-          rm -f "$CERTIFICATE_PATH" "$API_KEY_PATH"
-          if [[ -f "$KEYCHAIN_PATH" ]]; then
+          if [[ -n "${CERTIFICATE_PATH:-}" && -n "${API_KEY_PATH:-}" ]]; then
+            rm -f "$CERTIFICATE_PATH" "$API_KEY_PATH"
+          fi
+          if [[ -n "${KEYCHAIN_PATH:-}" && -f "$KEYCHAIN_PATH" ]]; then
             security delete-keychain "$KEYCHAIN_PATH"
           fi
