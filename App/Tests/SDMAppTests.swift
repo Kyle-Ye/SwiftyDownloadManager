@@ -10,6 +10,28 @@ final class SDMAppTests: XCTestCase {
         _ = await SafariExtensionSupport.isEnabled()
     }
 
+    func testSafariExtensionManifestUsesNonPersistentBackgroundPage() throws {
+        let testBundleURL = Bundle(for: type(of: self)).bundleURL
+        let plugInsURL = testBundleURL.deletingLastPathComponent()
+        let extensionURL = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(
+                at: plugInsURL,
+                includingPropertiesForKeys: nil
+            ).first { $0.pathExtension == "appex" }
+        )
+        let extensionBundle = try XCTUnwrap(Bundle(url: extensionURL))
+        let manifestURL = try XCTUnwrap(
+            extensionBundle.url(forResource: "manifest", withExtension: "json")
+        )
+        let manifestData = try Data(contentsOf: manifestURL)
+        let manifest = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: manifestData) as? [String: Any]
+        )
+        let background = try XCTUnwrap(manifest["background"] as? [String: Any])
+
+        XCTAssertEqual(background["persistent"] as? Bool, false)
+    }
+
     @MainActor
     func testDestinationBookmarkStorePersistsAndRestoresFolderReference() throws {
         let root = FileManager.default.temporaryDirectory.appending(
