@@ -65,6 +65,7 @@ let project = Project(
                 .external(name: "SDMCore"),
             ],
             settings: .settings(base: [
+                "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
                 "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": "App/Support/SDMApp.entitlements",
                 "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": "App/Support/SDMApp-iOS.entitlements",

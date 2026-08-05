@@ -5,7 +5,7 @@
       "layers" : [
         {
           "image-name" : "SDM-icon-foreground.png",
-          "name" : "Parallel Streams and Tray"
+          "name" : "Segmented Swift Download"
         }
       ],
       "name" : "Download Mark",
