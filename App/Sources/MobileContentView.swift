@@ -5,10 +5,14 @@ import SwiftUI
 struct MobileContentView: View {
     @Bindable var service: DownloadService
     @AppStorage(AppStorageKey.defaultConnectionCount) private var defaultConnectionCount = 8
-    @State private var selectedFilter = DownloadFilter.all
+    @State private var selection: DownloadFilter? = .all
     @State private var showsNewDownload = false
     @State private var showsSettings = false
     @State private var presentedError: PresentedDownloadError?
+
+    private var selectedFilter: DownloadFilter {
+        selection ?? .all
+    }
 
     private var visibleSnapshots: [DownloadSnapshot] {
         service.snapshots
@@ -17,68 +21,69 @@ struct MobileContentView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let initializationError = service.initializationError {
-                    ContentUnavailableView {
-                        Label("Download Engine Unavailable", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(initializationError)
-                            .textSelection(.enabled)
-                    }
-                } else if service.isLoadingHistory {
-                    ProgressView("Loading Download History…")
-                        .controlSize(.large)
-                } else if visibleSnapshots.isEmpty {
-                    ContentUnavailableView {
-                        Label(emptyTitle, systemImage: selectedFilter.systemImage)
-                    } description: {
-                        Text(emptyDescription)
-                    } actions: {
-                        Button("New Download", action: presentNewDownload)
-                    }
-                } else {
-                    List(visibleSnapshots) { snapshot in
-                        NavigationLink(value: snapshot.id) {
-                            MobileDownloadRow(snapshot: snapshot)
+        NavigationSplitView {
+            DownloadSidebar(snapshots: service.snapshots, selection: $selection)
+        } detail: {
+            NavigationStack {
+                Group {
+                    if let initializationError = service.initializationError {
+                        ContentUnavailableView {
+                            Label(
+                                "Download Engine Unavailable",
+                                systemImage: "exclamationmark.triangle"
+                            )
+                        } description: {
+                            Text(initializationError)
+                                .textSelection(.enabled)
                         }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            ForEach(snapshot.availableCommands) { command in
-                                Button(command.title, systemImage: command.systemImage) {
-                                    perform(command, on: snapshot.id)
+                    } else if service.isLoadingHistory {
+                        ProgressView("Loading Download History…")
+                            .controlSize(.large)
+                    } else if visibleSnapshots.isEmpty {
+                        ContentUnavailableView {
+                            Label(emptyTitle, systemImage: selectedFilter.systemImage)
+                        } description: {
+                            Text(emptyDescription)
+                        } actions: {
+                            Button("New Download", action: presentNewDownload)
+                        }
+                    } else {
+                        List(visibleSnapshots) { snapshot in
+                            NavigationLink(value: snapshot.id) {
+                                MobileDownloadRow(snapshot: snapshot)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                ForEach(snapshot.availableCommands) { command in
+                                    Button(command.title, systemImage: command.systemImage) {
+                                        perform(command, on: snapshot.id)
+                                    }
+                                    .tint(
+                                        command == .remove || command == .cancel
+                                            ? .red
+                                            : .accentColor
+                                    )
                                 }
-                                .tint(command == .remove || command == .cancel ? .red : .accentColor)
                             }
                         }
+                        .listStyle(.insetGrouped)
                     }
-                    .listStyle(.insetGrouped)
                 }
-            }
-            .navigationTitle(selectedFilter.rawValue)
-            .navigationDestination(for: DownloadID.self) { id in
-                DownloadInfoView(service: service, downloadID: id)
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu("Filter", systemImage: selectedFilter.systemImage) {
-                        Picker("Filter", selection: $selectedFilter) {
-                            ForEach(DownloadFilter.allCases) { filter in
-                                Label(filter.rawValue, systemImage: filter.systemImage)
-                                    .tag(filter)
-                            }
+                .navigationTitle(selectedFilter.rawValue)
+                .navigationDestination(for: DownloadID.self) { id in
+                    DownloadInfoView(service: service, downloadID: id)
+                }
+                .toolbar {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button("Settings", systemImage: "gearshape") {
+                            showsSettings = true
                         }
+                        Button("New Download", systemImage: "plus", action: presentNewDownload)
+                            .disabled(service.initializationError != nil)
                     }
-                }
-
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("Settings", systemImage: "gearshape") {
-                        showsSettings = true
-                    }
-                    Button("New Download", systemImage: "plus", action: presentNewDownload)
-                        .disabled(service.initializationError != nil)
                 }
             }
         }
+        .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showsNewDownload) {
             NewDownloadView(
                 defaultConnectionCount: defaultConnectionCount,

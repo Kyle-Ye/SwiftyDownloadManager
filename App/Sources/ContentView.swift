@@ -36,18 +36,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(DownloadFilter.allCases, selection: $selection) { filter in
-                HStack {
-                    Label(filter.rawValue, systemImage: filter.systemImage)
-                    Spacer()
-                    Text(filterCount(filter), format: .number)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                .tag(filter)
-            }
-            .navigationTitle("Downloads")
-            .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 280)
+            DownloadSidebar(snapshots: service.snapshots, selection: $selection)
         } detail: {
             detail
                 .navigationTitle(selectedFilter.rawValue)
@@ -212,10 +201,6 @@ struct ContentView: View {
             return "Add a direct HTTP or HTTPS URL to start a download."
         }
         return "Downloads matching this filter will appear here."
-    }
-
-    private func filterCount(_ filter: DownloadFilter) -> Int {
-        service.snapshots.count { filter.includes($0.state) }
     }
 
     private func perform(_ command: DownloadCommand, on id: DownloadID) {
