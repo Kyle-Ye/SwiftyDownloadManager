@@ -10,7 +10,7 @@ final class FixtureServer: @unchecked Sendable {
     init(
         fileSize: Int = 64 * 1024,
         bytesPerSecond: Int = 0,
-        maximumConnections: Int = 8
+        maximumConcurrentTransfers: Int = 8
     ) throws {
         let repositoryURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -28,7 +28,7 @@ final class FixtureServer: @unchecked Sendable {
             "--port", "0",
             "--file-size", String(fileSize),
             "--bytes-per-second", String(bytesPerSecond),
-            "--max-connections", String(maximumConnections),
+            "--max-concurrent-transfers", String(maximumConcurrentTransfers),
             "--quiet",
         ]
         process.standardOutput = output

@@ -1,5 +1,11 @@
 import Foundation
 
+extension Notification.Name {
+    static let browserDownloadCallback = Notification.Name(
+        "top.kyleye.swifty-download-manager.browser-callback"
+    )
+}
+
 struct BrowserDownloadRequest: Equatable {
     static let callbackScheme = "swifty-download-manager"
 

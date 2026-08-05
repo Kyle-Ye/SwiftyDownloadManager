@@ -84,7 +84,7 @@ final class PersistenceMigrationTests: XCTestCase {
         }
     }
 
-    func testVersionOneHistoryMigratesInPlaceToVersionTwo() async throws {
+    func testVersionOneHistoryMigratesInPlaceToVersionThree() async throws {
         let root = FileManager.default.temporaryDirectory.appending(
             path: UUID().uuidString,
             directoryHint: .isDirectory
@@ -133,6 +133,6 @@ final class PersistenceMigrationTests: XCTestCase {
         await manager.shutdown()
 
         let version = databaseURL.path.withCString(sdm_test_database_user_version)
-        XCTAssertEqual(version, 2)
+        XCTAssertEqual(version, 3)
     }
 }

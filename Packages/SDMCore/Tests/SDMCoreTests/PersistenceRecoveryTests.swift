@@ -7,7 +7,7 @@ final class PersistenceRecoveryTests: XCTestCase {
         let fixture = try FixtureServer(
             fileSize: 256 * 1024,
             bytesPerSecond: 32 * 1024,
-            maximumConnections: 2
+            maximumConcurrentTransfers: 2
         )
         defer { fixture.stop() }
         let root = FileManager.default.temporaryDirectory.appending(
@@ -54,7 +54,7 @@ final class PersistenceRecoveryTests: XCTestCase {
         let fixture = try FixtureServer(
             fileSize: 32 * 1024,
             bytesPerSecond: 0,
-            maximumConnections: 2
+            maximumConcurrentTransfers: 2
         )
         defer { fixture.stop() }
         let root = FileManager.default.temporaryDirectory.appending(
@@ -95,7 +95,7 @@ final class PersistenceRecoveryTests: XCTestCase {
         let fixture = try FixtureServer(
             fileSize: fileSize,
             bytesPerSecond: 0,
-            maximumConnections: 4
+            maximumConcurrentTransfers: 4
         )
         defer { fixture.stop() }
         let root = FileManager.default.temporaryDirectory
@@ -149,7 +149,7 @@ final class PersistenceRecoveryTests: XCTestCase {
         let fixture = try FixtureServer(
             fileSize: fileSize,
             bytesPerSecond: 64 * 1024,
-            maximumConnections: 4
+            maximumConcurrentTransfers: 4
         )
         defer { fixture.stop() }
         let root = FileManager.default.temporaryDirectory

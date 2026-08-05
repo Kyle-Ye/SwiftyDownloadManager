@@ -14,7 +14,6 @@ struct PersistedDownload final {
     DownloadSnapshot snapshot;
     std::string temporary_path;
     bool accepts_ranges = false;
-    std::uint32_t server_connection_limit = 1;
     std::string etag;
     std::string last_modified;
 };

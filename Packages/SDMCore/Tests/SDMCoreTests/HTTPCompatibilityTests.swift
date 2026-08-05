@@ -70,6 +70,7 @@ final class HTTPCompatibilityTests: XCTestCase {
             connections: 2
         )
         XCTAssertEqual(redirected.finalURL?.path, "/empty.bin")
+        XCTAssertEqual(redirected.segments.count, 2)
 
         for snapshot in [fallback, noRange, redirected] {
             let destinationURL = try XCTUnwrap(snapshot.destinationURL)

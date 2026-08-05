@@ -234,7 +234,6 @@ public:
         int file_descriptor = -1;
         std::unordered_set<CURL *> active_handles;
         bool accepts_ranges = false;
-        std::uint32_t server_connection_limit = 1;
         std::vector<Segment> segments;
         std::string etag;
         std::string last_modified;
@@ -575,7 +574,6 @@ private:
                 task->temporary_path = std::move(stored.temporary_path);
                 task->destination_path = task->snapshot.destination_url;
                 task->accepts_ranges = stored.accepts_ranges;
-                task->server_connection_limit = stored.server_connection_limit;
                 task->segments = task->snapshot.segments;
                 task->etag = std::move(stored.etag);
                 task->last_modified = std::move(stored.last_modified);
@@ -894,7 +892,7 @@ private:
         if (task.segments.empty() && task.snapshot.content_length_known &&
             task.snapshot.content_length > 0) {
             const auto connection_limit = task.accepts_ranges
-                ? std::min(task.request.connection_limit, task.server_connection_limit)
+                ? task.request.connection_limit
                 : 1U;
             task.segments = plan_segments(
                 task.snapshot.content_length,
@@ -1156,15 +1154,6 @@ private:
                     std::move(task.snapshot.filename),
                     iterator->second
                 );
-            }
-        }
-        if (const auto iterator = transfer.headers.find("x-sdm-max-connections");
-            iterator != transfer.headers.end()) {
-            if (const auto limit = parse_unsigned(iterator->second); limit && *limit > 0) {
-                task.server_connection_limit = static_cast<std::uint32_t>(std::min<std::uint64_t>(
-                    *limit,
-                    config.maximum_connections_per_download
-                ));
             }
         }
         start_body(task);
@@ -1551,7 +1540,6 @@ private:
                 .snapshot = task.snapshot,
                 .temporary_path = task.temporary_path.string(),
                 .accepts_ranges = task.accepts_ranges,
-                .server_connection_limit = task.server_connection_limit,
                 .etag = task.etag,
                 .last_modified = task.last_modified,
             });

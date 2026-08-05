@@ -81,9 +81,10 @@ archive, App packaging, GitHub Release, and post-release development workflow.
 The macOS, iOS, and iPadOS apps embed a Safari Web Extension that sends direct HTTP and HTTPS
 download links to SDM. Run the containing app once, open **Settings > Safari
 Extension**, enable it in Safari, and grant access to the websites where it
-should operate. Links with a `download` attribute and common downloadable file
-extensions are captured automatically. Use **Download with SDM** from Safari's
-link context menu for download endpoints without a recognizable filename.
+should operate. Links with a `download` attribute, common downloadable file
+extensions, and downloadable URLs opened programmatically after a click are
+captured automatically. Use **Download with SDM** from Safari's link context
+menu for download endpoints without a recognizable filename.
 
 Holding a modifier key while clicking bypasses SDM and preserves Safari's
 normal link handling. This first version forwards direct GET URLs and suggested
