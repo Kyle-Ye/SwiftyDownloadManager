@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 struct MenuBarDownloadsView: View {
@@ -54,3 +55,4 @@ struct MenuBarDownloadsView: View {
         }
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(macOS)
 import SDMCore
 import SwiftUI
 
@@ -81,3 +82,4 @@ struct MenuBarDownloadList: View {
         openWindow(value: id)
     }
 }
+#endif

@@ -5,6 +5,7 @@ import PackageDescription
 let package = Package(
     name: "SDMCore",
     platforms: [
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -14,9 +15,15 @@ let package = Package(
             targets: ["SDMCore"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CurlBinary"),
+    ],
     targets: [
         .target(
             name: "SDMEngine",
+            dependencies: [
+                .product(name: "CurlBinary", package: "CurlBinary"),
+            ],
             path: "Sources/SDMEngine",
             publicHeadersPath: "include",
             cxxSettings: [
@@ -24,8 +31,12 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("c++"),
-                .linkedLibrary("curl"),
                 .linkedLibrary("sqlite3"),
+                .linkedLibrary("z"),
+                .linkedLibrary("ldap", .when(platforms: [.macOS])),
+                .linkedFramework("CoreFoundation"),
+                .linkedFramework("Security"),
+                .linkedFramework("SystemConfiguration"),
             ]
         ),
         .target(
@@ -40,7 +51,13 @@ let package = Package(
         .target(
             name: "SDMCore",
             dependencies: ["SDMEngineBridge"],
-            path: "Sources/SDMCore"
+            path: "Sources/SDMCore",
+            resources: [
+                .copy("Resources/cacert.pem"),
+            ],
+            linkerSettings: [
+                .linkedFramework("Security"),
+            ]
         ),
         .target(
             name: "SDMEngineTestSupport",

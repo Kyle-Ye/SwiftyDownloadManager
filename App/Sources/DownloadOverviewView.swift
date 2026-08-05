@@ -12,6 +12,7 @@ struct DownloadOverviewView: View {
     var body: some View {
         Form {
             Section("Transfer") {
+                LabeledContent("Engine", value: snapshot.engine.title)
                 LabeledContent("Size", value: DownloadFormatting.bytes(snapshot.contentLength))
                 LabeledContent(
                     "Downloaded",

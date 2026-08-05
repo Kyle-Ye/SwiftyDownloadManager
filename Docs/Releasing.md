@@ -8,14 +8,19 @@ workflow and publishes one user-facing asset:
 The full Xcode archive remains ephemeral on the runner and is never uploaded to
 GitHub Releases.
 
+This workflow currently publishes only the universal macOS application. iOS
+and iPadOS share the source and Xcode targets, but require a separate App Store
+archive/export workflow in App Store Connect.
+
 ## Signing model
 
 `Project.swift` uses configuration-specific signing:
 
-- Debug uses automatic Apple Development signing.
-- Release uses manual Developer ID Application signing.
-- Hardened Runtime is enabled for both the App and Safari Extension.
-- Release builds disable injected base entitlements.
+- Debug uses automatic Apple Development signing on every platform.
+- macOS Release uses manual Developer ID Application signing.
+- iOS and iPadOS Release use automatic signing for App Store archives.
+- Hardened Runtime and disabled injected base entitlements apply to macOS
+  Release builds.
 
 No certificate, private key, password, or notarization credential belongs in
 the repository. The workflow imports them into a temporary keychain and removes
@@ -150,8 +155,18 @@ xcodebuild test -quiet \
   -destination 'platform=macOS,arch=arm64' \
   -only-testing:SDMAppTests \
   CODE_SIGNING_ALLOWED=NO
+xcodebuild build -quiet \
+  -workspace SDM.xcworkspace \
+  -scheme SDMApp \
+  -destination 'generic/platform=iOS' \
+  CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
+
+Review `Docs/ThirdPartyLicensing.md` and confirm every file under
+`App/Resources/Legal` is present in the archived application. The pinned
+XCFramework statically includes OpenSSL, so Apple encryption export-compliance
+answers must be reviewed independently of open-source license compliance.
 
 Review, commit, and push only the intended release changes:
 

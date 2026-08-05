@@ -13,7 +13,13 @@ struct DownloadInfoActionsView: View {
 
     var body: some View {
         HStack {
+            #if os(macOS)
             Button("Show in Finder", systemImage: "folder", action: showInFinder)
+            #else
+            ShareLink(item: shareURL) {
+                Label("Share File", systemImage: "square.and.arrow.up")
+            }
+            #endif
 
             Spacer()
 
@@ -29,6 +35,7 @@ struct DownloadInfoActionsView: View {
         .padding()
     }
 
+    #if os(macOS)
     private func showInFinder() {
         if let destinationURL = snapshot.destinationURL {
             if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -40,4 +47,9 @@ struct DownloadInfoActionsView: View {
             NSWorkspace.shared.open(fallbackDirectory)
         }
     }
+    #else
+    private var shareURL: URL {
+        snapshot.destinationURL ?? fallbackDirectory
+    }
+    #endif
 }

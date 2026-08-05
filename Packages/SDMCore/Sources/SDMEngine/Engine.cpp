@@ -842,9 +842,16 @@ private:
         curl_easy_setopt(transfer->easy, CURLOPT_LOW_SPEED_LIMIT, 1L);
         curl_easy_setopt(transfer->easy, CURLOPT_LOW_SPEED_TIME, 30L);
         curl_easy_setopt(transfer->easy, CURLOPT_NOSIGNAL, 1L);
-        curl_easy_setopt(transfer->easy, CURLOPT_USERAGENT, "SwiftyDownloadManager/0.2");
+        curl_easy_setopt(transfer->easy, CURLOPT_USERAGENT, "SwiftyDownloadManager/0.3 libcurl");
         curl_easy_setopt(transfer->easy, CURLOPT_SSL_VERIFYPEER, 1L);
         curl_easy_setopt(transfer->easy, CURLOPT_SSL_VERIFYHOST, 2L);
+        if (!config.certificate_authority_bundle.empty()) {
+            curl_easy_setopt(
+                transfer->easy,
+                CURLOPT_CAINFO,
+                config.certificate_authority_bundle.c_str()
+            );
+        }
         curl_easy_setopt(transfer->easy, CURLOPT_ERRORBUFFER, transfer->error_buffer.data());
         curl_easy_setopt(transfer->easy, CURLOPT_HEADERFUNCTION, header_callback);
         curl_easy_setopt(transfer->easy, CURLOPT_HEADERDATA, transfer.get());

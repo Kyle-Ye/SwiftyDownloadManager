@@ -62,6 +62,7 @@ typedef struct {
     uint32_t abi_version;
     sdm_string_view_t database_path;
     sdm_string_view_t temporary_directory;
+    sdm_string_view_t certificate_authority_bundle;
     uint32_t maximum_active_downloads;
     uint32_t maximum_connections_per_download;
 } sdm_engine_config_t;
@@ -130,6 +131,7 @@ typedef struct {
 
 uint32_t sdm_engine_abi_version(void);
 const char *sdm_engine_version(void);
+const char *sdm_curl_version(void);
 
 sdm_result_t sdm_engine_create(
     const sdm_engine_config_t *config,

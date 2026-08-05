@@ -3,7 +3,7 @@ import Observation
 import SDMCore
 
 /// App-layer adapter that owns the engine lifecycle and publishes immutable
-/// snapshots for SwiftUI. The C++ engine remains the source of download truth.
+/// snapshots from both download backends for SwiftUI.
 @Observable
 @MainActor
 final class DownloadService {
@@ -11,6 +11,8 @@ final class DownloadService {
     private(set) var isLoadingHistory: Bool
     private(set) var commandInFlightIDs: Set<DownloadID> = []
     private(set) var logsByDownloadID: [DownloadID: [DownloadDiagnosticEvent]] = [:]
+    private(set) var engineDescriptors: [DownloadEngineDescriptor] = []
+    private(set) var selectedEngine: DownloadEngineKind
 
     let defaultDestinationDirectory: URL
     let databaseURL: URL?
@@ -28,6 +30,7 @@ final class DownloadService {
         destinationBookmarks: DestinationBookmarkStore? = nil
     ) throws {
         manager = try DownloadManager(configuration: configuration)
+        selectedEngine = configuration.defaultEngine
         self.destinationBookmarks = destinationBookmarks
         defaultDestinationDirectory = destinationDirectory
         databaseURL = configuration.databaseURL
@@ -35,6 +38,7 @@ final class DownloadService {
         snapshots = []
         isLoadingHistory = true
         startObserving()
+        loadEngineDescriptors()
     }
 
     private init(
@@ -50,6 +54,7 @@ final class DownloadService {
         defaultDestinationDirectory = destinationDirectory
         self.databaseURL = databaseURL
         self.initializationError = initializationError
+        selectedEngine = .libcurl
         self.snapshots = []
         isLoadingHistory = false
         startObserving()
@@ -62,8 +67,13 @@ final class DownloadService {
             let destinationBookmarks = try? DestinationBookmarkStore(
                 storeURL: storagePaths.destinationBookmarksURL
             )
+            #if os(macOS)
+            let destinationSearchPath: FileManager.SearchPathDirectory = .downloadsDirectory
+            #else
+            let destinationSearchPath: FileManager.SearchPathDirectory = .documentDirectory
+            #endif
             guard let destinationDirectory = fileManager.urls(
-                for: .downloadsDirectory,
+                for: destinationSearchPath,
                 in: .userDomainMask
             ).first else {
                 throw ServiceError.unavailable(
@@ -72,7 +82,12 @@ final class DownloadService {
             }
 
             return try DownloadService(
-                configuration: storagePaths.managerConfiguration,
+                configuration: storagePaths.managerConfiguration(
+                    defaultEngine: storedEngine,
+                    urlSessionIdentifier: Bundle.main.bundleIdentifier.map {
+                        "\($0).urlsession-downloads"
+                    }
+                ),
                 destinationDirectory: destinationDirectory,
                 destinationBookmarks: destinationBookmarks
             )
@@ -128,6 +143,24 @@ final class DownloadService {
             connectionLimit: connectionCount
         )
         return try await manager.enqueue(request)
+    }
+
+    var selectedEngineDescriptor: DownloadEngineDescriptor {
+        engineDescriptors.first { $0.kind == selectedEngine }
+            ?? DownloadEngineDescriptor(
+                kind: selectedEngine,
+                version: "",
+                features: selectedEngine == .libcurl
+                    ? [.multiConnectionTransfers, .bandwidthLimiting]
+                    : [.backgroundTransfers],
+                maximumConnectionsPerDownload: selectedEngine == .libcurl ? 16 : 1
+            )
+    }
+
+    func selectEngine(_ engine: DownloadEngineKind) async throws {
+        let manager = try requiredManager()
+        try await manager.setDefaultEngine(engine)
+        selectedEngine = engine
     }
 
     func perform(_ command: DownloadCommand, on id: DownloadID) async throws {
@@ -198,6 +231,13 @@ final class DownloadService {
         }
     }
 
+    private func loadEngineDescriptors() {
+        guard let manager else { return }
+        Task { [weak self, manager] in
+            self?.engineDescriptors = await manager.engineDescriptors()
+        }
+    }
+
     private func ingest(_ nextSnapshots: [DownloadSnapshot]) {
         let nextByID = Dictionary(uniqueKeysWithValues: nextSnapshots.map { ($0.id, $0) })
         for snapshot in nextSnapshots {
@@ -242,5 +282,12 @@ final class DownloadService {
                 message
             }
         }
+    }
+
+
+    private static var storedEngine: DownloadEngineKind {
+        UserDefaults.standard.string(forKey: AppStorageKey.downloadEngine)
+            .flatMap(DownloadEngineKind.init(rawValue:))
+            ?? .libcurl
     }
 }

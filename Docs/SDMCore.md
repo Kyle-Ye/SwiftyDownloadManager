@@ -1,8 +1,9 @@
 # SDMCore integration
 
 `SDMCore` is the only module an app target imports. A manager owns one native
-engine, one SQLite history database, one temporary directory, and a bounded
-active-download scheduler.
+libcurl backend, one URLSession backend, their persistent stores, and bounded
+active-download schedulers. The facade routes each task to its owning backend
+and merges both update streams.
 
 ```swift
 import SDMCore
@@ -19,7 +20,9 @@ let manager = try DownloadManager(configuration: .init(
     temporaryDirectory: support.appending(
         path: "PartialDownloads",
         directoryHint: .isDirectory
-    )
+    ),
+    defaultEngine: .libcurl,
+    urlSessionIdentifier: "com.example.app.background-downloads"
 ))
 
 let observation = Task { @MainActor in
@@ -33,6 +36,13 @@ let id = try await manager.enqueue(DownloadRequest(
     destinationDirectory: destinationURL,
     connectionLimit: connectionCount
 ))
+
+// Change the backend used by future tasks without interrupting existing ones.
+try await manager.setDefaultEngine(.urlSession)
+
+for descriptor in await manager.engineDescriptors() {
+    print(descriptor.kind, descriptor.features)
+}
 
 // App termination:
 observation.cancel()
@@ -67,3 +77,15 @@ bytes can be written into the partial representation.
 
 `remove(_:)` removes task metadata, segment checkpoints, diagnostics, and any
 partial representation. It never removes a finalized destination file.
+
+The libcurl backend stores its history in SQLite. URLSession keeps a separate
+JSON state file next to that database so its opaque resume data and background
+session ownership remain independent. URLSession accepts one connection and no
+bandwidth limit; requesting either unsupported feature throws
+`.unsupportedFeature`.
+
+Host apps that accept arbitrary plain-HTTP URLs must configure an appropriate
+App Transport Security exception for URLSession. SDMApp declares
+`NSAllowsArbitraryLoads` because a download manager cannot enumerate destination
+domains in advance; this exception should be called out in App Store review
+notes. HTTPS remains the recommended default.

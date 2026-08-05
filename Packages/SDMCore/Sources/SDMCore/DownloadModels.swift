@@ -34,7 +34,7 @@ public enum DownloadConflictPolicy: UInt32, Sendable, Codable, CaseIterable {
 }
 
 /// Immutable input used to enqueue one direct download.
-public struct DownloadRequest: Sendable, Equatable {
+public struct DownloadRequest: Sendable, Codable, Equatable {
     public let id: DownloadID
     public let url: URL
     public let destinationDirectory: URL
@@ -69,19 +69,25 @@ public struct DownloadManagerConfiguration: Sendable, Equatable {
     public let maximumActiveDownloads: Int
     public let maximumConnectionsPerDownload: Int
     public let updateInterval: Duration
+    public let defaultEngine: DownloadEngineKind
+    public let urlSessionIdentifier: String?
 
     public init(
         databaseURL: URL,
         temporaryDirectory: URL,
         maximumActiveDownloads: Int = 2,
         maximumConnectionsPerDownload: Int = 16,
-        updateInterval: Duration = .milliseconds(50)
+        updateInterval: Duration = .milliseconds(50),
+        defaultEngine: DownloadEngineKind = .libcurl,
+        urlSessionIdentifier: String? = nil
     ) {
         self.databaseURL = databaseURL
         self.temporaryDirectory = temporaryDirectory
         self.maximumActiveDownloads = maximumActiveDownloads
         self.maximumConnectionsPerDownload = maximumConnectionsPerDownload
         self.updateInterval = updateInterval
+        self.defaultEngine = defaultEngine
+        self.urlSessionIdentifier = urlSessionIdentifier
     }
 }
 
@@ -121,6 +127,7 @@ public struct DownloadSnapshot: Sendable, Codable, Equatable, Identifiable {
     public let lastAttemptAt: Date?
     public let completedAt: Date?
     public let updatedAt: Date
+    public let engine: DownloadEngineKind
 
     public init(
         id: DownloadID,
@@ -139,7 +146,8 @@ public struct DownloadSnapshot: Sendable, Codable, Equatable, Identifiable {
         startedAt: Date? = nil,
         lastAttemptAt: Date? = nil,
         completedAt: Date? = nil,
-        updatedAt: Date = .now
+        updatedAt: Date = .now,
+        engine: DownloadEngineKind = .libcurl
     ) {
         self.id = id
         self.sourceURL = sourceURL
@@ -158,6 +166,7 @@ public struct DownloadSnapshot: Sendable, Codable, Equatable, Identifiable {
         self.lastAttemptAt = lastAttemptAt
         self.completedAt = completedAt
         self.updatedAt = updatedAt
+        self.engine = engine
     }
 }
 

@@ -1,3 +1,4 @@
+#if os(macOS)
 import SDMCore
 import SwiftUI
 
@@ -55,7 +56,8 @@ struct ContentView: View {
         .sheet(isPresented: $showsNewDownload) {
             NewDownloadView(
                 defaultConnectionCount: defaultConnectionCount,
-                destinationDirectory: service.defaultDestinationDirectory
+                destinationDirectory: service.defaultDestinationDirectory,
+                engine: selectedEngineDescriptor
             ) { url, destinationDirectory, connectionCount in
                 _ = try await service.enqueue(
                     url: url,
@@ -201,6 +203,10 @@ struct ContentView: View {
         selectedFilter == .all ? "No Downloads" : "No \(selectedFilter.rawValue)"
     }
 
+    private var selectedEngineDescriptor: DownloadEngineDescriptor {
+        service.selectedEngineDescriptor
+    }
+
     private var emptyDescription: String {
         if selectedFilter == .all {
             return "Add a direct HTTP or HTTPS URL to start a download."
@@ -260,7 +266,9 @@ struct ContentView: View {
                 _ = try await service.enqueue(
                     url: request.url,
                     suggestedFilename: request.suggestedFilename,
-                    connectionCount: defaultConnectionCount
+                    connectionCount: selectedEngineDescriptor.supports(
+                        .multiConnectionTransfers
+                    ) ? defaultConnectionCount : 1
                 )
             } catch {
                 presentedError = PresentedDownloadError(
@@ -366,3 +374,4 @@ private struct DownloadActionsMenu: View {
 #Preview {
     ContentView(service: .preview())
 }
+#endif

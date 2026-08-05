@@ -1,7 +1,6 @@
-import AppKit
 import SafariServices
 
-final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
+final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling, @unchecked Sendable {
     private static let callbackScheme = "swifty-download-manager"
 
     func beginRequest(with context: NSExtensionContext) {
@@ -63,12 +62,15 @@ final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             return
         }
 
-        let accepted = NSWorkspace.shared.open(callbackURL)
-        reply(
-            to: context,
-            accepted: accepted,
-            error: accepted ? nil : "Swifty Download Manager could not be opened."
-        )
+        let contextBox = ExtensionContextBox(context)
+        context.open(callbackURL) { [weak self, contextBox] accepted in
+            guard let self else { return }
+            self.reply(
+                to: contextBox.value,
+                accepted: accepted,
+                error: accepted ? nil : "Swifty Download Manager could not be opened."
+            )
+        }
     }
 
     private func reply(

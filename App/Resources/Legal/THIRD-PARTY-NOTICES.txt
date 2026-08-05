@@ -1,0 +1,38 @@
+Third-Party Notices
+
+Swifty Download Manager links the following third-party software through the
+curl-apple 8.21.0 XCFramework.
+
+Artifact
+- Source: https://github.com/greatfire/curl-apple/releases/tag/8.21.0
+- File: curl.xcframework.zip
+- SHA-256: 56bee7fbef0051707c5b3b4f129f703092df61005da371b9c8a3bd0450a0ae88
+
+Included software
+- curl-apple build and packaging scripts, Copyright (c) 2023-2025 Ian Spence
+  and Benjamin Erhart, licensed under the MIT License.
+- libcurl 8.21.0, Copyright (c) 1996-2026 Daniel Stenberg and contributors,
+  licensed under the curl license.
+- OpenSSL 3.6.0, licensed under the Apache License 2.0.
+- A Mozilla-derived CA certificate data file is present in the upstream
+  XCFramework resources. The Mozilla Public License 2.0 is included for the
+  conservative case where that resource is copied into a distributed bundle.
+  The distributed cacert.pem is the covered source-form data itself; its
+  SHA-256 is 86a1f3366afac7c6f8ae9f3c779ac221129328c43f0ab2b8817eb2f362a5025c.
+  Source and revision information: https://curl.se/docs/caextract.html
+
+On macOS, SDMCore exports the current Apple system trust anchors to a private
+PEM file for libcurl. iOS does not expose its system root certificates, so the
+iOS libcurl backend uses the audited Mozilla-derived CA bundle copied from the
+pinned artifact. URLSession always uses Apple's native trust evaluation.
+
+Complete license texts are distributed next to this notice:
+- Curl-LICENSE.txt
+- CurlApple-LICENSE.txt
+- OpenSSL-LICENSE.txt
+- Mozilla-LICENSE.txt
+
+Open-source license compliance does not replace Apple export-compliance review.
+Because this artifact statically includes OpenSSL, release owners should
+confirm the applicable encryption declaration and documentation for each
+distribution jurisdiction.
