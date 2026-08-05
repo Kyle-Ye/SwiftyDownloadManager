@@ -1,87 +1,120 @@
 import Foundation
-import SDMEngineBridge
 
-/// Actor-isolated owner of the native SDM download engine.
+/// Swift-facing facade that isolates callers from concrete transport engines.
 ///
-/// Keep the manager alive while downloads are active and call ``shutdown()``
-/// during application termination. All file and transport work stays on the
-/// C++ engine thread; snapshots returned here are immutable Swift values.
+/// Both engines stay available for the manager lifetime. Changing the default
+/// only affects newly enqueued downloads; existing downloads continue on the
+/// engine that owns their persistent state.
 public actor DownloadManager {
-    private let configuration: DownloadManagerConfiguration
-    private let bridge: EngineBridge
-    private var pollingTask: Task<Void, Never>?
+    private let backends: [DownloadEngineKind: any DownloadEngineBackend]
+    private var defaultEngine: DownloadEngineKind
+    private var ownerByDownloadID: [DownloadID: DownloadEngineKind] = [:]
+    private var snapshotsByEngine: [DownloadEngineKind: [DownloadSnapshot]] = [:]
     private var continuations: [UUID: AsyncStream<DownloadUpdate>.Continuation] = [:]
-    private var commandResults: [UInt64: UInt32] = [:]
-    private var lastSequence: UInt64 = 0
+    private var observationTasks: [DownloadEngineKind: Task<Void, Never>] = [:]
+    private var sequence: UInt64 = 0
     private var isShutDown = false
 
     public init(configuration: DownloadManagerConfiguration) throws {
-        guard configuration.maximumActiveDownloads > 0,
-              configuration.maximumConnectionsPerDownload > 0 else {
-            throw DownloadError(
-                code: .invalidArgument,
-                message: "Download manager limits must be positive"
-            )
-        }
-        self.configuration = configuration
-        bridge = try EngineBridge(configuration: configuration)
+        let curl = try CurlDownloadBackend(configuration: configuration)
+        let urlSession = try URLSessionDownloadBackend(configuration: configuration)
+        backends = [
+            .libcurl: curl,
+            .urlSession: urlSession,
+        ]
+        defaultEngine = configuration.defaultEngine
     }
 
-    /// Validates and accepts a direct HTTP or HTTPS download.
-    public func enqueue(_ request: DownloadRequest) async throws -> DownloadID {
-        try validate(request)
-        startPollingIfNeeded()
-        let commandID = try bridge.enqueue(request)
-        try await waitForCommand(commandID)
-        return request.id
+    public func engineDescriptors() -> [DownloadEngineDescriptor] {
+        DownloadEngineKind.allCases.compactMap { backends[$0]?.descriptor }
+    }
+
+    public func selectedEngine() -> DownloadEngineKind {
+        defaultEngine
+    }
+
+    public func setDefaultEngine(_ engine: DownloadEngineKind) throws {
+        guard backends[engine] != nil else {
+            throw DownloadError(
+                code: .invalidArgument,
+                message: "The selected download engine is unavailable."
+            )
+        }
+        defaultEngine = engine
+    }
+
+    public func enqueue(
+        _ request: DownloadRequest,
+        using engine: DownloadEngineKind? = nil
+    ) async throws -> DownloadID {
+        try ensureRunning()
+        let selectedEngine = engine ?? defaultEngine
+        guard let backend = backends[selectedEngine] else {
+            throw DownloadError(
+                code: .invalidArgument,
+                message: "The selected download engine is unavailable."
+            )
+        }
+        try await ensureUnique(request.id)
+        let id = try await backend.enqueue(request)
+        ownerByDownloadID[id] = selectedEngine
+        return id
     }
 
     public func pause(_ id: DownloadID) async throws {
-        try await submit(SDM_COMMAND_PAUSE, id: id)
+        try await backend(for: id).pause(id)
     }
 
     public func resume(_ id: DownloadID) async throws {
-        try await submit(SDM_COMMAND_RESUME, id: id)
+        try await backend(for: id).resume(id)
     }
 
     public func cancel(_ id: DownloadID) async throws {
-        try await submit(SDM_COMMAND_CANCEL, id: id)
+        try await backend(for: id).cancel(id)
     }
 
     public func retry(_ id: DownloadID) async throws {
-        try await submit(SDM_COMMAND_RETRY, id: id)
+        try await backend(for: id).retry(id)
     }
 
     public func remove(_ id: DownloadID) async throws {
-        try await submit(SDM_COMMAND_REMOVE, id: id)
+        let owner = try await ownerKind(for: id)
+        guard let backend = backends[owner] else {
+            throw DownloadError(code: .notFound, message: "Download was not found")
+        }
+        try await backend.remove(id)
+        ownerByDownloadID[id] = nil
     }
 
-    /// Returns the engine's latest value snapshot for one download.
-    public func snapshot(for id: DownloadID) throws -> DownloadSnapshot {
-        try bridge.snapshot(for: id)
+    public func snapshot(for id: DownloadID) async throws -> DownloadSnapshot {
+        try await backend(for: id).snapshot(for: id)
     }
 
-    /// Returns the latest snapshots ordered by their update timestamp.
-    public func allSnapshots() throws -> [DownloadSnapshot] {
-        try bridge.allSnapshots()
+    public func allSnapshots() async throws -> [DownloadSnapshot] {
+        try ensureRunning()
+        var result: [DownloadSnapshot] = []
+        for kind in DownloadEngineKind.allCases {
+            guard let backend = backends[kind] else { continue }
+            let snapshots = try await backend.allSnapshots()
+            for snapshot in snapshots {
+                ownerByDownloadID[snapshot.id] = kind
+            }
+            result.append(contentsOf: snapshots)
+        }
+        return result.sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    /// Returns the bounded persistent diagnostic history for one download.
-    public func diagnosticEvents(for id: DownloadID) throws -> [DownloadDiagnosticEvent] {
-        try bridge.diagnosticEvents(for: id)
+    public func diagnosticEvents(for id: DownloadID) async throws -> [DownloadDiagnosticEvent] {
+        try await backend(for: id).diagnosticEvents(for: id)
     }
 
-    /// Produces coalesced newest-value updates suitable for a UI subscriber.
     public func updates() -> AsyncStream<DownloadUpdate> {
-        startPollingIfNeeded()
+        startObservingIfNeeded()
         let token = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             continuations[token] = continuation
-            if let snapshots = try? bridge.allSnapshots(), !snapshots.isEmpty {
-                continuation.yield(DownloadUpdate(
-                    sequence: lastSequence,
-                    snapshots: snapshots
-                ))
+            Task { [weak self] in
+                await self?.broadcastCurrentSnapshots()
             }
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.removeContinuation(token) }
@@ -89,108 +122,116 @@ public actor DownloadManager {
         }
     }
 
-    /// Stops polling, joins the engine thread, and finishes update streams.
     public func shutdown() async {
         guard !isShutDown else { return }
         isShutDown = true
-        pollingTask?.cancel()
-        pollingTask = nil
-        bridge.shutdown()
+        for task in observationTasks.values {
+            task.cancel()
+        }
+        observationTasks.removeAll()
+        for backend in backends.values {
+            await backend.shutdown()
+        }
         for continuation in continuations.values {
             continuation.finish()
         }
         continuations.removeAll()
-        commandResults.removeAll()
     }
 
-    private func submit(_ command: sdm_command_t, id: DownloadID) async throws {
-        guard !isShutDown else {
-            throw DownloadError(code: .shuttingDown, message: "Engine is shut down")
+    private func backend(for id: DownloadID) async throws -> any DownloadEngineBackend {
+        let kind = try await ownerKind(for: id)
+        guard let backend = backends[kind] else {
+            throw DownloadError(code: .notFound, message: "Download was not found")
         }
-        startPollingIfNeeded()
-        let commandID = try bridge.submit(command, id: id)
-        try await waitForCommand(commandID)
+        return backend
     }
 
-    private func waitForCommand(_ commandID: UInt64) async throws {
-        while !Task.isCancelled {
-            try pollOnce()
-            if let result = commandResults.removeValue(forKey: commandID) {
-                guard result == 0 else {
-                    throw DownloadError(
-                        code: DownloadErrorCode(rawValue: result) ?? .internalFailure,
-                        message: "Engine rejected command \(commandID)"
-                    )
+    private func ownerKind(for id: DownloadID) async throws -> DownloadEngineKind {
+        try ensureRunning()
+        if let owner = ownerByDownloadID[id] {
+            return owner
+        }
+        for kind in DownloadEngineKind.allCases {
+            guard let backend = backends[kind] else { continue }
+            do {
+                _ = try await backend.snapshot(for: id)
+                ownerByDownloadID[id] = kind
+                return kind
+            } catch let error as DownloadError where error.code == .notFound {
+                continue
+            }
+        }
+        throw DownloadError(code: .notFound, message: "Download was not found")
+    }
+
+    private func ensureUnique(_ id: DownloadID) async throws {
+        for backend in backends.values {
+            do {
+                _ = try await backend.snapshot(for: id)
+                throw DownloadError(
+                    code: .invalidArgument,
+                    message: "Download ID already exists"
+                )
+            } catch let error as DownloadError where error.code == .notFound {
+                continue
+            }
+        }
+    }
+
+    private func startObservingIfNeeded() {
+        guard observationTasks.isEmpty, !isShutDown else { return }
+        for (kind, backend) in backends {
+            observationTasks[kind] = Task { [weak self] in
+                let stream = await backend.updates()
+                for await update in stream {
+                    guard !Task.isCancelled else { return }
+                    await self?.ingest(update.snapshots, from: kind)
                 }
-                return
-            }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        throw CancellationError()
-    }
-
-    private func startPollingIfNeeded() {
-        guard pollingTask == nil, !isShutDown else { return }
-        let interval = configuration.updateInterval
-        pollingTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await self?.pollFromTask()
-                    try await Task.sleep(for: interval)
-                } catch is CancellationError {
-                    return
-                } catch {
-                    try? await Task.sleep(for: .milliseconds(100))
-                }
             }
         }
     }
 
-    private func pollFromTask() throws {
-        try pollOnce()
+    private func ingest(
+        _ snapshots: [DownloadSnapshot],
+        from engine: DownloadEngineKind
+    ) {
+        snapshotsByEngine[engine] = snapshots
+        for snapshot in snapshots {
+            ownerByDownloadID[snapshot.id] = engine
+        }
+        broadcastCachedSnapshots()
     }
 
-    private func pollOnce() throws {
-        let events = try bridge.pollEvents()
-        guard !events.isEmpty else { return }
-
-        for event in events {
-            lastSequence = max(lastSequence, event.sequence)
-            if event.kind == .commandResult {
-                commandResults[event.commandID] = event.result
+    private func broadcastCurrentSnapshots() async {
+        for kind in DownloadEngineKind.allCases {
+            guard let backend = backends[kind],
+                  let snapshots = try? await backend.allSnapshots() else { continue }
+            snapshotsByEngine[kind] = snapshots
+            for snapshot in snapshots {
+                ownerByDownloadID[snapshot.id] = kind
             }
         }
+        broadcastCachedSnapshots()
+    }
 
-        guard events.contains(where: {
-            $0.kind == .snapshotChanged || $0.kind == .removed || $0.kind == .engineReady
-        }) else { return }
-        let update = DownloadUpdate(
-            sequence: lastSequence,
-            snapshots: try bridge.allSnapshots()
-        )
+    private func broadcastCachedSnapshots() {
+        sequence &+= 1
+        let snapshots = snapshotsByEngine.values
+            .flatMap { $0 }
+            .sorted { $0.updatedAt > $1.updatedAt }
+        let update = DownloadUpdate(sequence: sequence, snapshots: snapshots)
         for continuation in continuations.values {
             continuation.yield(update)
         }
     }
 
     private func removeContinuation(_ token: UUID) {
-        continuations.removeValue(forKey: token)
+        continuations[token] = nil
     }
 
-    private func validate(_ request: DownloadRequest) throws {
+    private func ensureRunning() throws {
         guard !isShutDown else {
-            throw DownloadError(code: .shuttingDown, message: "Engine is shut down")
-        }
-        guard let scheme = request.url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              request.url.host != nil,
-              request.destinationDirectory.isFileURL,
-              request.connectionLimit > 0,
-              request.connectionLimit <= configuration.maximumConnectionsPerDownload else {
-            throw DownloadError(
-                code: .invalidArgument,
-                message: "Download request is invalid"
-            )
+            throw DownloadError(code: .shuttingDown, message: "Download manager is shut down")
         }
     }
 }

@@ -12,8 +12,15 @@ struct DownloadLogView: View {
                 Text("Up to 500 recent events")
                     .foregroundStyle(.secondary)
                 Spacer()
+                #if os(macOS)
                 Button("Copy Log", systemImage: "doc.on.doc", action: copyLog)
                     .disabled(entries.isEmpty)
+                #else
+                ShareLink(item: logText) {
+                    Label("Share Log", systemImage: "square.and.arrow.up")
+                }
+                .disabled(entries.isEmpty)
+                #endif
             }
             .padding(.horizontal)
             .padding(.bottom, 8)
@@ -45,15 +52,20 @@ struct DownloadLogView: View {
         }
     }
 
-    private func copyLog() {
-        let text = entries.map { entry in
+    private var logText: String {
+        entries.map { entry in
             let timestamp = entry.timestamp.formatted(
                 .dateTime.year().month().day().hour().minute().second()
             )
             return "\(timestamp) [\(entry.level.title.uppercased())] \(entry.message)"
         }
         .joined(separator: "\n")
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
+
+    #if os(macOS)
+    private func copyLog() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(logText, forType: .string)
+    }
+    #endif
 }

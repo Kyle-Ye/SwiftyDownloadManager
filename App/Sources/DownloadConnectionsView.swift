@@ -9,9 +9,14 @@ struct DownloadConnectionsView: View {
             ContentUnavailableView {
                 Label("No Connection Details", systemImage: "point.3.connected.trianglepath.dotted")
             } description: {
-                Text("Segment information appears after the server has been probed.")
+                if snapshot.engine == .urlSession {
+                    Text("URLSession manages transfer connections internally.")
+                } else {
+                    Text("Segment information appears after the server has been probed.")
+                }
             }
         } else {
+            #if os(macOS)
             Table(snapshot.segments) {
                 TableColumn("#") { segment in
                     Text(segment.ordinal + 1, format: .number)
@@ -42,6 +47,12 @@ struct DownloadConnectionsView: View {
                 }
                 .width(min: 150, ideal: 200)
             }
+            #else
+            List(snapshot.segments) { segment in
+                MobileDownloadSegmentRow(segment: segment)
+            }
+            .listStyle(.insetGrouped)
+            #endif
         }
     }
 }

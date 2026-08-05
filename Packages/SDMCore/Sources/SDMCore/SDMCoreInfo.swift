@@ -10,4 +10,11 @@ public enum SDMCoreInfo: Sendable {
 
         return String(cString: version)
     }
+
+    public static var libcurlVersion: String {
+        guard let version = sdm_curl_version() else {
+            return "unknown"
+        }
+        return String(cString: version)
+    }
 }

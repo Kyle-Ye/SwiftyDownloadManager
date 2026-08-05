@@ -16,12 +16,12 @@ let project = Project(
     targets: [
         .target(
             name: "SDMApp",
-            destinations: .macOS,
+            destinations: [.iPhone, .iPad, .mac],
             product: .app,
             bundleId: "top.kyleye.swifty-download-manager-app",
-            deploymentTargets: .macOS("14.0"),
+            deploymentTargets: .multiplatform(iOS: "17.0", macOS: "14.0"),
             infoPlist: .dictionary([
-                "CFBundleDevelopmentRegion": "en",
+                "CFBundleDevelopmentRegion": "$(DEVELOPMENT_LANGUAGE)",
                 "CFBundleDisplayName": "Swifty Download Manager",
                 "CFBundleExecutable": "$(EXECUTABLE_NAME)",
                 "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
@@ -38,34 +38,53 @@ let project = Project(
                 ],
                 "CFBundleVersion": "3",
                 "LSApplicationCategoryType": "public.app-category.productivity",
-                "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
-                "NSPrincipalClass": "NSApplication",
+                "LSSupportsOpeningDocumentsInPlace": true,
+                "NSAppTransportSecurity": [
+                    "NSAllowsArbitraryLoads": true,
+                ],
+                "UIFileSharingEnabled": true,
+                "UILaunchScreen": [:],
+                "UISupportedInterfaceOrientations": [
+                    "UIInterfaceOrientationPortrait",
+                    "UIInterfaceOrientationLandscapeLeft",
+                    "UIInterfaceOrientationLandscapeRight",
+                ],
+                "UISupportedInterfaceOrientations~ipad": [
+                    "UIInterfaceOrientationPortrait",
+                    "UIInterfaceOrientationPortraitUpsideDown",
+                    "UIInterfaceOrientationLandscapeLeft",
+                    "UIInterfaceOrientationLandscapeRight",
+                ],
             ]),
             buildableFolders: [
                 "App/Sources",
                 "App/Resources",
             ],
-            entitlements: .file(path: "App/Support/SDMApp.entitlements"),
             dependencies: [
                 .target(name: "SDMSafariExtension"),
                 .external(name: "SDMCore"),
             ],
             settings: .settings(base: [
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+                "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": "App/Support/SDMApp.entitlements",
+                "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": "App/Support/SDMApp-iOS.entitlements",
                 "DEVELOPMENT_TEAM": "VB7MJ8R223",
-                "ENABLE_HARDENED_RUNTIME": "YES",
+                "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": "YES",
                 "EXECUTABLE_NAME": "SDMApp",
                 "PRODUCT_MODULE_NAME": "SDMApp",
                 "PRODUCT_NAME": "Swifty Download Manager",
+                "TARGETED_DEVICE_FAMILY[sdk=iphone*]": "1,2",
             ], configurations: [
                 .debug(name: "Debug", settings: [
                     "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
+                    "CODE_SIGN_IDENTITY[sdk=iphoneos*]": "Apple Development",
                     "CODE_SIGN_STYLE": "Automatic",
                 ]),
                 .release(name: "Release", settings: [
                     "CODE_SIGN_IDENTITY[sdk=macosx*]": "Developer ID Application",
-                    "CODE_SIGN_INJECT_BASE_ENTITLEMENTS": "NO",
-                    "CODE_SIGN_STYLE": "Manual",
+                    "CODE_SIGN_INJECT_BASE_ENTITLEMENTS[sdk=macosx*]": "NO",
+                    "CODE_SIGN_STYLE[sdk=iphoneos*]": "Automatic",
+                    "CODE_SIGN_STYLE[sdk=macosx*]": "Manual",
                 ]),
             ]),
             metadata: .metadata(tags: [
@@ -75,12 +94,12 @@ let project = Project(
         ),
         .target(
             name: "SDMSafariExtension",
-            destinations: .macOS,
+            destinations: [.iPhone, .iPad, .mac],
             product: .appExtension,
             bundleId: "top.kyleye.swifty-download-manager-app.safari-extension",
-            deploymentTargets: .macOS("14.0"),
+            deploymentTargets: .multiplatform(iOS: "17.0", macOS: "14.0"),
             infoPlist: .dictionary([
-                "CFBundleDevelopmentRegion": "en",
+                "CFBundleDevelopmentRegion": "$(DEVELOPMENT_LANGUAGE)",
                 "CFBundleDisplayName": "Swifty Download Manager Extension",
                 "CFBundleExecutable": "$(EXECUTABLE_NAME)",
                 "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
@@ -89,7 +108,6 @@ let project = Project(
                 "CFBundlePackageType": "XPC!",
                 "CFBundleShortVersionString": "0.2.1",
                 "CFBundleVersion": "3",
-                "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
                 "NSExtension": [
                     "NSExtensionPointIdentifier": "com.apple.Safari.web-extension",
                     "NSExtensionPrincipalClass": "$(PRODUCT_MODULE_NAME).SafariWebExtensionHandler",
@@ -99,22 +117,26 @@ let project = Project(
                 "SafariExtension/Sources",
                 "SafariExtension/Resources",
             ],
-            entitlements: .file(path: "SafariExtension/Support/SDMSafariExtension.entitlements"),
             settings: .settings(base: [
                 "APPLICATION_EXTENSION_API_ONLY": "YES",
+                "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": "SafariExtension/Support/SDMSafariExtension.entitlements",
+                "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": "SafariExtension/Support/SDMSafariExtension-iOS.entitlements",
                 "DEVELOPMENT_TEAM": "VB7MJ8R223",
-                "ENABLE_HARDENED_RUNTIME": "YES",
+                "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": "YES",
                 "PRODUCT_NAME": "Swifty Download Manager Extension",
                 "SKIP_INSTALL": "YES",
+                "TARGETED_DEVICE_FAMILY[sdk=iphone*]": "1,2",
             ], configurations: [
                 .debug(name: "Debug", settings: [
                     "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
+                    "CODE_SIGN_IDENTITY[sdk=iphoneos*]": "Apple Development",
                     "CODE_SIGN_STYLE": "Automatic",
                 ]),
                 .release(name: "Release", settings: [
                     "CODE_SIGN_IDENTITY[sdk=macosx*]": "Developer ID Application",
-                    "CODE_SIGN_INJECT_BASE_ENTITLEMENTS": "NO",
-                    "CODE_SIGN_STYLE": "Manual",
+                    "CODE_SIGN_INJECT_BASE_ENTITLEMENTS[sdk=macosx*]": "NO",
+                    "CODE_SIGN_STYLE[sdk=iphoneos*]": "Automatic",
+                    "CODE_SIGN_STYLE[sdk=macosx*]": "Manual",
                 ]),
             ]),
             metadata: .metadata(tags: [
@@ -133,6 +155,11 @@ let project = Project(
             dependencies: [
                 .target(name: "SDMApp"),
             ],
+            settings: .settings(base: [
+                "CODE_SIGN_IDENTITY": "Apple Development",
+                "CODE_SIGN_STYLE": "Automatic",
+                "DEVELOPMENT_TEAM": "VB7MJ8R223",
+            ]),
             metadata: .metadata(tags: [
                 "tag:feature:downloads",
                 "tag:layer:tests",

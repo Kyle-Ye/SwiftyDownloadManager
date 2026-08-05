@@ -17,7 +17,7 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-inline constexpr std::uint32_t engine_abi_version = 2;
+inline constexpr std::uint32_t engine_abi_version = 3;
 
 enum class EventKind : std::uint32_t {
     command_result = 0,
@@ -36,6 +36,7 @@ enum class DiagnosticLevel : std::uint32_t {
 struct EngineConfig final {
     std::string database_path;
     std::string temporary_directory;
+    std::string certificate_authority_bundle;
     std::uint32_t maximum_active_downloads = 2;
     std::uint32_t maximum_connections_per_download = 16;
 };

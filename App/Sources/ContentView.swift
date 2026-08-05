@@ -1,3 +1,4 @@
+#if os(macOS)
 import SDMCore
 import SwiftUI
 
@@ -35,18 +36,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(DownloadFilter.allCases, selection: $selection) { filter in
-                HStack {
-                    Label(filter.rawValue, systemImage: filter.systemImage)
-                    Spacer()
-                    Text(filterCount(filter), format: .number)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                .tag(filter)
-            }
-            .navigationTitle("Downloads")
-            .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 280)
+            DownloadSidebar(snapshots: service.snapshots, selection: $selection)
         } detail: {
             detail
                 .navigationTitle(selectedFilter.rawValue)
@@ -55,7 +45,8 @@ struct ContentView: View {
         .sheet(isPresented: $showsNewDownload) {
             NewDownloadView(
                 defaultConnectionCount: defaultConnectionCount,
-                destinationDirectory: service.defaultDestinationDirectory
+                destinationDirectory: service.defaultDestinationDirectory,
+                engine: selectedEngineDescriptor
             ) { url, destinationDirectory, connectionCount in
                 _ = try await service.enqueue(
                     url: url,
@@ -201,15 +192,15 @@ struct ContentView: View {
         selectedFilter == .all ? "No Downloads" : "No \(selectedFilter.rawValue)"
     }
 
+    private var selectedEngineDescriptor: DownloadEngineDescriptor {
+        service.selectedEngineDescriptor
+    }
+
     private var emptyDescription: String {
         if selectedFilter == .all {
             return "Add a direct HTTP or HTTPS URL to start a download."
         }
         return "Downloads matching this filter will appear here."
-    }
-
-    private func filterCount(_ filter: DownloadFilter) -> Int {
-        service.snapshots.count { filter.includes($0.state) }
     }
 
     private func perform(_ command: DownloadCommand, on id: DownloadID) {
@@ -260,7 +251,9 @@ struct ContentView: View {
                 _ = try await service.enqueue(
                     url: request.url,
                     suggestedFilename: request.suggestedFilename,
-                    connectionCount: defaultConnectionCount
+                    connectionCount: selectedEngineDescriptor.supports(
+                        .multiConnectionTransfers
+                    ) ? defaultConnectionCount : 1
                 )
             } catch {
                 presentedError = PresentedDownloadError(
@@ -366,3 +359,4 @@ private struct DownloadActionsMenu: View {
 #Preview {
     ContentView(service: .preview())
 }
+#endif

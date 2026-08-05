@@ -25,19 +25,27 @@ final class EngineBridge: @unchecked Sendable {
         var createdHandle: OpaquePointer?
         let databasePath = configuration.databaseURL.path(percentEncoded: false)
         let temporaryPath = configuration.temporaryDirectory.path(percentEncoded: false)
+        let certificateAuthorityBundle = try CertificateAuthorityBundle.write(
+            to: configuration.databaseURL.deletingLastPathComponent()
+        ).path(percentEncoded: false)
 
         let result = Self.withStringView(databasePath) { databaseView in
             Self.withStringView(temporaryPath) { temporaryView in
-                var config = sdm_engine_config_t()
-                config.struct_size = UInt32(MemoryLayout<sdm_engine_config_t>.size)
-                config.abi_version = sdm_engine_abi_version()
-                config.database_path = databaseView
-                config.temporary_directory = temporaryView
-                config.maximum_active_downloads = UInt32(configuration.maximumActiveDownloads)
-                config.maximum_connections_per_download = UInt32(
-                    configuration.maximumConnectionsPerDownload
-                )
-                return sdm_engine_create(&config, &createdHandle)
+                Self.withStringView(certificateAuthorityBundle) { certificateView in
+                    var config = sdm_engine_config_t()
+                    config.struct_size = UInt32(MemoryLayout<sdm_engine_config_t>.size)
+                    config.abi_version = sdm_engine_abi_version()
+                    config.database_path = databaseView
+                    config.temporary_directory = temporaryView
+                    config.certificate_authority_bundle = certificateView
+                    config.maximum_active_downloads = UInt32(
+                        configuration.maximumActiveDownloads
+                    )
+                    config.maximum_connections_per_download = UInt32(
+                        configuration.maximumConnectionsPerDownload
+                    )
+                    return sdm_engine_create(&config, &createdHandle)
+                }
             }
         }
         try Self.check(result, operation: "create engine")

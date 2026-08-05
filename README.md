@@ -1,9 +1,10 @@
 # Swifty Download Manager
 
-Swifty Download Manager (SDM) is a native macOS multi-connection download
+Swifty Download Manager (SDM) is a native macOS, iOS, and iPadOS download
 manager. The application UI is built with Swift and SwiftUI. Its download
-engine is implemented in C++ and distributed to the app through a local
-SwiftPM package and a Tuist-generated Xcode project.
+stack offers a C++/libcurl engine and a native URLSession engine behind one
+Swift API, distributed through local SwiftPM packages and a Tuist-generated
+Xcode project.
 
 The core download stack now supports HTTP probing, single and segmented Range
 transfers, pause/resume/cancel/retry, bounded scheduling and bandwidth,
@@ -15,12 +16,29 @@ per-connection progress, lifecycle controls, and a bounded persistent activity
 history. Project planning is maintained outside the application repository in
 the surrounding workspace.
 
+## Download engines
+
+Choose the default engine in Settings. Switching affects new downloads only;
+existing tasks remain attached to the engine that created them.
+
+| Capability | libcurl | URLSession |
+| --- | --- | --- |
+| Multi-connection Range transfers | Yes | No |
+| Per-download bandwidth limit | Yes | No |
+| Persistent recovery | Yes | Yes |
+| Native background transfer | No | Yes |
+| Certificate trust | Apple roots on macOS; audited CA bundle on iOS | Apple system trust |
+
+Unsupported combinations return `DownloadErrorCode.unsupportedFeature` instead
+of silently changing behavior. The app automatically uses one connection when
+URLSession is selected.
+
 ## Download history
 
-SQLite is the single source of truth for tasks, segment checkpoints, lifecycle
-timestamps, and diagnostic events. The signed sandboxed app stores the database
-and partial downloads below its own Application Support container; absolute
-container paths are resolved at runtime and are never hard-coded.
+The libcurl engine stores tasks, segment checkpoints, lifecycle timestamps, and
+diagnostics in SQLite. URLSession keeps its state and opaque resume data in a
+separate JSON store. The manager merges both histories for the UI. All state is
+stored below the sandboxed app's Application Support container.
 
 Completed, failed, cancelled, and paused tasks remain until the user chooses
 **Remove from History**. Removing history also removes partial data and
@@ -39,6 +57,11 @@ xcodebuild build \
   -workspace SDM.xcworkspace \
   -scheme SDMApp \
   -destination 'platform=macOS,arch=arm64'
+
+xcodebuild build \
+  -workspace SDM.xcworkspace \
+  -scheme SDMApp \
+  -destination 'generic/platform=iOS Simulator'
 ```
 
 Run the complete local validation suite:
@@ -55,7 +78,7 @@ archive, App packaging, GitHub Release, and post-release development workflow.
 
 ## Safari extension
 
-The macOS app embeds a Safari Web Extension that sends direct HTTP and HTTPS
+The macOS, iOS, and iPadOS apps embed a Safari Web Extension that sends direct HTTP and HTTPS
 download links to SDM. Run the containing app once, open **Settings > Safari
 Extension**, enable it in Safari, and grant access to the websites where it
 should operate. Links with a `download` attribute and common downloadable file
@@ -84,6 +107,9 @@ for configuration, Range behavior, and test commands.
 Applications import only `SDMCore`; C++, libcurl, SQLite, worker threads, and
 file descriptors remain behind its C ABI. See [`Docs/SDMCore.md`](Docs/SDMCore.md)
 for lifecycle and integration guidance.
+
+The pinned libcurl binary and all redistribution notices are documented in
+[`Docs/ThirdPartyLicensing.md`](Docs/ThirdPartyLicensing.md).
 
 ## Naming
 

@@ -37,7 +37,7 @@ final class DestinationBookmarkStore {
         let previousBookmark = bookmarksByPath[path]
         do {
             let bookmark = try standardizedURL.bookmarkData(
-                options: .withSecurityScope,
+                options: Self.bookmarkCreationOptions,
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
@@ -70,7 +70,7 @@ final class DestinationBookmarkStore {
             var isStale = false
             let url = try URL(
                 resolvingBookmarkData: bookmark,
-                options: [.withSecurityScope, .withoutUI],
+                options: Self.bookmarkResolutionOptions,
                 relativeTo: nil,
                 bookmarkDataIsStale: &isStale
             )
@@ -80,7 +80,7 @@ final class DestinationBookmarkStore {
             }
             if isStale {
                 refreshedBookmarks[storedPath] = try standardizedURL.bookmarkData(
-                    options: .withSecurityScope,
+                    options: Self.bookmarkCreationOptions,
                     includingResourceValuesForKeys: nil,
                     relativeTo: nil
                 )
@@ -98,5 +98,21 @@ final class DestinationBookmarkStore {
             .sorted { $0.path < $1.path }
         let data = try PropertyListEncoder().encode(records)
         try data.write(to: storeURL, options: .atomic)
+    }
+
+    private static var bookmarkCreationOptions: URL.BookmarkCreationOptions {
+        #if os(macOS)
+        .withSecurityScope
+        #else
+        []
+        #endif
+    }
+
+    private static var bookmarkResolutionOptions: URL.BookmarkResolutionOptions {
+        #if os(macOS)
+        [.withSecurityScope, .withoutUI]
+        #else
+        [.withoutUI]
+        #endif
     }
 }

@@ -51,10 +51,15 @@ struct AppStoragePaths: Sendable, Equatable {
         )
     }
 
-    var managerConfiguration: DownloadManagerConfiguration {
+    func managerConfiguration(
+        defaultEngine: DownloadEngineKind = .libcurl,
+        urlSessionIdentifier: String? = nil
+    ) -> DownloadManagerConfiguration {
         DownloadManagerConfiguration(
             databaseURL: databaseURL,
-            temporaryDirectory: partialDownloadsDirectory
+            temporaryDirectory: partialDownloadsDirectory,
+            defaultEngine: defaultEngine,
+            urlSessionIdentifier: urlSessionIdentifier
         )
     }
 

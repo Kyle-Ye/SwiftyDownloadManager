@@ -10,6 +10,7 @@ public enum DownloadErrorCode: UInt32, Sendable, Codable, CaseIterable {
     case persistence = 7
     case shuttingDown = 8
     case internalFailure = 9
+    case unsupportedFeature = 10
 }
 
 public struct DownloadError: Error, Sendable, Codable, Equatable {

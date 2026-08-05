@@ -2,6 +2,8 @@
 
 #include "SDMEngine.h"
 
+#include <curl/curl.h>
+
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -109,6 +111,10 @@ const char *sdm_engine_version(void) {
     return sdm::Engine::version().data();
 }
 
+const char *sdm_curl_version(void) {
+    return curl_version();
+}
+
 sdm_result_t sdm_engine_create(
     const sdm_engine_config_t *config,
     sdm_engine_t **out_engine
@@ -129,6 +135,9 @@ sdm_result_t sdm_engine_create(
         wrapper->value = std::make_unique<sdm::Engine>(sdm::EngineConfig{
             .database_path = copy_string(config->database_path),
             .temporary_directory = copy_string(config->temporary_directory),
+            .certificate_authority_bundle = copy_string(
+                config->certificate_authority_bundle
+            ),
             .maximum_active_downloads = config->maximum_active_downloads,
             .maximum_connections_per_download =
                 config->maximum_connections_per_download,

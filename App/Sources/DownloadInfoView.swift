@@ -63,7 +63,9 @@ struct DownloadInfoView: View {
                 }
             }
         }
+        #if os(macOS)
         .frame(minWidth: 720, minHeight: 560)
+        #endif
         .task(id: downloadID) {
             await service.refreshLogs(for: downloadID)
         }

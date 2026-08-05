@@ -1,0 +1,68 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+body {
+  align-items: center;
+  background: Canvas;
+  color: CanvasText;
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  min-height: 100vh;
+  padding: 24px;
+  text-align: center;
+}
+
+main {
+  max-width: 520px;
+  width: 100%;
+}
+
+.icon {
+  align-items: center;
+  background: #0a84ff;
+  border-radius: 22px;
+  color: white;
+  display: inline-flex;
+  font-size: 48px;
+  height: 88px;
+  justify-content: center;
+  width: 88px;
+}
+
+h1 {
+  font-size: 32px;
+  margin: 24px 0 12px;
+}
+
+.explanation {
+  color: GrayText;
+  font-size: 18px;
+  line-height: 1.45;
+  margin: 0 auto;
+}
+
+.download-url {
+  color: GrayText;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  margin: 24px 0;
+  overflow-wrap: anywhere;
+}
+
+.primary-action {
+  background: #0a84ff;
+  border-radius: 14px;
+  color: white;
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  padding: 14px 18px;
+  text-decoration: none;
+}
+
+.error {
+  color: #ff453a;
+}

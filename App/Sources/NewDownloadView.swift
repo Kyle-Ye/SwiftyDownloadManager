@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import SDMCore
 
 struct NewDownloadView: View {
     @Environment(\.dismiss) private var dismiss
@@ -9,16 +10,19 @@ struct NewDownloadView: View {
     @State private var errorMessage: String?
     @State private var showsDestinationPicker = false
     @State private var destinationDirectory: URL
+    let engine: DownloadEngineDescriptor
 
     private let onSubmit: @MainActor (URL, URL, Int) async throws -> Void
 
     init(
         defaultConnectionCount: Int,
         destinationDirectory: URL,
+        engine: DownloadEngineDescriptor,
         onSubmit: @escaping @MainActor (URL, URL, Int) async throws -> Void
     ) {
         _connectionCount = State(initialValue: defaultConnectionCount)
         _destinationDirectory = State(initialValue: destinationDirectory)
+        self.engine = engine
         self.onSubmit = onSubmit
     }
 
@@ -42,7 +46,17 @@ struct NewDownloadView: View {
                 TextField("URL", text: $urlText, prompt: Text("https://example.com/file.zip"))
                     .textFieldStyle(.roundedBorder)
 
-                Stepper("Connections: \(connectionCount)", value: $connectionCount, in: 1 ... 16)
+                LabeledContent("Engine", value: engine.kind.title)
+
+                if engine.supports(.multiConnectionTransfers) {
+                    Stepper(
+                        "Connections: \(connectionCount)",
+                        value: $connectionCount,
+                        in: 1 ... engine.maximumConnectionsPerDownload
+                    )
+                } else {
+                    LabeledContent("Connections", value: "Managed by URLSession")
+                }
 
                 LabeledContent("Destination") {
                     HStack {
@@ -84,7 +98,7 @@ struct NewDownloadView: View {
                             try await onSubmit(
                                 validatedURL,
                                 destinationDirectory,
-                                connectionCount
+                                effectiveConnectionCount
                             )
                             dismiss()
                         } catch {
@@ -102,7 +116,9 @@ struct NewDownloadView: View {
             }
         }
         .padding(24)
+        #if os(macOS)
         .frame(width: 560)
+        #endif
         .interactiveDismissDisabled(isSubmitting)
         .fileImporter(
             isPresented: $showsDestinationPicker,
@@ -116,11 +132,21 @@ struct NewDownloadView: View {
             }
         }
     }
+
+    private var effectiveConnectionCount: Int {
+        engine.supports(.multiConnectionTransfers) ? connectionCount : 1
+    }
 }
 
 #Preview {
     NewDownloadView(
         defaultConnectionCount: 8,
-        destinationDirectory: FileManager.default.temporaryDirectory
+        destinationDirectory: FileManager.default.temporaryDirectory,
+        engine: DownloadEngineDescriptor(
+            kind: .libcurl,
+            version: "8.21.0",
+            features: [.multiConnectionTransfers],
+            maximumConnectionsPerDownload: 16
+        )
     ) { _, _, _ in }
 }

@@ -3,12 +3,18 @@ import SwiftUI
 
 @main
 struct SDMApp: App {
+    #if os(macOS)
     @NSApplicationDelegateAdaptor(SDMApplicationDelegate.self)
     private var applicationDelegate
+    #else
+    @UIApplicationDelegateAdaptor(SDMApplicationDelegate.self)
+    private var applicationDelegate
+    #endif
     @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
     @State private var downloadService = DownloadService.live()
 
     var body: some Scene {
+        #if os(macOS)
         Window("Swifty Download Manager", id: AppWindowID.main) {
             ContentView(service: downloadService)
         }
@@ -37,7 +43,12 @@ struct SDMApp: App {
         .defaultSize(width: 760, height: 620)
 
         Settings {
-            SettingsView(databaseURL: downloadService.databaseURL)
+            SettingsView(service: downloadService)
         }
+        #else
+        WindowGroup {
+            MobileContentView(service: downloadService)
+        }
+        #endif
     }
 }
