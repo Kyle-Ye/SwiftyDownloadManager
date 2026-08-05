@@ -67,9 +67,15 @@ struct SettingsView: View {
                         .foregroundStyle(extensionStatusColor)
                 }
 
+                #if os(macOS)
                 Text("Enable the extension in Safari, then allow website access. Download links and the Download with SDM context menu will send supported HTTP and HTTPS files to SDM.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                #else
+                Text("Enable the extension in Safari, then set Website Access to Allow on All Websites. Supported HTTP and HTTPS download links will open in SDM.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                #endif
 
                 Button("Open Safari Extension Settings") {
                     SafariExtensionSupport.showPreferences()

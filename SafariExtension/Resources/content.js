@@ -1,5 +1,5 @@
 (() => {
-  const extensionAPI = globalThis.browser ?? globalThis.chrome;
+  const callbackScheme = "swifty-download-manager";
   const downloadableExtensions = new Set([
     "7z", "aac", "apk", "app", "arc", "arj", "avi", "bin", "bz2", "cab",
     "csv", "dmg", "doc", "docx", "epub", "exe", "flac", "gz", "img", "iso",
@@ -45,12 +45,14 @@
     return value || undefined;
   }
 
-  function resumeNavigation(link, url) {
-    if (link.target === "_blank") {
-      window.open(url.href, "_blank", "noopener");
-    } else {
-      window.location.assign(url.href);
+  function callbackURL(host, queryItems = {}) {
+    const url = new URL(`${callbackScheme}://${host}`);
+    for (const [name, value] of Object.entries(queryItems)) {
+      if (typeof value === "string" && value.length > 0) {
+        url.searchParams.set(name, value);
+      }
     }
+    return url.href;
   }
 
   document.addEventListener("click", (event) => {
@@ -71,20 +73,17 @@
       return;
     }
 
-    event.preventDefault();
-    event.stopImmediatePropagation();
-
-    Promise.resolve(extensionAPI.runtime.sendMessage({
-      type: "captureDownload",
+    const filename = suggestedFilename(link);
+    link.href = callbackURL("download", {
       url: url.href,
-      filename: suggestedFilename(link),
-      sourcePage: window.location.href,
-    })).then((response) => {
-      if (!response?.accepted) {
-        resumeNavigation(link, url);
-      }
-    }).catch(() => {
-      resumeNavigation(link, url);
+      filename,
+      source: window.location.href,
     });
+    link.target = "_self";
+    if (link instanceof HTMLAnchorElement) {
+      link.removeAttribute("download");
+    }
+
+    event.stopImmediatePropagation();
   }, true);
 })();
