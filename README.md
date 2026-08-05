@@ -95,6 +95,23 @@ for lifecycle and integration guidance.
 - Framework bundle identifier: `top.kyleye.swifty-download-manager`
 - App bundle identifier: `top.kyleye.swifty-download-manager-app`
 
+## License
+
+The source code and documentation in this repository are available under the
+[Functional Source License, Version 1.1, MIT Future License](LICENSE.md). You
+may use, study, modify, and redistribute the Software for any permitted purpose,
+but may not offer it as a competing commercial product or service. Each version
+automatically becomes available under the MIT License two years after it is
+made available.
+
+This is a Fair Source license; a version becomes Open Source when its future MIT
+license takes effect. The Swifty Download Manager name, icons, and visual assets
+are excluded from the Software license as described in [`BRANDING.md`](BRANDING.md).
+Official App Store builds may be distributed under separate end-user terms.
+
+Contributions are accepted under the terms in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Reference material
 
 The locally supplied NDM application and screenshots are research inputs only.
