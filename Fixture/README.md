@@ -20,7 +20,8 @@ following fields can be changed there:
 | --- | --- |
 | `host` | Listening interface |
 | `port` | Listening TCP port |
-| `max_connections` | Concurrent file transfers and ranges per request |
+| `max_concurrent_transfers` | Response bodies the server transfers concurrently |
+| `max_ranges_per_request` | Byte ranges accepted in one `Range` request |
 | `file_size` | Virtual `/empty.bin` size in bytes |
 | `bytes_per_second` | `/empty.bin` transfer rate per connection |
 | `chunk_size` | `/empty.bin` streaming write size |
@@ -29,7 +30,8 @@ CLI arguments can override the main multi-connection fields for one run:
 
 ```bash
 python3 Fixture/range_server.py \
-  --max-connections <count> \
+  --max-concurrent-transfers <count> \
+  --max-ranges-per-request <count> \
   --file-size <bytes> \
   --bytes-per-second <bytes-per-second>
 ```
@@ -62,23 +64,32 @@ bounds without creating or allocating a matching file on disk. The pattern
 makes misplaced, overlapping, or missing segment writes visible in
 byte-for-byte tests.
 
-## Connection and Range limits
+## Transfer and Range limits
 
-`max_connections` limits both:
+`max_concurrent_transfers` is a server-side capacity limit. Clients can open
+more connections and send more Range requests, but only this many response
+bodies are transferred at once; excess requests wait for a server slot. This
+models an HTTP/1.1 origin that accepts more work than it can process
+concurrently.
 
-- the number of file response bodies that the server transfers concurrently;
-- the number of comma-separated ranges accepted in one `Range` request.
+There is no HTTP/1.1 response header that negotiates a server-wide connection
+limit. [RFC 9112, Section 9.4](https://www.rfc-editor.org/rfc/rfc9112.html#section-9.4)
+asks clients to be conservative but deliberately defines no fixed maximum.
+HTTP/2 has
+[`SETTINGS_MAX_CONCURRENT_STREAMS`](https://www.rfc-editor.org/rfc/rfc9113.html#section-6.5.2),
+but that setting applies only to streams on one HTTP/2 connection and is not an
+HTTP response header.
 
-Requests beyond the concurrent connection limit wait for a slot. A request
-containing too many ranges receives `400`; an unsatisfiable range receives
-`416` with `Content-Range: bytes */<size>`. Multiple satisfiable ranges receive
-a standards-compatible `multipart/byteranges` body.
+`max_ranges_per_request` independently limits comma-separated ranges within a
+single request. A request containing too many ranges receives `400`; an
+unsatisfiable range receives `416` with `Content-Range: bytes */<size>`.
+Multiple satisfiable ranges receive a standards-compatible
+`multipart/byteranges` body.
 
-The response header `X-SDM-Max-Connections` exposes the configured limit for
-fixture diagnostics. It is not a standard HTTP negotiation header. HTTP only
-lets a server advertise range support using `Accept-Ranges: bytes`; the client
-still decides how many connections to open. Therefore the configured maximum
-is a ceiling, not a guarantee that NDM or SDM will create that many connections.
+Range-capable resources advertise only the standard `Accept-Ranges: bytes`
+field. Per [RFC 9110, Section 14.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-14.3),
+that field advises that byte ranges are supported; it does not advertise a
+connection count or guarantee that every future request will receive `206`.
 
 For NDM multi-connection testing, use `/empty.bin`.
 
@@ -103,4 +114,5 @@ python3 -m unittest discover -s Fixture/tests -v
 
 The test suite verifies configuration, virtual-file streaming, single and
 multipart ranges, persistent connections, multi-part reconstruction,
-throttling, and enforcement of the concurrent transfer limit.
+throttling, and that 32 simultaneous client requests are queued through an
+eight-transfer server pool.

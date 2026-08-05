@@ -19,7 +19,8 @@ from urllib.parse import urlsplit
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.json")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
-DEFAULT_MAX_CONNECTIONS = 8
+DEFAULT_MAX_CONCURRENT_TRANSFERS = 8
+DEFAULT_MAX_RANGES_PER_REQUEST = 8
 DEFAULT_FILE_SIZE = 80 * 1024 * 1024
 DEFAULT_BYTES_PER_SECOND = 1024 * 1024
 DEFAULT_CHUNK_SIZE = 16 * 1024
@@ -60,7 +61,8 @@ class FixtureConfig:
 
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
-    max_connections: int = DEFAULT_MAX_CONNECTIONS
+    max_concurrent_transfers: int = DEFAULT_MAX_CONCURRENT_TRANSFERS
+    max_ranges_per_request: int = DEFAULT_MAX_RANGES_PER_REQUEST
     file_size: int = DEFAULT_FILE_SIZE
     bytes_per_second: int = DEFAULT_BYTES_PER_SECOND
     chunk_size: int = DEFAULT_CHUNK_SIZE
@@ -69,8 +71,10 @@ class FixtureConfig:
     def __post_init__(self) -> None:
         if not 0 <= self.port <= 65535:
             raise ValueError("port must be between 0 and 65535")
-        if self.max_connections <= 0:
-            raise ValueError("max_connections must be positive")
+        if self.max_concurrent_transfers <= 0:
+            raise ValueError("max_concurrent_transfers must be positive")
+        if self.max_ranges_per_request <= 0:
+            raise ValueError("max_ranges_per_request must be positive")
         if self.file_size <= 0:
             raise ValueError("file_size must be positive")
         if self.bytes_per_second < 0:
@@ -197,10 +201,13 @@ class FixtureHTTPServer(ThreadingHTTPServer):
 
     daemon_threads = True
     allow_reuse_address = True
+    request_queue_size = 64
 
     def __init__(self, config: FixtureConfig) -> None:
         self.config = config
-        self._transfer_slots = threading.BoundedSemaphore(config.max_connections)
+        self._transfer_slots = threading.BoundedSemaphore(
+            config.max_concurrent_transfers
+        )
         self._transfer_count_lock = threading.Lock()
         self.active_transfers = 0
         self.peak_active_transfers = 0
@@ -403,7 +410,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                 parse_byte_ranges(
                     range_header,
                     resource.size,
-                    max_ranges=self.fixture_server.config.max_connections,
+                    max_ranges=self.fixture_server.config.max_ranges_per_request,
                 )
                 if range_header
                 else []
@@ -523,13 +530,6 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         self.send_header("ETag", resource.etag)
         self.send_header("Last-Modified", EMPTY_FILE_LAST_MODIFIED)
         self.send_header("Cache-Control", "no-store")
-        self.send_header(
-            "X-SDM-Max-Connections",
-            str(
-                self.fixture_server.config.max_connections
-                if resource.supports_ranges else 1
-            ),
-        )
         self.send_header("X-SDM-Bytes-Per-Second", str(resource.bytes_per_second))
 
     def _send_empty_response(self, status: int) -> None:
@@ -620,7 +620,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         active = self.fixture_server.active_transfers
         sys.stderr.write(
             f"{self.address_string()} [{active}/"
-            f"{self.fixture_server.config.max_connections}] "
+            f"{self.fixture_server.config.max_concurrent_transfers}] "
             f"Range={range_header} - {format % args}\n"
         )
 
@@ -638,7 +638,8 @@ def _load_runtime_config(args: argparse.Namespace) -> FixtureConfig:
         for name, value in {
             "host": args.host,
             "port": args.port,
-            "max_connections": args.max_connections,
+            "max_concurrent_transfers": args.max_concurrent_transfers,
+            "max_ranges_per_request": args.max_ranges_per_request,
             "file_size": args.file_size,
             "bytes_per_second": args.bytes_per_second,
             "chunk_size": args.chunk_size,
@@ -654,7 +655,8 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
-    parser.add_argument("--max-connections", type=int)
+    parser.add_argument("--max-concurrent-transfers", type=int)
+    parser.add_argument("--max-ranges-per-request", type=int)
     parser.add_argument("--file-size", type=int)
     parser.add_argument("--bytes-per-second", type=int)
     parser.add_argument("--chunk-size", type=int)
@@ -673,7 +675,7 @@ def main() -> None:
         f"SDM Fixture listening on {base_url}\n"
         f"  file: {base_url}{EMPTY_FILE_PATH} "
         f"({config.file_size} bytes, {config.bytes_per_second} B/s per connection)\n"
-        f"  max concurrent connections: {config.max_connections}\n"
+        f"  max concurrent transfers: {config.max_concurrent_transfers}\n"
         "  scenarios:\n"
         f"    single connection: {base_url}{SINGLE_CONNECTION_FILE_PATH}\n"
         f"    fails halfway: {base_url}{HALFWAY_FAILURE_FILE_PATH}\n"

@@ -5,7 +5,10 @@ import XCTest
 final class SegmentedDownloadTests: XCTestCase {
     func testTwoFourAndEightConnectionDownloadsAreByteCorrect() async throws {
         let fileSize = 256 * 1024
-        let fixture = try FixtureServer(fileSize: fileSize, maximumConnections: 8)
+        let fixture = try FixtureServer(
+            fileSize: fileSize,
+            maximumConcurrentTransfers: 8
+        )
         defer { fixture.stop() }
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

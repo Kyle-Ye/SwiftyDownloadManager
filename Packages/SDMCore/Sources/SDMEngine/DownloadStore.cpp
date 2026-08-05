@@ -96,7 +96,7 @@ public:
             throw std::runtime_error("Unable to read database schema version");
         }
         auto schema_version = sqlite3_column_int(version.get(), 0);
-        if (schema_version > 2) {
+        if (schema_version > 3) {
             throw std::runtime_error("Database schema is newer than this engine");
         }
         if (schema_version == 0) {
@@ -105,6 +105,10 @@ public:
         }
         if (schema_version == 1) {
             migrate_to_version_two();
+            schema_version = 2;
+        }
+        if (schema_version == 2) {
+            migrate_to_version_three();
         }
     }
 
@@ -227,14 +231,29 @@ public:
         }
     }
 
+    void migrate_to_version_three() {
+        execute(database, "BEGIN IMMEDIATE");
+        try {
+            execute(database, R"sql(
+                ALTER TABLE downloads
+                DROP COLUMN server_connection_limit
+            )sql");
+            execute(database, "PRAGMA user_version = 3");
+            execute(database, "COMMIT");
+        } catch (...) {
+            execute(database, "ROLLBACK");
+            throw;
+        }
+    }
+
     std::vector<sdm::PersistedDownload> load_all() {
         Statement downloads(database, R"sql(
             SELECT id, source_url, destination_directory, requested_filename,
                    connection_limit, bandwidth_limit, conflict_policy, final_url,
                    destination_path, filename, state, content_length_known,
                    content_length, downloaded_bytes, error_code, error_message,
-                   temporary_path, accepts_ranges, server_connection_limit,
-                   etag, last_modified, created_milliseconds,
+                   temporary_path, accepts_ranges, etag, last_modified,
+                   created_milliseconds,
                    started_milliseconds, last_attempt_milliseconds,
                    completed_milliseconds, updated_milliseconds
               FROM downloads
@@ -283,25 +302,22 @@ public:
             value.snapshot.error_message = column_text(downloads.get(), 15);
             value.temporary_path = column_text(downloads.get(), 16);
             value.accepts_ranges = sqlite3_column_int(downloads.get(), 17) != 0;
-            value.server_connection_limit = static_cast<std::uint32_t>(
-                sqlite3_column_int64(downloads.get(), 18)
-            );
-            value.etag = column_text(downloads.get(), 19);
-            value.last_modified = column_text(downloads.get(), 20);
+            value.etag = column_text(downloads.get(), 18);
+            value.last_modified = column_text(downloads.get(), 19);
             value.snapshot.created_milliseconds = static_cast<std::uint64_t>(
-                sqlite3_column_int64(downloads.get(), 21)
+                sqlite3_column_int64(downloads.get(), 20)
             );
             value.snapshot.started_milliseconds = static_cast<std::uint64_t>(
-                sqlite3_column_int64(downloads.get(), 22)
+                sqlite3_column_int64(downloads.get(), 21)
             );
             value.snapshot.last_attempt_milliseconds = static_cast<std::uint64_t>(
-                sqlite3_column_int64(downloads.get(), 23)
+                sqlite3_column_int64(downloads.get(), 22)
             );
             value.snapshot.completed_milliseconds = static_cast<std::uint64_t>(
-                sqlite3_column_int64(downloads.get(), 24)
+                sqlite3_column_int64(downloads.get(), 23)
             );
             value.snapshot.updated_milliseconds = static_cast<std::uint64_t>(
-                sqlite3_column_int64(downloads.get(), 25)
+                sqlite3_column_int64(downloads.get(), 24)
             );
             if (has_invalid_state) {
                 value.snapshot.error_code = sdm::Result::persistence_error;
@@ -425,12 +441,12 @@ public:
                     connection_limit, bandwidth_limit, conflict_policy, final_url,
                     destination_path, filename, state, content_length_known,
                     content_length, downloaded_bytes, error_code, error_message,
-                    temporary_path, accepts_ranges, server_connection_limit,
-                    etag, last_modified, created_milliseconds,
+                    temporary_path, accepts_ranges, etag, last_modified,
+                    created_milliseconds,
                     started_milliseconds, last_attempt_milliseconds,
                     completed_milliseconds, updated_milliseconds
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(id) DO UPDATE SET
@@ -451,7 +467,6 @@ public:
                     error_message = excluded.error_message,
                     temporary_path = excluded.temporary_path,
                     accepts_ranges = excluded.accepts_ranges,
-                    server_connection_limit = excluded.server_connection_limit,
                     etag = excluded.etag,
                     last_modified = excluded.last_modified,
                     created_milliseconds = excluded.created_milliseconds,
@@ -479,7 +494,6 @@ public:
             bind_text(statement.get(), index++, value.snapshot.error_message);
             bind_text(statement.get(), index++, value.temporary_path);
             sqlite3_bind_int(statement.get(), index++, value.accepts_ranges ? 1 : 0);
-            sqlite3_bind_int64(statement.get(), index++, value.server_connection_limit);
             bind_text(statement.get(), index++, value.etag);
             bind_text(statement.get(), index++, value.last_modified);
             sqlite3_bind_int64(statement.get(), index++, static_cast<sqlite3_int64>(value.snapshot.created_milliseconds));

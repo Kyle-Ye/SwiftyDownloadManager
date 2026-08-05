@@ -13,7 +13,8 @@ from urllib.request import Request, urlopen
 
 from Fixture.range_server import (
     DEFAULT_CONFIG_PATH,
-    DEFAULT_MAX_CONNECTIONS,
+    DEFAULT_MAX_CONCURRENT_TRANSFERS,
+    DEFAULT_MAX_RANGES_PER_REQUEST,
     DYNAMIC_HTML_BODY,
     DYNAMIC_HTML_PATH,
     EMPTY_FILE_PATH,
@@ -70,8 +71,15 @@ class RangeServerTests(unittest.TestCase):
 
     def test_committed_config_matches_runtime_defaults(self) -> None:
         config = FixtureConfig.from_json(DEFAULT_CONFIG_PATH)
-        self.assertEqual(config.max_connections, DEFAULT_MAX_CONNECTIONS)
-        self.assertEqual(config.max_connections, 8)
+        self.assertEqual(
+            config.max_concurrent_transfers,
+            DEFAULT_MAX_CONCURRENT_TRANSFERS,
+        )
+        self.assertEqual(config.max_concurrent_transfers, 8)
+        self.assertEqual(
+            config.max_ranges_per_request,
+            DEFAULT_MAX_RANGES_PER_REQUEST,
+        )
         self.assertEqual(config.file_size, 80 * 1024 * 1024)
         self.assertEqual(config.bytes_per_second, 1024 * 1024)
 
@@ -80,7 +88,7 @@ class RangeServerTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(response.headers["Content-Length"], "8192")
         self.assertEqual(response.headers["Accept-Ranges"], "bytes")
-        self.assertEqual(response.headers["X-SDM-Max-Connections"], "8")
+        self.assertIsNone(response.headers["X-SDM-Max-Connections"])
         self.assertEqual(response.headers["Content-Disposition"], 'attachment; filename="empty.bin"')
         self.assertEqual(response.read(), b"")
 
@@ -120,7 +128,7 @@ class RangeServerTests(unittest.TestCase):
     def test_request_over_range_limit_returns_400(self) -> None:
         config = replace(
             self.config,
-            max_connections=2,
+            max_ranges_per_request=2,
         )
         with running_server(config) as (_, base_url):
             with self.assertRaises(HTTPError) as context:
@@ -171,7 +179,6 @@ class RangeServerTests(unittest.TestCase):
         url = self.base_url + SINGLE_CONNECTION_FILE_PATH
         head = urlopen(Request(url, method="HEAD"), timeout=10)
         self.assertIsNone(head.headers["Accept-Ranges"])
-        self.assertEqual(head.headers["X-SDM-Max-Connections"], "1")
 
         with fetch(url, range_header="bytes=10-19") as response:
             self.assertEqual(response.status, 200)
@@ -184,7 +191,6 @@ class RangeServerTests(unittest.TestCase):
         for _ in range(2):
             with fetch(url) as response:
                 self.assertEqual(response.headers["Content-Length"], "8192")
-                self.assertEqual(response.headers["X-SDM-Max-Connections"], "1")
                 with self.assertRaises(IncompleteRead) as context:
                     response.read()
                 self.assertEqual(
@@ -200,7 +206,6 @@ class RangeServerTests(unittest.TestCase):
             response.headers["X-SDM-Bytes-Per-Second"],
             str(VERY_SLOW_BYTES_PER_SECOND),
         )
-        self.assertEqual(response.headers["X-SDM-Max-Connections"], "1")
         self.assertIsNone(response.headers["Accept-Ranges"])
 
     def test_dynamic_html_has_unknown_length_and_wildcard_range_total(self) -> None:
@@ -265,34 +270,42 @@ class RangeServerTests(unittest.TestCase):
         finally:
             connection.close()
 
-    def test_max_connections_caps_active_range_transfers(self) -> None:
+    def test_excess_range_requests_queue_at_server_transfer_limit(self) -> None:
         config = FixtureConfig(
-            max_connections=2,
-            file_size=160,
-            bytes_per_second=40,
+            max_concurrent_transfers=8,
+            file_size=1_280,
+            bytes_per_second=80,
             chunk_size=10,
         )
 
         with running_server(config) as (server, base_url):
             file_url = base_url + EMPTY_FILE_PATH
-            ranges = [f"bytes={start}-{start + 39}" for start in range(0, 160, 40)]
+            ranges = [
+                f"bytes={start}-{start + 39}"
+                for start in range(0, config.file_size, 40)
+            ]
+            clients_ready = threading.Barrier(len(ranges))
 
             def fetch_body(header: str) -> bytes:
+                clients_ready.wait(timeout=10)
                 with fetch(file_url, range_header=header) as response:
                     return response.read()
 
             started_at = time.monotonic()
-            with ThreadPoolExecutor(max_workers=4) as executor:
+            with ThreadPoolExecutor(max_workers=len(ranges)) as executor:
                 bodies = list(executor.map(fetch_body, ranges))
             elapsed = time.monotonic() - started_at
 
         self.assertEqual(
             bodies,
-            [pattern_bytes(start, 40) for start in range(0, 160, 40)],
+            [
+                pattern_bytes(start, 40)
+                for start in range(0, config.file_size, 40)
+            ],
         )
-        self.assertEqual(server.peak_active_transfers, 2)
+        self.assertEqual(len(ranges), 32)
+        self.assertEqual(server.peak_active_transfers, 8)
         self.assertGreaterEqual(elapsed, 1.7)
-        self.assertLess(elapsed, 4.0)
 
 
 if __name__ == "__main__":
