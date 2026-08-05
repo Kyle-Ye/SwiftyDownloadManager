@@ -1,11 +1,13 @@
 {
-  "fill" : "system-light",
+  "fill" : {
+    "automatic-gradient" : "srgb:0.94118,0.31765,0.21961,1.00000"
+  },
   "groups" : [
     {
       "layers" : [
         {
           "image-name" : "SDM-icon-foreground.png",
-          "name" : "Parallel Streams and Tray"
+          "name" : "Segmented Swift Download"
         }
       ],
       "name" : "Download Mark",
