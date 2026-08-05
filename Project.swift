@@ -52,13 +52,21 @@ let project = Project(
             ],
             settings: .settings(base: [
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
-                "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
-                "CODE_SIGN_STYLE": "Automatic",
                 "DEVELOPMENT_TEAM": "VB7MJ8R223",
                 "ENABLE_HARDENED_RUNTIME": "YES",
                 "EXECUTABLE_NAME": "SDMApp",
                 "PRODUCT_MODULE_NAME": "SDMApp",
                 "PRODUCT_NAME": "Swifty Download Manager",
+            ], configurations: [
+                .debug(name: "Debug", settings: [
+                    "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
+                    "CODE_SIGN_STYLE": "Automatic",
+                ]),
+                .release(name: "Release", settings: [
+                    "CODE_SIGN_IDENTITY[sdk=macosx*]": "Developer ID Application",
+                    "CODE_SIGN_INJECT_BASE_ENTITLEMENTS": "NO",
+                    "CODE_SIGN_STYLE": "Manual",
+                ]),
             ]),
             metadata: .metadata(tags: [
                 "tag:feature:downloads",
@@ -94,11 +102,20 @@ let project = Project(
             entitlements: .file(path: "SafariExtension/Support/SDMSafariExtension.entitlements"),
             settings: .settings(base: [
                 "APPLICATION_EXTENSION_API_ONLY": "YES",
-                "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
-                "CODE_SIGN_STYLE": "Automatic",
                 "DEVELOPMENT_TEAM": "VB7MJ8R223",
+                "ENABLE_HARDENED_RUNTIME": "YES",
                 "PRODUCT_NAME": "Swifty Download Manager Extension",
                 "SKIP_INSTALL": "YES",
+            ], configurations: [
+                .debug(name: "Debug", settings: [
+                    "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
+                    "CODE_SIGN_STYLE": "Automatic",
+                ]),
+                .release(name: "Release", settings: [
+                    "CODE_SIGN_IDENTITY[sdk=macosx*]": "Developer ID Application",
+                    "CODE_SIGN_INJECT_BASE_ENTITLEMENTS": "NO",
+                    "CODE_SIGN_STYLE": "Manual",
+                ]),
             ]),
             metadata: .metadata(tags: [
                 "tag:feature:browser-extension",

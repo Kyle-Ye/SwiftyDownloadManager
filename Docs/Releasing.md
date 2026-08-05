@@ -1,18 +1,75 @@
 # Release process
 
-This document describes the current SDM release process. It produces a
-universal macOS application, stores the full Xcode archive locally, and uploads
-only `SwiftyDownloadManager.app.zip` to GitHub Releases.
+SDM releases are built, signed, notarized, stapled, and published by
+`.github/workflows/release.yml`. Pushing a semantic-version tag starts the
+workflow and publishes one user-facing asset:
+`SwiftyDownloadManager.app.zip`.
 
-The App and Safari Extension targets are signed with the `Apple Development`
-identity for team `VB7MJ8R223` (`XULEI YE`). This is a real, non-ad-hoc
-development signature. It is not a Developer ID distribution signature and is
-not notarized. Gatekeeper-friendly public distribution requires a separate
-Developer ID signing, notarization, and stapling workflow.
+The full Xcode archive remains ephemeral on the runner and is never uploaded to
+GitHub Releases.
+
+## Signing model
+
+`Project.swift` uses configuration-specific signing:
+
+- Debug uses automatic Apple Development signing.
+- Release uses manual Developer ID Application signing.
+- Hardened Runtime is enabled for both the App and Safari Extension.
+- Release builds disable injected base entitlements.
+
+No certificate, private key, password, or notarization credential belongs in
+the repository. The workflow imports them into a temporary keychain and removes
+the signing material when the job finishes.
+
+## Required GitHub Actions secrets
+
+Configure these repository secrets before pushing the first release tag:
+
+| Secret | Value |
+| --- | --- |
+| `DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64` | Base64-encoded Developer ID Application `.p12`, including its private key |
+| `DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12` |
+| `APP_STORE_CONNECT_API_KEY_BASE64` | Base64-encoded App Store Connect API key `.p8` |
+| `APP_STORE_CONNECT_API_KEY_ID` | App Store Connect API key ID |
+| `APP_STORE_CONNECT_API_ISSUER_ID` | App Store Connect API issuer UUID |
+
+The Developer ID certificate must belong to team `VB7MJ8R223`. The App Store
+Connect API key must have access to the same team and permission to submit to
+the Apple notary service.
+
+Encode and upload the files without committing intermediate Base64 files:
+
+```bash
+base64 -i /path/to/DeveloperIDApplication.p12 | \
+  gh secret set DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 \
+    --repo Kyle-Ye/SwiftyDownloadManager
+
+printf '%s' 'P12_PASSWORD' | \
+  gh secret set DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD \
+    --repo Kyle-Ye/SwiftyDownloadManager
+
+base64 -i /path/to/AuthKey_KEY_ID.p8 | \
+  gh secret set APP_STORE_CONNECT_API_KEY_BASE64 \
+    --repo Kyle-Ye/SwiftyDownloadManager
+
+printf '%s' 'KEY_ID' | \
+  gh secret set APP_STORE_CONNECT_API_KEY_ID \
+    --repo Kyle-Ye/SwiftyDownloadManager
+
+printf '%s' 'ISSUER_UUID' | \
+  gh secret set APP_STORE_CONNECT_API_ISSUER_ID \
+    --repo Kyle-Ye/SwiftyDownloadManager
+```
+
+Confirm that the required names exist. GitHub does not expose their values:
+
+```bash
+gh secret list --repo Kyle-Ye/SwiftyDownloadManager
+```
 
 ## Version model
 
-SDM currently has four release values:
+SDM has four release values:
 
 - App marketing version and build number in `Project.swift`.
 - Safari Extension marketing version and build number in `Project.swift`.
@@ -24,105 +81,26 @@ SDM currently has four release values:
 
 For a release such as `0.3.0`, update the App, Safari Extension, and manifest to
 `0.3.0` before tagging. Keep the Engine value at `0.3.0-dev` through the
-release. After the release is verified, advance the Engine and its test to
+release. After the release succeeds, advance the Engine and its test to
 `0.4.0-dev` in a separate commit.
 
-## Prerequisites
+## Prepare a release
 
-- Xcode and its command-line tools.
-- `mise`, with the repository's pinned Tuist version installed.
-- An authenticated GitHub CLI session with repository write access.
-- A valid `Apple Development` signing identity for team `VB7MJ8R223`.
-- A clean `main` branch synchronized with `origin/main`.
-
-Set release-specific values explicitly. Do not reuse broad system variables for
-release paths.
+Start from a clean `main` synchronized with `origin/main`:
 
 ```bash
-SDM_VERSION=0.3.0
-SDM_BUILD_NUMBER=4
-SDM_NEXT_DEV_VERSION=0.4.0-dev
-SDM_ARCHIVE_DATE=2026-08-05
-SDM_REPOSITORY=Kyle-Ye/SwiftyDownloadManager
-SDM_ARCHIVE_ROOT="${HOME}/Library/Developer/Xcode/Archives/${SDM_ARCHIVE_DATE}"
-SDM_ARCHIVE_PATH="${SDM_ARCHIVE_ROOT}/Swifty Download Manager ${SDM_VERSION}.xcarchive"
-SDM_APP_PATH="${SDM_ARCHIVE_PATH}/Products/Applications/Swifty Download Manager.app"
-SDM_EXTENSION_PATH="${SDM_APP_PATH}/Contents/PlugIns/Swifty Download Manager Extension.appex"
-SDM_RELEASE_ZIP="/private/tmp/SwiftyDownloadManager.app.zip"
-SDM_VERIFY_DIR="/private/tmp/sdm-app-verify-${SDM_VERSION}"
-SDM_RELEASE_NOTES="The attached asset contains the universal macOS application"
-SDM_RELEASE_NOTES="${SDM_RELEASE_NOTES} (arm64 and x86_64)."
-SDM_RELEASE_NOTES="${SDM_RELEASE_NOTES} Unzip it and move the app to Applications."
-SDM_RELEASE_NOTES="${SDM_RELEASE_NOTES} The app is signed with Apple Development."
-SDM_RELEASE_NOTES="${SDM_RELEASE_NOTES} It is not notarized."
-```
-
-Use the actual release date and monotonically increasing build number. Run the
-remaining commands from the repository root in the same shell session so these
-values remain available.
-
-## 1. Prepare `main`
-
-Confirm GitHub authentication, update `main`, and verify that the worktree is
-clean.
-
-```bash
-gh auth status
-security find-identity -v -p codesigning
 git switch main
 git pull --ff-only origin main
 git status --short --branch
 ```
 
-Clean up merged feature branches before releasing. For squash-merged branches,
-verify the pull request is merged before force-deleting the local branch. Delete
-only the exact local and remote branch names that were reviewed.
-
-Confirm that the version is not already tagged or released.
-
-```bash
-git tag --list "${SDM_VERSION}"
-git ls-remote --tags origin "refs/tags/${SDM_VERSION}"
-gh release view "${SDM_VERSION}" --repo "${SDM_REPOSITORY}"
-```
-
-The tag and release checks should return no existing release for a new version.
-
-## 2. Update release metadata
-
-Update both targets in `Project.swift`:
-
-- `CFBundleShortVersionString` to `${SDM_VERSION}`.
-- `CFBundleVersion` to `${SDM_BUILD_NUMBER}`.
-
-Update `SafariExtension/Resources/manifest.json`:
-
-- `version` to `${SDM_VERSION}`.
-
-Do not advance the Engine development version yet. Check every relevant value
-before generating the project.
-
-```bash
-rg -n 'CFBundleShortVersionString|CFBundleVersion' Project.swift
-jq -r '.version' SafariExtension/Resources/manifest.json
-rg -n 'Engine::version|[0-9]+\.[0-9]+\.[0-9]+-dev' \
-  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
-  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
-```
-
-## 3. Generate and validate
-
-Regenerate after changing `Project.swift` or the extension manifest.
+Update both target versions and build numbers in `Project.swift`, then update
+the manifest version. Regenerate the workspace and run all tests:
 
 ```bash
 mise install
 mise exec -- tuist install
 mise exec -- tuist generate --no-open
-```
-
-Run the Fixture and SDMCore suites, followed by the App tests.
-
-```bash
 bash Scripts/test.sh
 xcodebuild test -quiet \
   -workspace SDM.xcworkspace \
@@ -130,205 +108,94 @@ xcodebuild test -quiet \
   -destination 'platform=macOS,arch=arm64' \
   -only-testing:SDMAppTests \
   CODE_SIGNING_ALLOWED=NO
-```
-
-Review the release diff and ensure that generated projects remain ignored.
-
-```bash
 git diff --check
-git status --short
-git diff -- Project.swift SafariExtension/Resources/manifest.json
 ```
 
-## 4. Commit and push the release version
-
-Commit only the release metadata files.
+Review, commit, and push only the intended release changes:
 
 ```bash
 git add Project.swift SafariExtension/Resources/manifest.json
-git commit -m "chore: prepare ${SDM_VERSION} release"
-git push origin main
-git status --short --branch
-git rev-parse HEAD
-```
-
-Record the commit returned by `git rev-parse HEAD`. The tag and archive must be
-created from this exact release commit.
-
-## 5. Create and push the tag
-
-Create an annotated tag, push it, and confirm that it resolves to the recorded
-release commit.
-
-```bash
-git tag -a "${SDM_VERSION}" \
-  -m "Swifty Download Manager ${SDM_VERSION}"
-git push origin "${SDM_VERSION}"
-git rev-parse "${SDM_VERSION}^{}"
-```
-
-Do not advance the development version until the archive and GitHub Release are
-verified.
-
-## 6. Build the Xcode archive
-
-Keep the full `.xcarchive` locally for debugging and symbolication. Refuse to
-overwrite an existing archive path; choose a new explicit path if the check
-fails.
-
-```bash
-test ! -e "${SDM_ARCHIVE_PATH}"
-xcodebuild archive -quiet \
-  -workspace SDM.xcworkspace \
-  -scheme SDMApp \
-  -configuration Release \
-  -destination 'generic/platform=macOS' \
-  -archivePath "${SDM_ARCHIVE_PATH}"
-```
-
-The current Tuist configuration selects `Apple Development` and team
-`VB7MJ8R223` for both the App and Safari Extension. Warnings about a locked
-connected iOS device or a missing AccentColor are non-blocking for this macOS
-archive, but other warnings should be investigated.
-
-## 7. Validate the archive
-
-Confirm the App and Safari Extension versions, Web Extension manifest,
-architectures, and nested signatures.
-
-```bash
-/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
-  "${SDM_APP_PATH}/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
-  "${SDM_APP_PATH}/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
-  "${SDM_EXTENSION_PATH}/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
-  "${SDM_EXTENSION_PATH}/Contents/Info.plist"
-jq -r '.version' \
-  "${SDM_EXTENSION_PATH}/Contents/Resources/manifest.json"
-lipo -archs "${SDM_APP_PATH}/Contents/MacOS/SDMApp"
-codesign --verify --deep --strict --verbose=2 "${SDM_APP_PATH}"
-codesign -dv --verbose=4 "${SDM_APP_PATH}" 2>&1 | \
-  rg 'Authority|TeamIdentifier|Signature|Runtime'
-codesign -dv --verbose=4 "${SDM_EXTENSION_PATH}" 2>&1 | \
-  rg 'Authority|TeamIdentifier|Signature|Runtime'
-```
-
-Expected results:
-
-- App and Extension marketing versions match `${SDM_VERSION}`.
-- App and Extension build numbers match `${SDM_BUILD_NUMBER}`.
-- Manifest version matches `${SDM_VERSION}`.
-- App architectures are `x86_64 arm64`.
-- Deep code-signature verification succeeds.
-- App and Extension report an `Apple Development: XULEI YE` authority.
-- App and Extension report `TeamIdentifier=VB7MJ8R223` and do not report an
-  ad-hoc signature.
-
-## 8. Package only the App
-
-GitHub Releases must contain one user-facing asset named
-`SwiftyDownloadManager.app.zip`. Never upload an `.xcarchive.zip`.
-
-Refuse to overwrite old temporary output, then preserve the App bundle and its
-extended attributes with `ditto`.
-
-```bash
-test ! -e "${SDM_RELEASE_ZIP}"
-test ! -e "${SDM_VERIFY_DIR}"
-ditto -c -k --sequesterRsrc --keepParent \
-  "${SDM_APP_PATH}" \
-  "${SDM_RELEASE_ZIP}"
-unzip -t "${SDM_RELEASE_ZIP}"
-mkdir "${SDM_VERIFY_DIR}"
-ditto -x -k "${SDM_RELEASE_ZIP}" "${SDM_VERIFY_DIR}"
-codesign --verify --deep --strict --verbose=2 \
-  "${SDM_VERIFY_DIR}/Swifty Download Manager.app"
-shasum -a 256 "${SDM_RELEASE_ZIP}"
-```
-
-Record the SHA-256 digest. The digest reported by GitHub after upload must match
-it exactly.
-
-## 9. Create the GitHub Release
-
-Create a non-draft, non-prerelease Release from the verified tag and upload only
-the App zip.
-
-```bash
-gh release create "${SDM_VERSION}" \
-  "${SDM_RELEASE_ZIP}" \
-  --repo "${SDM_REPOSITORY}" \
-  --title "Swifty Download Manager ${SDM_VERSION}" \
-  --verify-tag \
-  --latest \
-  --generate-notes \
-  --notes "${SDM_RELEASE_NOTES}"
-```
-
-Verify that the Release contains exactly one asset, that its name is
-`SwiftyDownloadManager.app.zip`, and that the remote digest matches the local
-digest.
-
-```bash
-gh api \
-  "repos/${SDM_REPOSITORY}/releases/tags/${SDM_VERSION}" \
-  --jq '{
-    html_url,
-    draft,
-    prerelease,
-    assets: [.assets[] | {name, size, digest, browser_download_url}]
-  }'
-shasum -a 256 "${SDM_RELEASE_ZIP}"
-```
-
-If an incorrect asset was uploaded, upload and verify the replacement first.
-Only then remove the incorrect asset with `gh release delete-asset`.
-
-## 10. Advance the development version
-
-After the GitHub Release and its asset are verified, update both occurrences of
-the Engine development version:
-
-- `Packages/SDMCore/Sources/SDMEngine/Engine.cpp`.
-- `Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift`.
-
-Set them to `${SDM_NEXT_DEV_VERSION}`, then run the focused version test.
-
-```bash
-rg -n '[0-9]+\.[0-9]+\.[0-9]+-dev' \
-  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
-  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
-swift test \
-  --package-path Packages/SDMCore \
-  --filter SDMCoreInfoTests
-git diff --check
-```
-
-Commit and push the new development version separately from the release tag.
-
-```bash
-git add \
-  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
-  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
-git commit -m "chore: start ${SDM_NEXT_DEV_VERSION%-dev} development"
+git commit -m "chore: prepare 0.3.0 release"
 git push origin main
 ```
 
-## 11. Final verification
+## Publish a release
 
-Confirm that `main` is clean and synchronized, the tag still targets the
-release commit, the Release is published, and it has exactly one App zip asset.
+Create and push an annotated tag from the release commit:
 
 ```bash
-git status --short --branch
-git log --oneline --decorate -4
-git rev-parse "${SDM_VERSION}^{}"
-gh release view "${SDM_VERSION}" \
-  --repo "${SDM_REPOSITORY}" \
+git tag -a 0.3.0 -m "Swifty Download Manager 0.3.0"
+git push origin 0.3.0
+```
+
+The workflow then:
+
+1. Checks out and validates the exact tag.
+2. Generates the Tuist workspace and runs the test suites.
+3. Imports the Developer ID certificate into a temporary keychain.
+4. Archives a universal `arm64` and `x86_64` Release build.
+5. Verifies the App and nested Safari Extension signatures.
+6. Submits the App to Apple with `notarytool` and waits for acceptance.
+7. Staples and validates the notarization ticket, then runs Gatekeeper
+   assessment.
+8. Packages only `SwiftyDownloadManager.app.zip`.
+9. Creates a GitHub Release with automatically generated changelog notes.
+
+Monitor the run and inspect failures with GitHub CLI:
+
+```bash
+gh run list \
+  --workflow Release \
+  --repo Kyle-Ye/SwiftyDownloadManager
+gh run watch RUN_ID \
+  --repo Kyle-Ye/SwiftyDownloadManager \
+  --exit-status
+```
+
+If a tag-triggered run needs retrying, rerun the failed workflow. The manual
+`workflow_dispatch` input can also release an existing semantic-version tag.
+
+## Release notes
+
+GitHub generates release notes from merged pull requests using
+`.github/release.yml`. Keep them as a user-facing changelog:
+
+- `Features` for `enhancement` or `feature` labels.
+- `Fixes` for `bug` or `fix` labels.
+- `Other Changes` for uncategorized pull requests.
+- `skip-changelog` excludes internal-only pull requests.
+
+Do not add certificate names, Team IDs, notarization implementation details, or
+local build paths to release notes.
+
+## Verify the published artifact
+
+Download and verify the exact uploaded App:
+
+```bash
+SDM_VERSION=0.3.0
+SDM_VERIFY_DIR="$(mktemp -d /private/tmp/sdm-release-verify.XXXXXX)"
+gh release download "$SDM_VERSION" \
+  --repo Kyle-Ye/SwiftyDownloadManager \
+  --pattern SwiftyDownloadManager.app.zip \
+  --dir "$SDM_VERIFY_DIR"
+ditto -x -k \
+  "$SDM_VERIFY_DIR/SwiftyDownloadManager.app.zip" \
+  "$SDM_VERIFY_DIR"
+SDM_APP_PATH="$SDM_VERIFY_DIR/Swifty Download Manager.app"
+codesign --verify --deep --strict --verbose=4 "$SDM_APP_PATH"
+xcrun stapler validate "$SDM_APP_PATH"
+spctl --assess --type execute --verbose=4 "$SDM_APP_PATH"
+```
+
+Confirm that the Release contains exactly one App zip and record its digest:
+
+```bash
+gh release view "$SDM_VERSION" \
+  --repo Kyle-Ye/SwiftyDownloadManager \
   --json name,tagName,url,isDraft,isPrerelease,assets
+shasum -a 256 "$SDM_VERIFY_DIR/SwiftyDownloadManager.app.zip"
 ```
 
-Keep the local `.xcarchive` for diagnostics. Temporary packaging and extraction
-directories can be removed after all checks complete.
+After verification, advance the Engine development version and its matching
+test in a separate commit.
