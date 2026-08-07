@@ -251,12 +251,14 @@ ditto -x -k \
   "$SDM_VERIFY_DIR"
 SDM_APP_PATH="$SDM_VERIFY_DIR/Swifty Download Manager.app"
 codesign --verify --deep --strict --verbose=4 "$SDM_APP_PATH"
-SDM_ENGINE_VERSIONS="$(
+SDM_BINARY_VERSIONS="$(
   strings "$SDM_APP_PATH/Contents/MacOS/SDMApp" | \
     rg -x '[0-9]+\.[0-9]+\.[0-9]+(-dev)?' | \
-    sort -u
+    sort -u || true
 )"
-test "$SDM_ENGINE_VERSIONS" = "$SDM_VERSION"
+printf '%s\n' "$SDM_BINARY_VERSIONS" | rg -Fx "$SDM_VERSION"
+! printf '%s\n' "$SDM_BINARY_VERSIONS" | \
+  rg -x '[0-9]+\.[0-9]+\.[0-9]+-dev'
 xcrun stapler validate "$SDM_APP_PATH"
 spctl --assess --type execute --verbose=4 "$SDM_APP_PATH"
 ```

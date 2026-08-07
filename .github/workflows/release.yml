@@ -176,13 +176,18 @@ jobs:
             exit 1
           fi
 
-          engine_versions="$(
+          binary_versions="$(
             strings "$APP_PATH/Contents/MacOS/SDMApp" | \
               grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-dev)?$' | \
-              sort -u
+              sort -u || true
           )"
-          if [[ "$engine_versions" != "$RELEASE_TAG" ]]; then
-            echo "Engine version does not match tag $RELEASE_TAG: $engine_versions" >&2
+          if ! grep -Fxq "$RELEASE_TAG" <<< "$binary_versions"; then
+            echo "Engine version $RELEASE_TAG is missing from the App binary" >&2
+            echo "Detected standalone semantic versions: $binary_versions" >&2
+            exit 1
+          fi
+          if grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-dev$' <<< "$binary_versions"; then
+            echo "App binary contains a development version: $binary_versions" >&2
             exit 1
           fi
 
