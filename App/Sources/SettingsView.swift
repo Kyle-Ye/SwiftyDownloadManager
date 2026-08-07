@@ -3,112 +3,48 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage(AppStorageKey.defaultConnectionCount) private var defaultConnectionCount = 8
-    @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
     @AppStorage(AppStorageKey.downloadEngine) private var selectedEngine = DownloadEngineKind.libcurl.rawValue
+    #if os(macOS)
+    @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
+    #endif
     @State private var safariExtensionIsEnabled: Bool?
     @State private var presentedError: PresentedDownloadError?
+    #if os(macOS)
     @State private var showsLegalNotices = false
+    #endif
     @Bindable var service: DownloadService
 
     var body: some View {
         Form {
-            Section("General") {
-                #if os(macOS)
-                Picker("Application icon location", selection: $showsMenuBarIcon) {
-                    Text("In Dock and Menu Bar")
-                        .tag(true)
-                    Text("In Dock only")
-                        .tag(false)
-                }
-                .pickerStyle(.menu)
-                #endif
-
-                Picker("Download engine", selection: $selectedEngine) {
-                    ForEach(service.engineDescriptors) { descriptor in
-                        Text(descriptor.kind.title)
-                            .tag(descriptor.kind.rawValue)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                if let descriptor = selectedDescriptor {
-                    ForEach(DownloadFeature.allCases) { feature in
-                        Label(
-                            feature.title,
-                            systemImage: descriptor.supports(feature)
-                                ? "checkmark.circle.fill"
-                                : "xmark.circle"
-                        )
-                        .foregroundStyle(
-                            descriptor.supports(feature) ? .primary : .secondary
-                        )
-                    }
-                }
-            }
-
-            Section {
-                Stepper(
-                    "Default connections: \(defaultConnectionCount)",
-                    value: $defaultConnectionCount,
-                    in: 1 ... 16
-                )
-                .disabled(selectedDescriptor?.supports(.multiConnectionTransfers) == false)
-            } header: {
-                Text("Downloads")
-            } footer: {
-                if selectedDescriptor?.supports(.multiConnectionTransfers) == false {
-                    Text("URLSession manages connections internally and uses one connection per download.")
-                }
-            }
-
-            Section("Safari Extension") {
-                LabeledContent("Status") {
-                    Text(extensionStatusTitle)
-                        .foregroundStyle(extensionStatusColor)
-                }
-
-                #if os(macOS)
-                Text("Enable the extension in Safari, then allow website access. Download links and the Download with SDM context menu will send supported HTTP and HTTPS files to SDM.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                #else
-                Text("Enable the extension in Safari, then set Website Access to Allow on All Websites. Supported HTTP and HTTPS download links will open in SDM.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                #endif
-
-                Button("Open Safari Extension Settings") {
-                    SafariExtensionSupport.showPreferences()
-                }
-            }
-
-            Section("Engine") {
-                LabeledContent("Version", value: SDMCoreInfo.engineVersion)
-                LabeledContent("libcurl", value: SDMCoreInfo.libcurlVersion)
-                LabeledContent("ABI", value: String(SDMCoreInfo.engineABIVersion))
-                if let databaseURL = service.databaseURL {
-                    LabeledContent("History database") {
-                        Text(databaseURL.path(percentEncoded: false))
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-
-            Section("Legal") {
-                Text("libcurl, curl-apple, OpenSSL, and Mozilla license texts are included with the app.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                Button("View Third-Party Licenses") {
-                    showsLegalNotices = true
-                }
-            }
+            #if os(iOS)
+            MobileSettingsFormContent(
+                defaultConnectionCount: $defaultConnectionCount,
+                selectedEngine: $selectedEngine,
+                engineDescriptors: service.engineDescriptors,
+                selectedDescriptor: selectedDescriptor,
+                safariExtensionIsEnabled: safariExtensionIsEnabled,
+                databaseURL: service.databaseURL,
+                openSafariSettings: SafariExtensionSupport.showPreferences
+            )
+            #else
+            MacSettingsFormContent(
+                defaultConnectionCount: $defaultConnectionCount,
+                showsMenuBarIcon: $showsMenuBarIcon,
+                selectedEngine: $selectedEngine,
+                engineDescriptors: service.engineDescriptors,
+                selectedDescriptor: selectedDescriptor,
+                safariExtensionIsEnabled: safariExtensionIsEnabled,
+                databaseURL: service.databaseURL,
+                openSafariSettings: SafariExtensionSupport.showPreferences,
+                showLegalNotices: { showsLegalNotices = true }
+            )
+            #endif
         }
         .formStyle(.grouped)
+        #if os(iOS)
+        .scrollContentBackground(.visible)
+        #else
         .padding()
-        #if os(macOS)
         .frame(width: 560, height: 620)
         #endif
         .task {
@@ -137,6 +73,7 @@ struct SettingsView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        #if os(macOS)
         .sheet(isPresented: $showsLegalNotices) {
             NavigationStack {
                 LegalNoticesView()
@@ -149,26 +86,7 @@ struct SettingsView: View {
                     }
             }
         }
-    }
-
-    private var extensionStatusTitle: String {
-        switch safariExtensionIsEnabled {
-        case true: "Enabled"
-        case false: "Disabled"
-        #if os(macOS)
-        case nil: "Checking…"
-        #else
-        case nil: "Manage in Settings"
         #endif
-        }
-    }
-
-    private var extensionStatusColor: Color {
-        switch safariExtensionIsEnabled {
-        case true: .green
-        case false: .secondary
-        case nil: .secondary
-        }
     }
 
     private var selectedDescriptor: DownloadEngineDescriptor? {
@@ -198,5 +116,8 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView(service: .preview())
+    NavigationStack {
+        SettingsView(service: .preview())
+            .navigationTitle("Settings")
+    }
 }
