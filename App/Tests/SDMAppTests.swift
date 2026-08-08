@@ -391,24 +391,52 @@ final class SDMAppTests: XCTestCase {
         )
     }
 
-    func testRecentDownloadsUseStableOrderingForEqualUpdateTimes() throws {
+    func testDownloadListOrderingUsesLastAttemptInsteadOfLastUpdate() throws {
+        let olderAttemptWithNewerUpdate = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000001",
+            state: .downloading,
+            createdAt: 10,
+            updatedAt: 100,
+            lastAttemptAt: 20
+        )
+        let newerAttemptWithOlderUpdate = try makeSnapshot(
+            id: "00000000-0000-0000-0000-000000000002",
+            state: .downloading,
+            createdAt: 15,
+            updatedAt: 30,
+            lastAttemptAt: 40
+        )
+
+        let result = [olderAttemptWithNewerUpdate, newerAttemptWithOlderUpdate]
+            .sortedForDownloadList()
+
+        XCTAssertEqual(
+            result.map(\.id),
+            [newerAttemptWithOlderUpdate.id, olderAttemptWithNewerUpdate.id]
+        )
+    }
+
+    func testRecentDownloadsUseStableOrderingForEqualAttemptTimes() throws {
         let olderCreation = try makeSnapshot(
             id: "00000000-0000-0000-0000-000000000003",
             state: .queued,
             createdAt: 10,
-            updatedAt: 30
+            updatedAt: 50,
+            lastAttemptAt: 30
         )
         let higherID = try makeSnapshot(
             id: "00000000-0000-0000-0000-000000000002",
             state: .queued,
             createdAt: 20,
-            updatedAt: 30
+            updatedAt: 40,
+            lastAttemptAt: 30
         )
         let lowerID = try makeSnapshot(
             id: "00000000-0000-0000-0000-000000000001",
             state: .queued,
             createdAt: 20,
-            updatedAt: 30
+            updatedAt: 60,
+            lastAttemptAt: 30
         )
 
         let result = RecentDownloads.select(
@@ -432,7 +460,7 @@ final class SDMAppTests: XCTestCase {
 
         XCTAssertEqual(result.count, RecentDownloads.maximumCount)
         XCTAssertEqual(
-            result.map(\.updatedAt),
+            result.map(\.createdAt),
             (2 ... 9).reversed().map { Date(timeIntervalSince1970: TimeInterval($0)) }
         )
     }
@@ -498,7 +526,8 @@ final class SDMAppTests: XCTestCase {
         id: String,
         state: DownloadState,
         createdAt: TimeInterval,
-        updatedAt: TimeInterval
+        updatedAt: TimeInterval,
+        lastAttemptAt: TimeInterval? = nil
     ) throws -> DownloadSnapshot {
         DownloadSnapshot(
             id: DownloadID(rawValue: try XCTUnwrap(UUID(uuidString: id))),
@@ -506,6 +535,7 @@ final class SDMAppTests: XCTestCase {
             filename: "file.bin",
             state: state,
             createdAt: Date(timeIntervalSince1970: createdAt),
+            lastAttemptAt: lastAttemptAt.map(Date.init(timeIntervalSince1970:)),
             updatedAt: Date(timeIntervalSince1970: updatedAt)
         )
     }

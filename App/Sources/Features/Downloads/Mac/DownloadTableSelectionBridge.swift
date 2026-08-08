@@ -1,0 +1,279 @@
+#if os(macOS)
+import SDMCore
+import SwiftUI
+
+/// Commits native table selection synchronously so snapshot refreshes cannot restore stale state.
+struct DownloadTableSelectionBridge: NSViewRepresentable {
+    @Binding var selectedIDs: Set<DownloadID>
+    let rowIDs: [DownloadID]
+    let context: DownloadFilter
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selectedIDs: $selectedIDs, rowIDs: rowIDs, context: context)
+    }
+
+    func makeNSView(context: Context) -> MarkerView {
+        let marker = MarkerView()
+        marker.didMoveToWindow = { [weak marker, weak coordinator = context.coordinator] in
+            guard let marker, let coordinator else { return }
+            if marker.window == nil {
+                coordinator.disconnect()
+                return
+            }
+            connect(coordinator, from: marker)
+        }
+        return marker
+    }
+
+    func updateNSView(_ marker: MarkerView, context: Context) {
+        context.coordinator.update(
+            selectedIDs: $selectedIDs,
+            rowIDs: rowIDs,
+            context: self.context
+        )
+        connect(context.coordinator, from: marker)
+    }
+
+    static func dismantleNSView(_ marker: MarkerView, coordinator: Coordinator) {
+        marker.didMoveToWindow = nil
+        coordinator.disconnect()
+    }
+
+    private func connect(_ coordinator: Coordinator, from marker: NSView) {
+        guard coordinator.beginConnecting() else { return }
+        Task { @MainActor [weak marker, weak coordinator] in
+            defer { coordinator?.endConnecting() }
+            for _ in 0..<10 {
+                guard let marker, let coordinator else { return }
+                if let tableView = mainTableView(from: marker) {
+                    coordinator.connect(to: tableView)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+    }
+
+    private func mainTableView(from marker: NSView) -> NSTableView? {
+        guard let contentView = marker.window?.contentView else { return nil }
+        let tableViews = allTableViews(in: contentView)
+        return tableViews.max { lhs, rhs in
+            if lhs.numberOfColumns != rhs.numberOfColumns {
+                return lhs.numberOfColumns < rhs.numberOfColumns
+            }
+            return lhs.numberOfRows < rhs.numberOfRows
+        }
+    }
+
+    private func allTableViews(in view: NSView) -> [NSTableView] {
+        var result: [NSTableView] = []
+        if let tableView = view as? NSTableView {
+            result.append(tableView)
+        }
+        for subview in view.subviews {
+            result.append(contentsOf: allTableViews(in: subview))
+        }
+        return result
+    }
+
+    final class MarkerView: NSView {
+        var didMoveToWindow: (() -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            didMoveToWindow?()
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        private var selectedIDs: Binding<Set<DownloadID>>
+        private var rowIDs: [DownloadID]
+        private var context: DownloadFilter
+        private weak var tableView: NSTableView?
+        private var selectionAnchor: DownloadID?
+        private var eventMonitor: Any?
+        private var selectionAppearanceUpdate: Task<Void, Never>?
+        private var isConnecting = false
+
+        private static let selectionBackgroundColor =
+            (NSColor(named: "AccentColor") ?? .controlAccentColor)
+                .withAlphaComponent(0.22)
+
+        init(
+            selectedIDs: Binding<Set<DownloadID>>,
+            rowIDs: [DownloadID],
+            context: DownloadFilter
+        ) {
+            self.selectedIDs = selectedIDs
+            self.rowIDs = rowIDs
+            self.context = context
+        }
+
+        func update(
+            selectedIDs: Binding<Set<DownloadID>>,
+            rowIDs: [DownloadID],
+            context: DownloadFilter
+        ) {
+            self.selectedIDs = selectedIDs
+            self.rowIDs = rowIDs
+            if self.context != context {
+                self.context = context
+                selectionAnchor = nil
+            } else if let selectionAnchor, !rowIDs.contains(selectionAnchor) {
+                self.selectionAnchor = nil
+            }
+            scheduleSelectionAppearanceUpdate()
+        }
+
+        func connect(to tableView: NSTableView) {
+            guard self.tableView !== tableView else { return }
+            disconnect()
+            self.tableView = tableView
+            tableView.selectionHighlightStyle = .none
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(selectionDidChange(_:)),
+                name: NSTableView.selectionDidChangeNotification,
+                object: tableView
+            )
+            if let clipView = tableView.enclosingScrollView?.contentView {
+                clipView.postsBoundsChangedNotifications = true
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(visibleRowsDidChange(_:)),
+                    name: NSView.boundsDidChangeNotification,
+                    object: clipView
+                )
+            }
+            NSWorkspace.shared.notificationCenter.addObserver(
+                self,
+                selector: #selector(accessibilityDisplayOptionsDidChange(_:)),
+                name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                object: nil
+            )
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
+                [weak self, weak tableView] event in
+                guard let self, let tableView else { return event }
+                MainActor.assumeIsolated {
+                    self.handleMouseDown(event, in: tableView)
+                }
+                return event
+            }
+            scheduleSelectionAppearanceUpdate()
+        }
+
+        func beginConnecting() -> Bool {
+            guard tableView == nil, !isConnecting else { return false }
+            isConnecting = true
+            return true
+        }
+
+        func endConnecting() {
+            isConnecting = false
+        }
+
+        func disconnect() {
+            NotificationCenter.default.removeObserver(self)
+            NSWorkspace.shared.notificationCenter.removeObserver(self)
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
+                self.eventMonitor = nil
+            }
+            selectionAppearanceUpdate?.cancel()
+            selectionAppearanceUpdate = nil
+            tableView = nil
+            isConnecting = false
+        }
+
+        @objc private func selectionDidChange(_: Notification) {
+            scheduleSelectionAppearanceUpdate()
+        }
+
+        @objc private func visibleRowsDidChange(_: Notification) {
+            scheduleSelectionAppearanceUpdate()
+        }
+
+        @objc private func accessibilityDisplayOptionsDidChange(_: Notification) {
+            scheduleSelectionAppearanceUpdate()
+        }
+
+        private func scheduleSelectionAppearanceUpdate() {
+            selectionAppearanceUpdate?.cancel()
+            selectionAppearanceUpdate = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                self?.updateSelectionAppearance()
+            }
+        }
+
+        private func updateSelectionAppearance() {
+            guard let tableView else { return }
+            let usesNativeHighlight = NSWorkspace.shared
+                .accessibilityDisplayShouldIncreaseContrast
+            tableView.selectionHighlightStyle = usesNativeHighlight ? .regular : .none
+            let visibleRows = tableView.rows(in: tableView.visibleRect)
+            guard visibleRows.location != NSNotFound else { return }
+
+            for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
+                guard let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) else {
+                    continue
+                }
+                rowView.backgroundColor = if usesNativeHighlight {
+                    .clear
+                } else if tableView.selectedRowIndexes.contains(row) {
+                    Self.selectionBackgroundColor
+                } else {
+                    .clear
+                }
+            }
+        }
+
+        private func handleMouseDown(_ event: NSEvent, in tableView: NSTableView) {
+            guard event.window === tableView.window,
+                  !event.modifierFlags.contains(.control) else {
+                return
+            }
+            let point = tableView.convert(event.locationInWindow, from: nil)
+            guard tableView.bounds.contains(point) else { return }
+            let row = tableView.row(at: point)
+            guard row >= 0 else {
+                selectionAnchor = nil
+                selectedIDs.wrappedValue.removeAll()
+                return
+            }
+            let column = tableView.column(at: point)
+            guard rowIDs.indices.contains(row), column != tableView.numberOfColumns - 1 else {
+                return
+            }
+
+            let clickedID = rowIDs[row]
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            var selection = selectedIDs.wrappedValue
+            if modifiers.contains(.shift),
+               let anchor = selectionAnchor,
+               let anchorRow = rowIDs.firstIndex(of: anchor) {
+                let range = min(anchorRow, row)...max(anchorRow, row)
+                let rangeSelection = Set(range.map { rowIDs[$0] })
+                selection = modifiers.contains(.command)
+                    ? selection.union(rangeSelection)
+                    : rangeSelection
+            } else if modifiers.contains(.command) {
+                if selection.contains(clickedID) {
+                    selection.remove(clickedID)
+                } else {
+                    selection.insert(clickedID)
+                }
+                selectionAnchor = clickedID
+            } else {
+                selection = [clickedID]
+                selectionAnchor = clickedID
+            }
+
+            if selectedIDs.wrappedValue != selection {
+                selectedIDs.wrappedValue = selection
+            }
+        }
+    }
+}
+#endif

@@ -20,14 +20,7 @@ struct ContentView: View {
     private var visibleSnapshots: [DownloadSnapshot] {
         service.snapshots
             .filter { selectedFilter.includes($0.state) }
-            .sorted { $0.updatedAt > $1.updatedAt }
-    }
-
-    private var selectedSnapshot: DownloadSnapshot? {
-        guard selectedDownloadIDs.count == 1, let selectedID = selectedDownloadIDs.first else {
-            return nil
-        }
-        return service.snapshots.first { $0.id == selectedID }
+            .sortedForDownloadList()
     }
 
     private var selectedCommands: [DownloadCommand] {
@@ -124,63 +117,79 @@ struct ContentView: View {
                 .keyboardShortcut("n", modifiers: .command)
             }
         } else {
-            Table(visibleSnapshots, selection: $selectedDownloadIDs) {
-                TableColumn("Name") { snapshot in
-                    DownloadNameCell(snapshot: snapshot)
+            let snapshotsByID = Dictionary(
+                uniqueKeysWithValues: visibleSnapshots.map { ($0.id, $0) }
+            )
+            let tableItems = visibleSnapshots.map { DownloadTableItem(id: $0.id) }
+
+            Table(tableItems, selection: $selectedDownloadIDs) {
+                TableColumn("Name") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        DownloadNameCell(snapshot: snapshot)
+                    }
                 }
                 .width(min: 180, ideal: 260)
 
-                TableColumn("Size") { snapshot in
-                    Text(DownloadFormatting.bytes(snapshot.contentLength))
-                        .monospacedDigit()
+                TableColumn("Size") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        Text(DownloadFormatting.bytes(snapshot.contentLength))
+                            .monospacedDigit()
+                    }
                 }
                 .width(min: 72, ideal: 90)
 
-                TableColumn("Progress") { snapshot in
-                    DownloadProgressCell(snapshot: snapshot)
+                TableColumn("Progress") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        DownloadProgressCell(snapshot: snapshot)
+                    }
                 }
                 .width(min: 140, ideal: 190)
 
-                TableColumn("Status") { snapshot in
-                    Label(snapshot.state.title, systemImage: snapshot.state.systemImage)
-                        .foregroundStyle(snapshot.state.tint)
+                TableColumn("Status") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        Label(snapshot.state.title, systemImage: snapshot.state.systemImage)
+                            .foregroundStyle(snapshot.state.tint)
+                    }
                 }
                 .width(min: 110, ideal: 130)
 
-                TableColumn("Speed") { snapshot in
-                    Text(DownloadFormatting.speed(snapshot.bytesPerSecond))
-                        .monospacedDigit()
+                TableColumn("Speed") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        Text(DownloadFormatting.speed(snapshot.bytesPerSecond))
+                            .monospacedDigit()
+                    }
                 }
                 .width(min: 80, ideal: 100)
 
-                TableColumn("Remaining") { snapshot in
-                    Text(DownloadFormatting.duration(snapshot.estimatedTimeRemaining))
-                        .monospacedDigit()
+                TableColumn("Remaining") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        Text(DownloadFormatting.duration(snapshot.estimatedTimeRemaining))
+                            .monospacedDigit()
+                    }
                 }
                 .width(min: 72, ideal: 90)
 
-                TableColumn("Updated") { snapshot in
-                    Text(
-                        snapshot.updatedAt,
-                        format: .dateTime.month().day().hour().minute()
-                    )
-                        .foregroundStyle(.secondary)
-                }
-                .width(min: 100, ideal: 120)
-
-                TableColumn("") { snapshot in
-                    DownloadActionsMenu(
-                        snapshot: snapshot,
-                        isBusy: service.commandInFlightIDs.contains(snapshot.id),
-                        showInfo: { openInfo(snapshot.id) },
-                        deleteFile: { deleteFileAndHistory(snapshot) }
-                    ) { command in
-                        perform(command, on: snapshot.id)
+                TableColumn("") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        DownloadActionsMenu(
+                            snapshot: snapshot,
+                            isBusy: service.commandInFlightIDs.contains(snapshot.id),
+                            showInfo: { openInfo(snapshot.id) },
+                            deleteFile: { deleteFileAndHistory(snapshot) }
+                        ) { command in
+                            perform(command, on: snapshot.id)
+                        }
                     }
                 }
                 .width(34)
             }
-            .background(MutedTableSelection(selectedIDs: selectedDownloadIDs))
+            .background(
+                DownloadTableSelectionBridge(
+                    selectedIDs: $selectedDownloadIDs,
+                    rowIDs: tableItems.map(\.id),
+                    context: selectedFilter
+                )
+            )
             .contextMenu(forSelectionType: DownloadID.self) { ids in
                 if ids.count == 1, let id = ids.first {
                     Button("Show Info", systemImage: "info.circle") {
@@ -209,25 +218,16 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup {
-            if let selectedSnapshot {
-                Button("Info", systemImage: "info.circle") {
-                    openInfo(selectedSnapshot.id)
-                }
-                .keyboardShortcut("i", modifiers: .command)
+        ToolbarItem {
+            DownloadSelectionToolbar(
+                selectedDownloadIDs: selectedDownloadIDs,
+                commands: selectedCommands,
+                isBusy: selectedDownloadsAreBusy,
+                showInfo: openInfo
+            ) { command, ids in
+                performSelectedCommand(command, on: ids)
             }
-
-            ForEach(selectedCommands) { command in
-                Button(role: command.role) {
-                    performSelectedCommand(command, on: selectedDownloadIDs)
-                } label: {
-                    Label(
-                        command.title(forSelectionCount: selectedDownloadIDs.count),
-                        systemImage: command.systemImage
-                    )
-                }
-                .disabled(selectedDownloadsAreBusy)
-            }
+            .equatable()
         }
 
         ToolbarItem(placement: .primaryAction) {
@@ -457,7 +457,20 @@ private struct DownloadActionsMenu: View {
     }
 }
 
-#Preview {
-    ContentView(service: .preview())
+#if DEBUG
+private extension ContentView {
+    init(previewSnapshots: [DownloadSnapshot], selectedIDs: Set<DownloadID> = []) {
+        service = .preview(snapshots: previewSnapshots)
+        _selectedDownloadIDs = State(initialValue: selectedIDs)
+    }
 }
+
+#Preview("Download Table") {
+    ContentView(
+        previewSnapshots: DownloadPreviewFixtures.snapshots,
+        selectedIDs: [DownloadPreviewFixtures.downloading.id]
+    )
+    .frame(width: 1_180, height: 520)
+}
+#endif
 #endif
