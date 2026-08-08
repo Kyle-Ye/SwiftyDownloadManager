@@ -1,15 +1,8 @@
 (() => {
+  const downloadSupport = globalThis.SDMDownloadSupport;
   const pageBridgeSource = "swifty-download-manager-page-bridge";
   const userGestureLifetimeMilliseconds = 30_000;
   const responseTimeoutMilliseconds = 5_000;
-  const downloadableExtensions = new Set([
-    "7z", "aac", "apk", "app", "arc", "arj", "avi", "bin", "bz2", "cab",
-    "csv", "dmg", "doc", "docx", "epub", "exe", "flac", "gz", "img", "iso",
-    "jar", "key", "m4a", "m4v", "mkv", "mov", "mp3", "mp4", "mpeg", "mpg",
-    "msi", "numbers", "odf", "ods", "odt", "pages", "pdf", "pkg", "ppt",
-    "pptx", "rar", "rtf", "tar", "tgz", "tif", "tiff", "ts", "txt", "wav",
-    "webm", "wma", "wmv", "xls", "xlsx", "xip", "xz", "zip", "zipx"
-  ]);
 
   if (window.__sdmPageBridgeInstalled === true) {
     return;
@@ -23,18 +16,8 @@
   let requestOrdinal = 0;
 
   function parsedDownloadURL(value) {
-    try {
-      const url = new URL(String(value), document.baseURI);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        return null;
-      }
-      const name = url.pathname.split("/").pop() ?? "";
-      const separator = name.lastIndexOf(".");
-      const extension = separator >= 0 ? name.slice(separator + 1).toLowerCase() : "";
-      return downloadableExtensions.has(extension) ? url : null;
-    } catch {
-      return null;
-    }
+    const url = downloadSupport.parsedHTTPURL(String(value), document.baseURI);
+    return url && downloadSupport.isDirectDownloadURL(url.href) ? url : null;
   }
 
   function hasRecentEligibleClick() {

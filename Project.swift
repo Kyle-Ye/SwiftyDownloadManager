@@ -114,6 +114,9 @@ let project = Project(
                     "NSExtensionPrincipalClass": "$(PRODUCT_MODULE_NAME).SafariWebExtensionHandler",
                 ],
             ]),
+            resources: [
+                .folderReference(path: "BrowserExtension/Shared"),
+            ],
             buildableFolders: [
                 "SafariExtension/Sources",
                 "SafariExtension/Resources",

@@ -74,15 +74,18 @@ gh secret list --repo Kyle-Ye/SwiftyDownloadManager
 
 ## Version model
 
-SDM uses one release version across the App, Safari Extension, Web Extension,
-and Engine. A stable release must not expose a development Engine version.
+SDM uses one release version across the App, Safari Extension, Safari Web
+Extension, Chrome Extension, and Engine. A stable release must not expose a
+development Engine version.
 For a release such as `0.3.0`, all of these values must be `0.3.0` in the
 tagged release commit:
 
 - App marketing version in `Project.swift`.
 - Safari Extension marketing version in `Project.swift`.
-- Web Extension manifest version in
+- Safari Web Extension manifest version in
   `SafariExtension/Resources/manifest.json`.
+- Chrome Extension manifest version in
+  `ChromeExtension/Resources/manifest.json`.
 - Engine version in `Packages/SDMCore/Sources/SDMEngine/Engine.cpp`, with the
   matching expected value in
   `Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift`.
@@ -120,9 +123,9 @@ SDM_BUILD_NUMBER=4
 SDM_NEXT_DEV_VERSION=0.4.0-dev
 ```
 
-Update both target versions and build numbers in `Project.swift`, the manifest
-version, the Engine version, and its matching test. The Engine value must equal
-`${SDM_VERSION}` without a `-dev` suffix.
+Update both target versions and build numbers in `Project.swift`, both manifest
+versions, the Engine version, and its matching test. The Engine value must
+equal `${SDM_VERSION}` without a `-dev` suffix.
 
 Check all source release values before generating the workspace:
 
@@ -132,6 +135,8 @@ test "$(rg -F -c \
 test "$(rg -F -c \
   "\"CFBundleVersion\": \"${SDM_BUILD_NUMBER}\"" Project.swift)" -eq 2
 test "$(jq -r '.version' SafariExtension/Resources/manifest.json)" = \
+  "${SDM_VERSION}"
+test "$(jq -r '.version' ChromeExtension/Resources/manifest.json)" = \
   "${SDM_VERSION}"
 rg -n -F "return \"${SDM_VERSION}\";" \
   Packages/SDMCore/Sources/SDMEngine/Engine.cpp
@@ -149,6 +154,8 @@ mise install
 mise exec -- tuist install
 mise exec -- tuist generate --no-open
 bash Scripts/test.sh
+Scripts/package-chrome-extension.sh \
+  /tmp/SwiftyDownloadManager-Chrome-${SDM_VERSION}.zip
 xcodebuild test -quiet \
   -workspace SDM.xcworkspace \
   -scheme SDMApp \
@@ -174,11 +181,13 @@ Review, commit, and push only the intended release changes:
 git diff -- \
   Project.swift \
   SafariExtension/Resources/manifest.json \
+  ChromeExtension/Resources/manifest.json \
   Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
   Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
 git add \
   Project.swift \
   SafariExtension/Resources/manifest.json \
+  ChromeExtension/Resources/manifest.json \
   Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
   Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
 git commit -m "chore: prepare ${SDM_VERSION} release"

@@ -1,16 +1,9 @@
 (() => {
-  const extensionAPI = globalThis.browser ?? globalThis.chrome;
-  const callbackScheme = "swifty-download-manager";
+  const extensionPlatform = globalThis.SDMExtensionPlatform;
+  const extensionAPI = extensionPlatform.api;
+  const downloadSupport = globalThis.SDMDownloadSupport;
   const pageBridgeSource = "swifty-download-manager-page-bridge";
   const pageBridgeToken = globalThis.crypto.randomUUID();
-  const downloadableExtensions = new Set([
-    "7z", "aac", "apk", "app", "arc", "arj", "avi", "bin", "bz2", "cab",
-    "csv", "dmg", "doc", "docx", "epub", "exe", "flac", "gz", "img", "iso",
-    "jar", "key", "m4a", "m4v", "mkv", "mov", "mp3", "mp4", "mpeg", "mpg",
-    "msi", "numbers", "odf", "ods", "odt", "pages", "pdf", "pkg", "ppt",
-    "pptx", "rar", "rtf", "tar", "tgz", "tif", "tiff", "ts", "txt", "wav",
-    "webm", "wma", "wmv", "xls", "xlsx", "xip", "xz", "zip", "zipx"
-  ]);
 
   function linkFromEvent(event) {
     for (const node of event.composedPath()) {
@@ -22,18 +15,7 @@
   }
 
   function parsedHTTPURL(value) {
-    try {
-      const url = new URL(value, document.baseURI);
-      return url.protocol === "http:" || url.protocol === "https:" ? url : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function inferredExtension(url) {
-    const name = url.pathname.split("/").pop() ?? "";
-    const separator = name.lastIndexOf(".");
-    return separator >= 0 ? name.slice(separator + 1).toLowerCase() : "";
+    return downloadSupport.parsedHTTPURL(value, document.baseURI);
   }
 
   function isDownloadLink(link, url) {
@@ -41,7 +23,7 @@
   }
 
   function isDownloadURL(url) {
-    return downloadableExtensions.has(inferredExtension(url));
+    return downloadSupport.isDirectDownloadURL(url.href);
   }
 
   function suggestedFilename(link) {
@@ -50,16 +32,6 @@
     }
     const value = link.getAttribute("download")?.trim();
     return value || undefined;
-  }
-
-  function callbackURL(host, queryItems = {}) {
-    const url = new URL(`${callbackScheme}://${host}`);
-    for (const [name, value] of Object.entries(queryItems)) {
-      if (typeof value === "string" && value.length > 0) {
-        url.searchParams.set(name, value);
-      }
-    }
-    return url.href;
   }
 
   function postPageBridgeResponse(id, accepted) {
@@ -141,11 +113,15 @@
     }
 
     const filename = suggestedFilename(link);
-    link.href = callbackURL("download", {
-      url: url.href,
-      filename,
-      source: window.location.href,
-    });
+    link.href = downloadSupport.callbackURL(
+      "download",
+      {
+        url: url.href,
+        filename,
+        source: window.location.href,
+      },
+      extensionPlatform.browser
+    );
     link.target = "_self";
     if (link instanceof HTMLAnchorElement) {
       link.removeAttribute("download");

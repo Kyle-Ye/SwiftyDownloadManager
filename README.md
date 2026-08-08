@@ -76,7 +76,23 @@ ports and clean them up automatically.
 See [`Docs/Releasing.md`](Docs/Releasing.md) for the versioning, validation,
 archive, App packaging, GitHub Release, and post-release development workflow.
 
-## Safari extension
+## Browser extensions
+
+The macOS app provides a **Browser Extensions…** window for setting up Google
+Chrome and Safari. The Chrome integration is a separate Manifest V3 extension
+prepared for Chrome Web Store distribution. It recognizes common direct file
+links, eligible downloads opened after a click, and the **Download with SDM**
+link context-menu command. See [`Docs/ChromeExtension.md`](Docs/ChromeExtension.md)
+for local installation, packaging, permissions, and store-publishing steps.
+Chrome and Safari use the same browser-independent interception and download
+recognition sources under `BrowserExtension/Shared`; only their platform
+adapters and manifests are maintained separately.
+
+The Chrome extension is macOS-only. Its in-app **Add Chrome Extension** button
+opens the Chrome Web Store search until the listing receives its permanent item
+ID, at which point the centralized URL can be changed to the direct listing.
+
+### Safari
 
 The macOS, iOS, and iPadOS apps embed a Safari Web Extension that sends direct HTTP and HTTPS
 download links to SDM. Run the containing app once, open **Settings > Safari

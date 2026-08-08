@@ -2,6 +2,9 @@ import SDMCore
 import SwiftUI
 
 struct SettingsView: View {
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
     @AppStorage(AppStorageKey.defaultConnectionCount) private var defaultConnectionCount = 8
     @AppStorage(AppStorageKey.downloadEngine) private var selectedEngine = DownloadEngineKind.libcurl.rawValue
     #if os(macOS)
@@ -36,6 +39,7 @@ struct SettingsView: View {
                 safariExtensionIsEnabled: safariExtensionIsEnabled,
                 databaseURL: service.databaseURL,
                 openSafariSettings: SafariExtensionSupport.showPreferences,
+                showBrowserExtensions: showBrowserExtensions,
                 showLegalNotices: { showsLegalNotices = true }
             )
             #endif
@@ -113,6 +117,12 @@ struct SettingsView: View {
             }
         }
     }
+
+    #if os(macOS)
+    private func showBrowserExtensions() {
+        openWindow(id: AppWindowID.browsers)
+    }
+    #endif
 }
 
 #Preview {

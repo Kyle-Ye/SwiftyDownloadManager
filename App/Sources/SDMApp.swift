@@ -21,7 +21,13 @@ struct SDMApp: App {
         .defaultSize(width: 1_080, height: 680)
         .commands {
             DownloadCommands()
+            BrowserCommands()
         }
+
+        Window("Browsers", id: AppWindowID.browsers) {
+            BrowsersView()
+        }
+        .defaultSize(width: 680, height: 520)
 
         MenuBarExtra(
             "Swifty Download Manager",
