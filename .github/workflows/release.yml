@@ -210,6 +210,21 @@ jobs:
           codesign -dv --verbose=4 "$EXTENSION_PATH" 2>&1 | \
             grep -F 'Authority=Developer ID Application:'
 
+          app_bundle_identifier="$(
+            plutil -extract CFBundleIdentifier raw -o - \
+              "$APP_PATH/Contents/Info.plist"
+          )"
+          app_identifier="$(
+            codesign -d --entitlements - --xml "$APP_PATH" 2>/dev/null | \
+              plutil -extract 'com\.apple\.application-identifier' raw -o - -
+          )"
+          expected_app_identifier="VB7MJ8R223.${app_bundle_identifier}"
+          if [[ "$app_identifier" != "$expected_app_identifier" ]]; then
+            echo "Unexpected application identifier: $app_identifier" >&2
+            echo "Expected: $expected_app_identifier" >&2
+            exit 1
+          fi
+
       - name: Submit for notarization
         env:
           API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
