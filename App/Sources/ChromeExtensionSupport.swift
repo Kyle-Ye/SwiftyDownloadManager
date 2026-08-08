@@ -6,7 +6,7 @@ enum ChromeExtensionSupport {
         string: "https://chromewebstore.google.com/search/Swifty%20Download%20Manager"
     )
 
-    private static let chromeBundleIdentifiers = [
+    private static let applicationBundleIdentifiers = [
         "com.google.Chrome",
         "com.google.Chrome.beta",
         "com.google.Chrome.canary",
@@ -14,11 +14,16 @@ enum ChromeExtensionSupport {
 
     @MainActor
     static func isChromeInstalled() -> Bool {
-        chromeBundleIdentifiers.contains { bundleIdentifier in
-            NSWorkspace.shared.urlForApplication(
-                withBundleIdentifier: bundleIdentifier
-            ) != nil
-        }
+        BrowserApplicationIconSupport.applicationURL(
+            forBundleIdentifiers: applicationBundleIdentifiers
+        ) != nil
+    }
+
+    @MainActor
+    static func applicationIcon() -> NSImage? {
+        BrowserApplicationIconSupport.icon(
+            forBundleIdentifiers: applicationBundleIdentifiers
+        )
     }
 }
 #endif

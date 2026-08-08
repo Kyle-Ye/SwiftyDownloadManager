@@ -2,17 +2,26 @@
 import SwiftUI
 
 struct BrowserExtensionIcon: View {
-    let systemImage: String
-    let tint: Color
+    let applicationIcon: NSImage?
+    let placeholderSystemImage: String
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: BrowserExtensionDesign.browserIconRadius)
-                .fill(tint.gradient)
+        Group {
+            if let applicationIcon {
+                Image(nsImage: applicationIcon)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: BrowserExtensionDesign.browserIconRadius)
+                        .fill(.quaternary)
 
-            Image(systemName: systemImage)
-                .font(.title2)
-                .foregroundStyle(.white)
+                    Image(systemName: placeholderSystemImage)
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .frame(
             width: BrowserExtensionDesign.browserIconSize,

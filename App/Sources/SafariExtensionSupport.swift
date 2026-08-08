@@ -6,6 +6,20 @@ import UIKit
 enum SafariExtensionSupport {
     static let bundleIdentifier = "top.kyleye.swifty-download-manager-app.safari-extension"
 
+    #if os(macOS)
+    private static let applicationBundleIdentifiers = [
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
+    ]
+
+    @MainActor
+    static func applicationIcon() -> NSImage? {
+        BrowserApplicationIconSupport.icon(
+            forBundleIdentifiers: applicationBundleIdentifiers
+        )
+    }
+    #endif
+
     nonisolated static func isEnabled() async -> Bool? {
         #if os(macOS)
         await withCheckedContinuation { continuation in

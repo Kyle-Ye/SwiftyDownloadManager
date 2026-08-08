@@ -3,6 +3,8 @@ import SwiftUI
 
 struct BrowsersView: View {
     @State private var chromeIsInstalled = false
+    @State private var chromeApplicationIcon: NSImage?
+    @State private var safariApplicationIcon: NSImage?
     @State private var safariExtensionIsEnabled: Bool?
 
     var body: some View {
@@ -33,14 +35,16 @@ struct BrowsersView: View {
                 }
             }
 
-            ChromeExtensionCard(
-                chromeIsInstalled: chromeIsInstalled,
-                webStoreURL: ChromeExtensionSupport.webStoreURL
-            )
-
             SafariExtensionCard(
+                applicationIcon: safariApplicationIcon,
                 isEnabled: safariExtensionIsEnabled,
                 openSettings: SafariExtensionSupport.showPreferences
+            )
+
+            ChromeExtensionCard(
+                applicationIcon: chromeApplicationIcon,
+                chromeIsInstalled: chromeIsInstalled,
+                webStoreURL: ChromeExtensionSupport.webStoreURL
             )
         }
         .padding(BrowserExtensionDesign.pagePadding)
@@ -66,6 +70,8 @@ struct BrowsersView: View {
 
     private func refreshBrowserStates() async {
         chromeIsInstalled = ChromeExtensionSupport.isChromeInstalled()
+        chromeApplicationIcon = ChromeExtensionSupport.applicationIcon()
+        safariApplicationIcon = SafariExtensionSupport.applicationIcon()
         safariExtensionIsEnabled = await SafariExtensionSupport.isEnabled()
     }
 }

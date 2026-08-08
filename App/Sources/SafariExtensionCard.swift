@@ -2,6 +2,7 @@
 import SwiftUI
 
 struct SafariExtensionCard: View {
+    let applicationIcon: NSImage?
     let isEnabled: Bool?
     let openSettings: () -> Void
 
@@ -9,26 +10,20 @@ struct SafariExtensionCard: View {
         VStack(alignment: .leading, spacing: BrowserExtensionDesign.cardSpacing) {
             HStack(alignment: .top, spacing: BrowserExtensionDesign.cardSpacing) {
                 BrowserExtensionIcon(
-                    systemImage: "safari.fill",
-                    tint: .cyan
+                    applicationIcon: applicationIcon,
+                    placeholderSystemImage: "safari"
                 )
 
-                VStack(alignment: .leading, spacing: BrowserExtensionDesign.compactSpacing) {
-                    HStack(spacing: BrowserExtensionDesign.inlineSpacing) {
-                        Text("Safari")
-                            .font(.headline)
+                HStack(spacing: BrowserExtensionDesign.inlineSpacing) {
+                    Text("Safari")
+                        .font(.headline)
 
-                        BrowserExtensionStatusBadge(
-                            title: statusTitle,
-                            systemImage: statusSystemImage,
-                            tint: statusStyle,
-                            showsProgress: isEnabled == nil
-                        )
-                    }
-
-                    Text("Use the extension already bundled with Swifty Download Manager.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    BrowserExtensionStatusBadge(
+                        title: statusTitle,
+                        systemImage: statusSystemImage,
+                        tint: statusStyle,
+                        showsProgress: isEnabled == nil
+                    )
                 }
 
                 Spacer(minLength: BrowserExtensionDesign.inlineSpacing)
@@ -42,6 +37,13 @@ struct SafariExtensionCard: View {
                 .controlSize(.large)
                 .accessibilityHint("Opens Safari extension settings")
             }
+
+            Text("Use the extension already bundled with Swifty Download Manager.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(0)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, BrowserExtensionDesign.cardContentInset)
 
             HStack(spacing: BrowserExtensionDesign.wideSpacing) {
                 BrowserFeatureRow(

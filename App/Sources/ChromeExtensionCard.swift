@@ -2,6 +2,7 @@
 import SwiftUI
 
 struct ChromeExtensionCard: View {
+    let applicationIcon: NSImage?
     let chromeIsInstalled: Bool
     let webStoreURL: URL?
 
@@ -9,27 +10,21 @@ struct ChromeExtensionCard: View {
         VStack(alignment: .leading, spacing: BrowserExtensionDesign.cardSpacing) {
             HStack(alignment: .top, spacing: BrowserExtensionDesign.cardSpacing) {
                 BrowserExtensionIcon(
-                    systemImage: "globe.americas.fill",
-                    tint: .blue
+                    applicationIcon: applicationIcon,
+                    placeholderSystemImage: "questionmark.app.dashed"
                 )
 
-                VStack(alignment: .leading, spacing: BrowserExtensionDesign.compactSpacing) {
-                    HStack(spacing: BrowserExtensionDesign.inlineSpacing) {
-                        Text("Google Chrome")
-                            .font(.headline)
+                HStack(spacing: BrowserExtensionDesign.inlineSpacing) {
+                    Text("Google Chrome")
+                        .font(.headline)
 
-                        BrowserExtensionStatusBadge(
-                            title: chromeIsInstalled ? "Chrome found" : "Chrome not found",
-                            systemImage: chromeIsInstalled
-                                ? "checkmark.circle.fill"
-                                : "exclamationmark.circle.fill",
-                            tint: chromeIsInstalled ? .green : .secondary
-                        )
-                    }
-
-                    Text("Capture direct download links without leaving the page you are browsing.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    BrowserExtensionStatusBadge(
+                        title: chromeIsInstalled ? "Chrome found" : "Chrome not found",
+                        systemImage: chromeIsInstalled
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.circle.fill",
+                        tint: chromeIsInstalled ? .green : .secondary
+                    )
                 }
 
                 Spacer(minLength: BrowserExtensionDesign.inlineSpacing)
@@ -43,6 +38,13 @@ struct ChromeExtensionCard: View {
                     .accessibilityHint("Opens the Chrome Web Store")
                 }
             }
+
+            Text("Capture direct download links without leaving the page you are browsing.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(0)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, BrowserExtensionDesign.cardContentInset)
 
             VStack(alignment: .leading, spacing: BrowserExtensionDesign.featureSpacing) {
                 BrowserFeatureRow(

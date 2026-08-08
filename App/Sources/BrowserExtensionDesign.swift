@@ -18,5 +18,6 @@ enum BrowserExtensionDesign {
     static let headerIconSize = 48.0
     static let browserIconRadius = 11.0
     static let browserIconSize = 46.0
+    static let cardContentInset = browserIconSize + cardSpacing
 }
 #endif
