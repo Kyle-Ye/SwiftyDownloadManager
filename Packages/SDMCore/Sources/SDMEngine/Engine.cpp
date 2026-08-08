@@ -53,6 +53,9 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+constexpr std::uint64_t minimum_adaptive_segment_length = 1024 * 1024;
+constexpr std::size_t maximum_segments_per_connection = 8;
+
 std::uint64_t current_milliseconds() noexcept {
     const auto now = std::chrono::system_clock::now().time_since_epoch();
     return static_cast<std::uint64_t>(
@@ -900,6 +903,56 @@ private:
         add_transfer(task, std::move(transfer));
     }
 
+    bool start_segment_transfer(
+        Task &task,
+        std::uint32_t segment_ordinal,
+        std::uint32_t bandwidth_share_count,
+        bool must_use_ranges
+    ) {
+        if (segment_ordinal >= task.segments.size()) {
+            fail_task(task, Result::internal_error, "Segment ordinal was out of bounds");
+            return false;
+        }
+        const auto &segment = task.segments[segment_ordinal];
+        if (segment.next > segment.end) {
+            return true;
+        }
+
+        auto transfer = make_transfer(task, TransferKind::body);
+        if (!transfer) {
+            return false;
+        }
+        transfer->segment_ordinal = segment_ordinal;
+        transfer->start_offset = segment.next;
+        transfer->end_offset = segment.end;
+        transfer->expected_bytes = segment.end - segment.next + 1;
+        apply_bandwidth_limit(*transfer, task, bandwidth_share_count);
+        if (must_use_ranges) {
+            transfer->expects_partial_response = true;
+            const auto range = std::to_string(segment.next) + "-" +
+                std::to_string(segment.end);
+            curl_easy_setopt(transfer->easy, CURLOPT_RANGE, range.c_str());
+            const auto &validator = !task.etag.empty()
+                ? task.etag
+                : task.last_modified;
+            if (!validator.empty()) {
+                const auto header = "If-Range: " + validator;
+                transfer->request_headers = curl_slist_append(
+                    transfer->request_headers,
+                    header.c_str()
+                );
+                curl_easy_setopt(
+                    transfer->easy,
+                    CURLOPT_HTTPHEADER,
+                    transfer->request_headers
+                );
+            }
+        }
+        auto *easy = transfer->easy;
+        add_transfer(task, std::move(transfer));
+        return task.active_handles.contains(easy);
+    }
+
     void start_body(Task &task) {
         if (!task.snapshot.content_length_known && task.segments.empty() &&
             task.write_offset > 0) {
@@ -944,41 +997,19 @@ private:
                 task.segments,
                 [](const Segment &segment) { return segment.next <= segment.end; }
             ));
-            for (auto &segment : task.segments) {
+            for (std::uint32_t ordinal = 0; ordinal < task.segments.size(); ++ordinal) {
+                const auto &segment = task.segments[ordinal];
                 if (segment.next > segment.end) {
                     continue;
                 }
-                auto transfer = make_transfer(task, TransferKind::body);
-                if (!transfer) {
+                if (!start_segment_transfer(
+                        task,
+                        ordinal,
+                        unfinished_count,
+                        must_use_ranges
+                    )) {
                     return;
                 }
-                transfer->segment_ordinal = segment.ordinal;
-                transfer->start_offset = segment.next;
-                transfer->end_offset = segment.end;
-                transfer->expected_bytes = segment.end - segment.next + 1;
-                apply_bandwidth_limit(*transfer, task, unfinished_count);
-                if (must_use_ranges) {
-                    transfer->expects_partial_response = true;
-                    const auto range = std::to_string(segment.next) + "-" +
-                        std::to_string(segment.end);
-                    curl_easy_setopt(transfer->easy, CURLOPT_RANGE, range.c_str());
-                    const auto &validator = !task.etag.empty()
-                        ? task.etag
-                        : task.last_modified;
-                    if (!validator.empty()) {
-                        const auto header = "If-Range: " + validator;
-                        transfer->request_headers = curl_slist_append(
-                            transfer->request_headers,
-                            header.c_str()
-                        );
-                        curl_easy_setopt(
-                            transfer->easy,
-                            CURLOPT_HTTPHEADER,
-                            transfer->request_headers
-                        );
-                    }
-                }
-                add_transfer(task, std::move(transfer));
             }
         }
         publish_snapshot(task);
@@ -1012,6 +1043,107 @@ private:
             CURLOPT_MAX_RECV_SPEED_LARGE,
             static_cast<curl_off_t>(per_transfer)
         );
+    }
+
+    bool rebalance_segmented_task(Task &task) {
+        const auto connection_limit = std::min(
+            task.request.connection_limit,
+            config.maximum_connections_per_download
+        );
+        const auto maximum_segment_count =
+            static_cast<std::size_t>(connection_limit) *
+            maximum_segments_per_connection;
+        if (!task.accepts_ranges || connection_limit < 2 ||
+            task.segments.size() >= maximum_segment_count) {
+            return false;
+        }
+
+        bool rebalanced = false;
+        while (task.active_handles.size() < connection_limit &&
+               task.segments.size() < maximum_segment_count) {
+            CURL *donor_handle = nullptr;
+            std::uint32_t donor_ordinal = std::numeric_limits<std::uint32_t>::max();
+            std::uint64_t largest_remaining_length = 0;
+
+            for (auto *handle : task.active_handles) {
+                const auto transfer_iterator = transfers.find(handle);
+                if (transfer_iterator == transfers.end()) {
+                    continue;
+                }
+                const auto &transfer = *transfer_iterator->second;
+                if (transfer.kind != TransferKind::body ||
+                    transfer.segment_ordinal >= task.segments.size()) {
+                    continue;
+                }
+                const auto &segment = task.segments[transfer.segment_ordinal];
+                if (segment.next > segment.end) {
+                    continue;
+                }
+                const auto remaining_length = segment.end - segment.next + 1;
+                if (remaining_length / 2 < minimum_adaptive_segment_length ||
+                    remaining_length <= largest_remaining_length) {
+                    continue;
+                }
+                donor_handle = handle;
+                donor_ordinal = transfer.segment_ordinal;
+                largest_remaining_length = remaining_length;
+            }
+
+            if (donor_handle == nullptr) {
+                break;
+            }
+
+            auto transfer_iterator = transfers.find(donor_handle);
+            auto donor_transfer = std::move(transfer_iterator->second);
+            transfers.erase(transfer_iterator);
+            curl_multi_remove_handle(multi, donor_handle);
+            task.active_handles.erase(donor_handle);
+            cleanup_easy(*donor_transfer);
+
+            const auto new_ordinal = static_cast<std::uint32_t>(task.segments.size());
+            auto tail = split_segment_tail(
+                task.segments[donor_ordinal],
+                new_ordinal,
+                minimum_adaptive_segment_length
+            );
+            if (!tail) {
+                fail_task(task, Result::internal_error, "Unable to split Range segment");
+                return rebalanced;
+            }
+            const auto split_start = tail->start;
+            task.segments.push_back(*tail);
+
+            if (!start_segment_transfer(
+                    task,
+                    donor_ordinal,
+                    connection_limit,
+                    true
+                ) ||
+                !start_segment_transfer(
+                    task,
+                    new_ordinal,
+                    connection_limit,
+                    true
+                )) {
+                return rebalanced;
+            }
+
+            record_diagnostic(
+                task,
+                DiagnosticLevel::info,
+                0,
+                "Reused an idle connection by splitting Range segment " +
+                    std::to_string(donor_ordinal + 1) + " at byte " +
+                    std::to_string(split_start) + "."
+            );
+            rebalanced = true;
+        }
+
+        if (rebalanced) {
+            task.snapshot.downloaded_bytes = downloaded_bytes(task);
+            publish_snapshot(task);
+        }
+        return rebalanced;
     }
 
     void process_completed_transfers() {
@@ -1105,7 +1237,13 @@ private:
         update_snapshot_segments(task);
         task.snapshot.downloaded_bytes = downloaded_bytes(task);
         if (!task.active_handles.empty()) {
-            publish_snapshot(task);
+            const auto rebalanced = rebalance_segmented_task(task);
+            if (task.snapshot.state != DownloadState::downloading) {
+                return;
+            }
+            if (!rebalanced) {
+                publish_snapshot(task);
+            }
             return;
         }
         if (task.snapshot.content_length_known &&

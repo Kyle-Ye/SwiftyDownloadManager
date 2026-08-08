@@ -1,6 +1,6 @@
 enum DownloadInfoSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
-    case connections = "Connections"
+    case connections = "Segments"
     case log = "Log"
 
     var id: Self { self }

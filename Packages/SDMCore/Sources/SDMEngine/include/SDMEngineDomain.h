@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace sdm {
@@ -66,6 +67,12 @@ struct Segment final {
     std::uint64_t content_length,
     std::uint32_t requested_connections,
     std::uint32_t maximum_connections
+);
+
+[[nodiscard]] std::optional<Segment> split_segment_tail(
+    Segment &segment,
+    std::uint32_t new_ordinal,
+    std::uint64_t minimum_child_length
 );
 
 } // namespace sdm

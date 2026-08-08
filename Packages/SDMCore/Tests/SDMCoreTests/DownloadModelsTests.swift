@@ -37,6 +37,28 @@ final class DownloadModelsTests: XCTestCase {
         XCTAssertEqual(sdm_test_plan_segments(0, 8, 8, &segments, segments.count), 0)
     }
 
+    func testSegmentTailSplitPreservesDownloadedPrefixAndExactCoverage() {
+        var donor = sdm_test_segment_t(ordinal: 2, start: 100, end: 299, next: 160)
+        var tail = sdm_test_segment_t()
+
+        XCTAssertTrue(sdm_test_split_segment_tail(&donor, 8, 50, &tail))
+        XCTAssertEqual(donor.ordinal, 2)
+        XCTAssertEqual(donor.start, 100)
+        XCTAssertEqual(donor.next, 160)
+        XCTAssertEqual(donor.end + 1, tail.start)
+        XCTAssertEqual(tail.ordinal, 8)
+        XCTAssertEqual(tail.next, tail.start)
+        XCTAssertEqual(tail.end, 299)
+    }
+
+    func testSegmentTailSplitRejectsChildrenBelowMinimumSize() {
+        var donor = sdm_test_segment_t(ordinal: 0, start: 0, end: 99, next: 50)
+        var tail = sdm_test_segment_t()
+
+        XCTAssertFalse(sdm_test_split_segment_tail(&donor, 1, 26, &tail))
+        XCTAssertEqual(donor.end, 99)
+    }
+
     func testStateMachineRejectsInvalidCommands() {
         XCTAssertTrue(sdm_test_can_transition(0, 1))
         XCTAssertFalse(sdm_test_can_transition(8, 3))

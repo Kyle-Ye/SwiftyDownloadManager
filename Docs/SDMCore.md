@@ -75,6 +75,14 @@ Recovery changes in-flight tasks to `paused`. Resume uses persisted Range
 offsets and `If-Range` validators; an incompatible response fails before new
 bytes can be written into the partial representation.
 
+For multi-connection libcurl downloads, the initial representation is divided
+evenly across the requested connections. When one connection finishes early,
+the engine reclaims the largest eligible in-flight Range, preserves its
+downloaded prefix, and divides only its remaining tail between two requests.
+This keeps connection slots busy without overlapping byte coverage. Dynamic
+segments are checkpointed with the rest of the download and survive pause,
+restart, and retry.
+
 `remove(_:)` removes task metadata, segment checkpoints, diagnostics, and any
 partial representation. It never removes a finalized destination file.
 

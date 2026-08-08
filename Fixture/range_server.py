@@ -66,6 +66,7 @@ class FixtureConfig:
     file_size: int = DEFAULT_FILE_SIZE
     bytes_per_second: int = DEFAULT_BYTES_PER_SECOND
     chunk_size: int = DEFAULT_CHUNK_SIZE
+    slow_initial_range_bytes_per_second: int = 0
     quiet: bool = False
 
     def __post_init__(self) -> None:
@@ -79,6 +80,8 @@ class FixtureConfig:
             raise ValueError("file_size must be positive")
         if self.bytes_per_second < 0:
             raise ValueError("bytes_per_second cannot be negative")
+        if self.slow_initial_range_bytes_per_second < 0:
+            raise ValueError("slow_initial_range_bytes_per_second cannot be negative")
         if self.chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
 
@@ -468,9 +471,18 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         if include_body:
+            bytes_per_second = resource.bytes_per_second
+            if (
+                ranges
+                and ranges[0][0] == 0
+                and self.fixture_server.config.slow_initial_range_bytes_per_second
+            ):
+                bytes_per_second = (
+                    self.fixture_server.config.slow_initial_range_bytes_per_second
+                )
             self._write_throttled(
                 body_parts,
-                bytes_per_second=resource.bytes_per_second,
+                bytes_per_second=bytes_per_second,
                 chunk_size=resource.chunk_size,
                 fail_after_bytes=resource.fail_after_bytes,
             )
@@ -643,6 +655,9 @@ def _load_runtime_config(args: argparse.Namespace) -> FixtureConfig:
             "file_size": args.file_size,
             "bytes_per_second": args.bytes_per_second,
             "chunk_size": args.chunk_size,
+            "slow_initial_range_bytes_per_second": (
+                args.slow_initial_range_bytes_per_second
+            ),
             "quiet": args.quiet,
         }.items()
         if value is not None
@@ -660,6 +675,7 @@ def main() -> None:
     parser.add_argument("--file-size", type=int)
     parser.add_argument("--bytes-per-second", type=int)
     parser.add_argument("--chunk-size", type=int)
+    parser.add_argument("--slow-initial-range-bytes-per-second", type=int)
     parser.add_argument("--quiet", action="store_true", default=None)
     args = parser.parse_args()
 

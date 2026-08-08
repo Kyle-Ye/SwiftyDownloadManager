@@ -23,7 +23,7 @@ struct DownloadOverviewView: View {
                     "Remaining",
                     value: DownloadFormatting.duration(snapshot.estimatedTimeRemaining)
                 )
-                LabeledContent("Connections", value: snapshot.segments.count.formatted())
+                LabeledContent("Range Segments", value: snapshot.segments.count.formatted())
             }
 
             Section("Location") {

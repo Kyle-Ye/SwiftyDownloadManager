@@ -32,6 +32,44 @@ size_t sdm_test_plan_segments(
     return plan.size();
 }
 
+bool sdm_test_split_segment_tail(
+    sdm_test_segment_t *segment,
+    uint32_t new_ordinal,
+    uint64_t minimum_child_length,
+    sdm_test_segment_t *new_segment
+) {
+    if (segment == nullptr || new_segment == nullptr) {
+        return false;
+    }
+    auto source = sdm::Segment{
+        .ordinal = segment->ordinal,
+        .start = segment->start,
+        .end = segment->end,
+        .next = segment->next,
+    };
+    const auto split = sdm::split_segment_tail(
+        source,
+        new_ordinal,
+        minimum_child_length
+    );
+    if (!split) {
+        return false;
+    }
+    *segment = sdm_test_segment_t{
+        .ordinal = source.ordinal,
+        .start = source.start,
+        .end = source.end,
+        .next = source.next,
+    };
+    *new_segment = sdm_test_segment_t{
+        .ordinal = split->ordinal,
+        .start = split->start,
+        .end = split->end,
+        .next = split->next,
+    };
+    return true;
+}
+
 bool sdm_test_can_transition(uint32_t from, uint32_t to) {
     return sdm::can_transition(
         static_cast<sdm::DownloadState>(from),
