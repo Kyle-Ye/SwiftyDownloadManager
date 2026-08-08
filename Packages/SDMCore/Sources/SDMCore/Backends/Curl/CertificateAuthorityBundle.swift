@@ -18,7 +18,7 @@ enum CertificateAuthorityBundle {
         let bundle = certificates.map { certificate in
             let data = SecCertificateCopyData(certificate) as Data
             let body = data.base64EncodedString(options: [.lineLength64Characters, .endLineWithLineFeed])
-            return "-----BEGIN CERTIFICATE-----\n\(body)-----END CERTIFICATE-----\n"
+            return "-----BEGIN CERTIFICATE-----\n\(body)\n-----END CERTIFICATE-----\n"
         }
         .joined()
 

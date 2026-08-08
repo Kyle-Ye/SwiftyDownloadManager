@@ -2,6 +2,7 @@
 
 #include "SDMEngineDomain.h"
 
+#include <curl/curl.h>
 #include <sqlite3.h>
 
 #include <algorithm>
@@ -43,6 +44,26 @@ uint32_t sdm_test_validate_command(uint32_t state, uint32_t command) {
         static_cast<sdm::DownloadState>(state),
         static_cast<sdm::CommandKind>(command)
     ));
+}
+
+bool sdm_test_curl_error_is_retryable(uint32_t error_code) {
+    return sdm::is_retryable_curl_error(error_code);
+}
+
+uint32_t sdm_test_curl_bad_ca_file_error(void) {
+    return CURLE_SSL_CACERT_BADFILE;
+}
+
+uint32_t sdm_test_curl_peer_verification_error(void) {
+    return CURLE_PEER_FAILED_VERIFICATION;
+}
+
+uint32_t sdm_test_curl_timeout_error(void) {
+    return CURLE_OPERATION_TIMEDOUT;
+}
+
+uint32_t sdm_test_curl_could_not_connect_error(void) {
+    return CURLE_COULDNT_CONNECT;
 }
 
 bool sdm_test_create_v1_database(
