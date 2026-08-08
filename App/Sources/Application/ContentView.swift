@@ -124,49 +124,68 @@ struct ContentView: View {
                 .keyboardShortcut("n", modifiers: .command)
             }
         } else {
-            Table(visibleSnapshots, selection: $selectedDownloadIDs) {
-                TableColumn("Name") { snapshot in
-                    DownloadNameCell(snapshot: snapshot)
+            let snapshotsByID = Dictionary(
+                uniqueKeysWithValues: visibleSnapshots.map { ($0.id, $0) }
+            )
+            let tableItems = visibleSnapshots.map { DownloadTableItem(id: $0.id) }
+
+            Table(tableItems, selection: $selectedDownloadIDs) {
+                TableColumn("Name") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        DownloadNameCell(snapshot: snapshot)
+                    }
                 }
                 .width(min: 180, ideal: 260)
 
-                TableColumn("Size") { snapshot in
-                    Text(DownloadFormatting.bytes(snapshot.contentLength))
-                        .monospacedDigit()
+                TableColumn("Size") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        Text(DownloadFormatting.bytes(snapshot.contentLength))
+                            .monospacedDigit()
+                    }
                 }
                 .width(min: 72, ideal: 90)
 
-                TableColumn("Progress") { snapshot in
-                    DownloadProgressCell(snapshot: snapshot)
+                TableColumn("Progress") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        DownloadProgressCell(snapshot: snapshot)
+                    }
                 }
                 .width(min: 140, ideal: 190)
 
-                TableColumn("Status") { snapshot in
-                    Label(snapshot.state.title, systemImage: snapshot.state.systemImage)
-                        .foregroundStyle(snapshot.state.tint)
+                TableColumn("Status") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        Label(snapshot.state.title, systemImage: snapshot.state.systemImage)
+                            .foregroundStyle(snapshot.state.tint)
+                    }
                 }
                 .width(min: 110, ideal: 130)
 
-                TableColumn("Speed") { snapshot in
-                    Text(DownloadFormatting.speed(snapshot.bytesPerSecond))
-                        .monospacedDigit()
+                TableColumn("Speed") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        Text(DownloadFormatting.speed(snapshot.bytesPerSecond))
+                            .monospacedDigit()
+                    }
                 }
                 .width(min: 80, ideal: 100)
 
-                TableColumn("Remaining") { snapshot in
-                    Text(DownloadFormatting.duration(snapshot.estimatedTimeRemaining))
-                        .monospacedDigit()
+                TableColumn("Remaining") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        Text(DownloadFormatting.duration(snapshot.estimatedTimeRemaining))
+                            .monospacedDigit()
+                    }
                 }
                 .width(min: 72, ideal: 90)
 
-                TableColumn("") { snapshot in
-                    DownloadActionsMenu(
-                        snapshot: snapshot,
-                        isBusy: service.commandInFlightIDs.contains(snapshot.id),
-                        showInfo: { openInfo(snapshot.id) },
-                        deleteFile: { deleteFileAndHistory(snapshot) }
-                    ) { command in
-                        perform(command, on: snapshot.id)
+                TableColumn("") { item in
+                    if let snapshot = snapshotsByID[item.id] {
+                        DownloadActionsMenu(
+                            snapshot: snapshot,
+                            isBusy: service.commandInFlightIDs.contains(snapshot.id),
+                            showInfo: { openInfo(snapshot.id) },
+                            deleteFile: { deleteFileAndHistory(snapshot) }
+                        ) { command in
+                            perform(command, on: snapshot.id)
+                        }
                     }
                 }
                 .width(34)
