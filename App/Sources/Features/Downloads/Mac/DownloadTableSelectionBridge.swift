@@ -88,7 +88,12 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
         private weak var tableView: NSTableView?
         private var selectionAnchor: DownloadID?
         private var eventMonitor: Any?
+        private var selectionAppearanceUpdate: Task<Void, Never>?
         private var isConnecting = false
+
+        private static let selectionBackgroundColor =
+            (NSColor(named: "AccentColor") ?? .controlAccentColor)
+                .withAlphaComponent(0.22)
 
         init(
             selectedIDs: Binding<Set<DownloadID>>,
@@ -113,14 +118,29 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
             } else if let selectionAnchor, !rowIDs.contains(selectionAnchor) {
                 self.selectionAnchor = nil
             }
+            scheduleSelectionAppearanceUpdate()
         }
 
         func connect(to tableView: NSTableView) {
             guard self.tableView !== tableView else { return }
-            if let eventMonitor {
-                NSEvent.removeMonitor(eventMonitor)
-            }
+            disconnect()
             self.tableView = tableView
+            tableView.selectionHighlightStyle = .none
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(selectionDidChange(_:)),
+                name: NSTableView.selectionDidChangeNotification,
+                object: tableView
+            )
+            if let clipView = tableView.enclosingScrollView?.contentView {
+                clipView.postsBoundsChangedNotifications = true
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(visibleRowsDidChange(_:)),
+                    name: NSView.boundsDidChangeNotification,
+                    object: clipView
+                )
+            }
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
                 [weak self, weak tableView] event in
                 guard let self, let tableView else { return event }
@@ -129,6 +149,7 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
                 }
                 return event
             }
+            scheduleSelectionAppearanceUpdate()
         }
 
         func beginConnecting() -> Bool {
@@ -142,12 +163,48 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
         }
 
         func disconnect() {
+            NotificationCenter.default.removeObserver(self)
             if let eventMonitor {
                 NSEvent.removeMonitor(eventMonitor)
                 self.eventMonitor = nil
             }
+            selectionAppearanceUpdate?.cancel()
+            selectionAppearanceUpdate = nil
             tableView = nil
             isConnecting = false
+        }
+
+        @objc private func selectionDidChange(_: Notification) {
+            scheduleSelectionAppearanceUpdate()
+        }
+
+        @objc private func visibleRowsDidChange(_: Notification) {
+            scheduleSelectionAppearanceUpdate()
+        }
+
+        private func scheduleSelectionAppearanceUpdate() {
+            selectionAppearanceUpdate?.cancel()
+            selectionAppearanceUpdate = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                self?.updateSelectionAppearance()
+            }
+        }
+
+        private func updateSelectionAppearance() {
+            guard let tableView else { return }
+            tableView.selectionHighlightStyle = .none
+            let visibleRows = tableView.rows(in: tableView.visibleRect)
+            guard visibleRows.location != NSNotFound else { return }
+
+            for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
+                guard let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) else {
+                    continue
+                }
+                rowView.backgroundColor = tableView.selectedRowIndexes.contains(row)
+                    ? Self.selectionBackgroundColor
+                    : .clear
+            }
         }
 
         private func handleMouseDown(_ event: NSEvent, in tableView: NSTableView) {
