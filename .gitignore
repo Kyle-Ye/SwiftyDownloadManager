@@ -8,6 +8,7 @@
 **/*.xcworkspace/
 /Tuist/.build/
 /Package.resolved
+/Artifacts/
 
 # Local runtime data
 *.sqlite3

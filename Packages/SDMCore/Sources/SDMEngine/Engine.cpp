@@ -26,7 +26,7 @@
 static_assert(sdm::engine_abi_version > 0);
 
 std::string_view sdm::Engine::version() noexcept {
-    return "0.3.0";
+    return "0.4.0-dev";
 }
 
 namespace {

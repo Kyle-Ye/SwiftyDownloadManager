@@ -29,12 +29,55 @@ final class SDMAppTests: XCTestCase {
         )
         let background = try XCTUnwrap(manifest["background"] as? [String: Any])
         let permissions = try XCTUnwrap(manifest["permissions"] as? [String])
+        let backgroundScripts = try XCTUnwrap(background["scripts"] as? [String])
+        let contentScripts = try XCTUnwrap(
+            manifest["content_scripts"] as? [[String: Any]]
+        )
+        let resourceURL = try XCTUnwrap(extensionBundle.resourceURL)
 
         XCTAssertEqual(background["persistent"] as? Bool, false)
         XCTAssertTrue(permissions.contains("webNavigation"))
-        XCTAssertNotNil(extensionBundle.url(forResource: "capture", withExtension: "html"))
-        XCTAssertNotNil(extensionBundle.url(forResource: "capture", withExtension: "css"))
-        XCTAssertNotNil(extensionBundle.url(forResource: "capture", withExtension: "js"))
+        let packagedScripts = Set(
+            backgroundScripts + contentScripts.flatMap { contentScript in
+                contentScript["js"] as? [String] ?? []
+            }
+        )
+        for script in packagedScripts {
+            XCTAssertTrue(
+                FileManager.default.fileExists(
+                    atPath: resourceURL.appending(path: script).path
+                ),
+                "Missing Safari Web Extension resource: \(script)"
+            )
+        }
+        XCTAssertNotNil(
+            extensionBundle.url(
+                forResource: "capture",
+                withExtension: "html",
+                subdirectory: "Shared"
+            )
+        )
+        XCTAssertNotNil(
+            extensionBundle.url(
+                forResource: "capture",
+                withExtension: "css",
+                subdirectory: "Shared"
+            )
+        )
+        XCTAssertNotNil(
+            extensionBundle.url(
+                forResource: "capture",
+                withExtension: "js",
+                subdirectory: "Shared"
+            )
+        )
+    }
+
+    func testChromeExtensionStoreLinkUsesHTTPS() throws {
+        let url = try XCTUnwrap(ChromeExtensionSupport.webStoreURL)
+
+        XCTAssertEqual(url.scheme, "https")
+        XCTAssertEqual(url.host, "chromewebstore.google.com")
     }
 
     @MainActor

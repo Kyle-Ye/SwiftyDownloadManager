@@ -5,8 +5,37 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const resourcesDirectory = path.join(__dirname, "..", "Resources");
-const contentSource = fs.readFileSync(path.join(resourcesDirectory, "content.js"), "utf8");
-const pageSource = fs.readFileSync(path.join(resourcesDirectory, "page.js"), "utf8");
+const sharedResourcesDirectory = path.join(
+  __dirname,
+  "..",
+  "..",
+  "BrowserExtension",
+  "Shared"
+);
+const contentSource = fs.readFileSync(
+  path.join(sharedResourcesDirectory, "content.js"),
+  "utf8"
+);
+const downloadSupportSource = fs.readFileSync(
+  path.join(sharedResourcesDirectory, "download-support.js"),
+  "utf8"
+);
+const pageSource = fs.readFileSync(
+  path.join(sharedResourcesDirectory, "page.js"),
+  "utf8"
+);
+const platformSource = fs.readFileSync(
+  path.join(resourcesDirectory, "platform.js"),
+  "utf8"
+);
+const backgroundControllerSource = fs.readFileSync(
+  path.join(sharedResourcesDirectory, "background-controller.js"),
+  "utf8"
+);
+const backgroundSource = fs.readFileSync(
+  path.join(resourcesDirectory, "background.js"),
+  "utf8"
+);
 const bridgeSource = "swifty-download-manager-page-bridge";
 const pageOrigin = "https://www.trae.cn";
 
@@ -26,6 +55,64 @@ class FakeEventTarget {
       listener.call(this, event);
     }
   }
+}
+
+function eventHook() {
+  const listeners = [];
+  return {
+    addListener(listener) {
+      listeners.push(listener);
+    },
+    listeners,
+  };
+}
+
+function safariBackgroundHarness() {
+  const nativeMessages = [];
+  const tabUpdates = [];
+  const runtimeOnMessage = eventHook();
+  const browser = {
+    browserAction: { onClicked: eventHook() },
+    contextMenus: {
+      create() {},
+      onClicked: eventHook(),
+      removeAll() {
+        return Promise.resolve();
+      },
+    },
+    runtime: {
+      getURL(resource) {
+        return `safari-web-extension://test-extension/${resource}`;
+      },
+      onMessage: runtimeOnMessage,
+      sendNativeMessage(applicationIdentifier, message) {
+        nativeMessages.push({ applicationIdentifier, message });
+        return Promise.resolve({ accepted: true });
+      },
+    },
+    tabs: {
+      update(tabID, options) {
+        tabUpdates.push({ options, tabID });
+        return Promise.resolve({ id: tabID });
+      },
+    },
+    webNavigation: { onBeforeNavigate: eventHook() },
+  };
+  const context = vm.createContext({
+    Error,
+    Object,
+    Promise,
+    Set,
+    String,
+    URL,
+    browser,
+    console,
+  });
+  vm.runInContext(downloadSupportSource, context);
+  vm.runInContext(backgroundControllerSource, context);
+  vm.runInContext(backgroundSource, context);
+
+  return { nativeMessages, runtimeOnMessage, tabUpdates };
 }
 
 function pageBridgeHarness() {
@@ -54,15 +141,18 @@ function pageBridgeHarness() {
     timeouts.delete(identifier);
   };
 
-  vm.runInNewContext(pageSource, {
+  const context = vm.createContext({
     Date,
     Map,
+    Object,
     Set,
     String,
     URL,
     document,
     window,
   });
+  vm.runInContext(downloadSupportSource, context);
+  vm.runInContext(pageSource, context);
 
   window.dispatch("message", {
     data: {
@@ -197,9 +287,10 @@ function contentBridgeHarness() {
     },
   };
 
-  vm.runInNewContext(contentSource, {
+  const context = vm.createContext({
     HTMLAnchorElement,
     HTMLAreaElement,
+    Object,
     Promise,
     Set,
     URL,
@@ -208,6 +299,9 @@ function contentBridgeHarness() {
     document,
     window,
   });
+  vm.runInContext(platformSource, context);
+  vm.runInContext(downloadSupportSource, context);
+  vm.runInContext(contentSource, context);
 
   return {
     postedMessages,
@@ -267,6 +361,27 @@ test("page bridge runs as a main-world content script", () => {
     fs.readFileSync(path.join(resourcesDirectory, "manifest.json"), "utf8")
   );
   assert.ok(manifest.content_scripts.some((contentScript) =>
-    contentScript.world === "MAIN" && contentScript.js.includes("page.js")
+    contentScript.world === "MAIN" && contentScript.js.includes("Shared/page.js")
   ));
+});
+
+test("Safari background keeps runtime downloads on native messaging", async () => {
+  const harness = safariBackgroundHarness();
+  const response = await harness.runtimeOnMessage.listeners[0](
+    {
+      type: "captureDownload",
+      url: "https://cdn.example.com/file.dmg",
+      sourcePage: "https://example.com/downloads",
+    },
+    { tab: { id: 9, url: "https://example.com/downloads" } }
+  );
+
+  assert.equal(response.accepted, true);
+  assert.equal(harness.nativeMessages.length, 1);
+  assert.equal(
+    harness.nativeMessages[0].applicationIdentifier,
+    "top.kyleye.swifty-download-manager-app"
+  );
+  assert.equal(harness.nativeMessages[0].message.type, "download");
+  assert.equal(harness.tabUpdates.length, 0);
 });

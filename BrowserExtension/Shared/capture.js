@@ -1,6 +1,6 @@
 (() => {
-  const callbackScheme = "swifty-download-manager";
   const parameters = new URLSearchParams(window.location.search);
+  const browser = parameters.get("browser");
   const downloadURLText = parameters.get("url");
   const openAppLink = document.getElementById("open-app");
   const downloadURLLabel = document.getElementById("download-url");
@@ -18,8 +18,11 @@
     return;
   }
 
-  const callbackURL = new URL(`${callbackScheme}://download`);
-  callbackURL.searchParams.set("url", downloadURL.href);
+  const callbackURL = globalThis.SDMDownloadSupport.callbackURL(
+    "download",
+    { url: downloadURL.href },
+    browser
+  );
   downloadURLLabel.textContent = downloadURL.href;
-  openAppLink.href = callbackURL.href;
+  openAppLink.href = callbackURL;
 })();

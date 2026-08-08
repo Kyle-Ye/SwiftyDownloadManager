@@ -12,6 +12,7 @@ reserved. The excluded asset paths are:
 - `App/Resources/Assets.xcassets/SDMMenuBarIcon.imageset/`
 - `Design/AppIcon/`
 - `SafariExtension/Resources/icon.svg`
+- `ChromeExtension/Resources/icons/`
 
 You may copy these assets only as necessary to build and run the Software for
 personal use, internal evaluation, testing, or contributing changes to this

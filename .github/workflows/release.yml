@@ -74,13 +74,18 @@ jobs:
               "\"CFBundleShortVersionString\": \"$RELEASE_TAG\"" \
               Project.swift || true
           )"
-          manifest_version="$(
+          safari_manifest_version="$(
             plutil -extract version raw -o - \
               SafariExtension/Resources/manifest.json
           )"
+          chrome_manifest_version="$(
+            plutil -extract version raw -o - \
+              ChromeExtension/Resources/manifest.json
+          )"
           if [[ "$app_version_count" != 2 || \
-                "$manifest_version" != "$RELEASE_TAG" ]]; then
-            echo "Source App, Extension, or manifest version does not match tag $RELEASE_TAG" >&2
+                "$safari_manifest_version" != "$RELEASE_TAG" || \
+                "$chrome_manifest_version" != "$RELEASE_TAG" ]]; then
+            echo "Source App, Extension, or browser manifest version does not match tag $RELEASE_TAG" >&2
             exit 1
           fi
 
@@ -109,6 +114,8 @@ jobs:
         run: |
           set -euo pipefail
           bash Scripts/test.sh
+          Scripts/package-chrome-extension.sh \
+            "$RUNNER_TEMP/SwiftyDownloadManager-Chrome-$RELEASE_TAG.zip"
           xcodebuild test -quiet \
             -workspace SDM.xcworkspace \
             -scheme SDMApp \

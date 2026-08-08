@@ -11,6 +11,7 @@ struct MacSettingsFormContent: View {
     let safariExtensionIsEnabled: Bool?
     let databaseURL: URL?
     let openSafariSettings: () -> Void
+    let showBrowserExtensions: () -> Void
     let showLegalNotices: () -> Void
 
     var body: some View {
@@ -61,8 +62,8 @@ struct MacSettingsFormContent: View {
             }
         }
 
-        Section("Safari Extension") {
-            LabeledContent("Status") {
+        Section("Browser Extensions") {
+            LabeledContent("Safari") {
                 Text(extensionStatusTitle)
                     .foregroundStyle(extensionStatusStyle)
             }
@@ -72,6 +73,7 @@ struct MacSettingsFormContent: View {
                 .foregroundStyle(.secondary)
 
             Button("Open Safari Extension Settings", action: openSafariSettings)
+            Button("Manage Browser Extensions", action: showBrowserExtensions)
         }
 
         Section("Engine") {

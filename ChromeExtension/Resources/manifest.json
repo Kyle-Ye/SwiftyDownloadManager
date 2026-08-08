@@ -1,24 +1,25 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
   "name": "Swifty Download Manager",
-  "description": "Send downloadable links from Safari to Swifty Download Manager.",
+  "short_name": "SDM",
+  "description": "Send supported download links from Chrome to Swifty Download Manager.",
   "version": "0.3.0",
+  "minimum_chrome_version": "111",
   "icons": {
-    "16": "icon.svg",
-    "32": "icon.svg",
-    "48": "icon.svg",
-    "128": "icon.svg"
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   },
   "background": {
-    "scripts": [
-      "Shared/download-support.js",
-      "Shared/background-controller.js",
-      "background.js"
-    ],
-    "persistent": false
+    "service_worker": "background.js"
   },
-  "browser_action": {
-    "default_icon": "icon.svg",
+  "action": {
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    },
     "default_title": "Open Swifty Download Manager"
   },
   "content_scripts": [
@@ -49,10 +50,12 @@
       "world": "MAIN"
     }
   ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "permissions": [
-    "<all_urls>",
     "contextMenus",
-    "nativeMessaging",
     "webNavigation"
   ]
 }
