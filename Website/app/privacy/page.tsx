@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LanguageToggle } from "../language-toggle";
+import { ThemeToggle } from "../theme-toggle";
 
 export const metadata: Metadata = {
   title: "Privacy",
@@ -44,10 +45,7 @@ export default function PrivacyPage() {
       <header className="nav-wrap privacy-nav">
         <a className="brand" href="/" aria-label="Back to Swifty Download Manager home">
           <img src="/sdm-icon.png" alt="" width="42" height="42" />
-          <span>
-            <strong>Swifty</strong>
-            <small>Download Manager</small>
-          </span>
+          <strong>Swifty Download Manager</strong>
         </a>
         <nav aria-label="Privacy navigation">
           <a href="/">Back home</a>
@@ -55,6 +53,7 @@ export default function PrivacyPage() {
         </nav>
         <div className="nav-actions">
           <a className="nav-cta" href="/">← Back home</a>
+          <ThemeToggle />
           <LanguageToggle />
         </div>
       </header>

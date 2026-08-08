@@ -36,6 +36,8 @@ test("server-renders the SDM landing page", async () => {
   assert.match(html, /Download faster\./);
   assert.match(html, /Resume anytime\./);
   assert.doesNotMatch(html, /Your files\.|Your rules\./);
+  assert.match(html, /<strong>Swifty Download Manager<\/strong>/);
+  assert.doesNotMatch(html, /<strong>Swifty<\/strong>\s*<small>Download Manager<\/small>/);
   assert.doesNotMatch(html, /Latest release available/);
   assert.match(
     html,
@@ -68,11 +70,15 @@ test("server-renders the SDM landing page", async () => {
   assert.match(html, /blob\/main\/LICENSE\.md/);
   assert.doesNotMatch(html, /Download (?:version )?0\.3\.0/i);
   assert.match(html, /No accounts\. No analytics\. No data collection\./);
+  assert.match(html, /@ 2026 Kyle-Ye/);
+  assert.doesNotMatch(html, /© 2026 Swifty Download Manager/);
   assert.match(html, /href=["']\/privacy\/["']>Privacy<\/a>/);
   assert.match(html, /Read the privacy statement/);
   assert.doesNotMatch(html, /Privacy · 隐私/);
   assert.match(html, /data-language-option=["']en["']/);
   assert.match(html, /data-language-option=["']zh["']/);
+  assert.match(html, /data-theme-toggle/);
+  assert.match(html, /src=["']\/theme\.js["']/);
   assert.match(html, /src=["']\/language\.js["']/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
@@ -97,14 +103,17 @@ test("server-renders the bilingual privacy statement", async () => {
   assert.doesNotMatch(html, /Privacy · 隐私|Effective · 生效日期|Questions · 问题反馈|Zero collection · 零数据收集/);
   assert.match(html, /data-language-option=["']en["']/);
   assert.match(html, /data-language-option=["']zh["']/);
+  assert.match(html, /data-theme-toggle/);
+  assert.match(html, /src=["']\/theme\.js["']/);
   assert.match(html, /src=["']\/language\.js["']/);
 });
 
 test("ships site-specific metadata, distribution config, and local brand assets", async () => {
-  const [layout, packageJson, languageScript, siteConfig] = await Promise.all([
+  const [layout, packageJson, languageScript, themeScript, siteConfig] = await Promise.all([
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../public/language.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/theme.js", import.meta.url), "utf8"),
     readFile(new URL("../app/site-config.ts", import.meta.url), "utf8"),
   ]);
 
@@ -120,6 +129,13 @@ test("ships site-specific metadata, distribution config, and local brand assets"
   assert.match(languageScript, /更快下载。/);
   assert.match(languageScript, /随时续传。/);
   assert.doesNotMatch(languageScript, /你的文件，你做主/);
+  assert.match(layout, /src="\/theme\.js"/);
+  assert.match(layout, /data-sdm-static/);
+  assert.match(themeScript, /sdm-theme/);
+  assert.match(themeScript, /prefers-color-scheme: dark/);
+  assert.match(themeScript, /localStorage\.setItem/);
+  assert.match(themeScript, /document\.documentElement/);
+  assert.match(themeScript, /dataset\.theme/);
   assert.match(siteConfig, /releases\/latest/);
   assert.match(siteConfig, /appStore/);
   assert.match(siteConfig, /enabled: false/);
@@ -130,5 +146,6 @@ test("ships site-specific metadata, distribution config, and local brand assets"
     access(new URL("../public/favicon.svg", import.meta.url)),
     access(new URL("../public/og.png", import.meta.url)),
     access(new URL("../public/language.js", import.meta.url)),
+    access(new URL("../public/theme.js", import.meta.url)),
   ]);
 });

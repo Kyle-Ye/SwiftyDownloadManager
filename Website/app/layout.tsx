@@ -44,6 +44,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" data-language="en">
+      <head>
+        <script src="/theme.js" data-sdm-static="true" />
+      </head>
       <body>
         {children}
         <LanguageRuntime />

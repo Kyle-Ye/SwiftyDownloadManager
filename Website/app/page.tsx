@@ -1,5 +1,6 @@
 import { LanguageToggle } from "./language-toggle";
 import { siteConfig } from "./site-config";
+import { ThemeToggle } from "./theme-toggle";
 
 type Feature = {
   index: string;
@@ -124,10 +125,7 @@ export default function Home() {
       <header className="nav-wrap">
         <a className="brand" href="#top" aria-label="Swifty Download Manager home">
           <img src="/sdm-icon.png" alt="" width="42" height="42" />
-          <span>
-            <strong>Swifty</strong>
-            <small>Download Manager</small>
-          </span>
+          <strong>Swifty Download Manager</strong>
         </a>
         <nav aria-label="Main navigation">
           <a href="#features">Features</a>
@@ -135,6 +133,7 @@ export default function Home() {
           <a href="/privacy/">Privacy</a>
         </nav>
         <div className="nav-actions">
+          <ThemeToggle />
           <LanguageToggle />
           <a className="nav-cta" href={siteConfig.repositoryURL} target="_blank" rel="noreferrer">
             View on GitHub <span aria-hidden="true">↗</span>
@@ -383,7 +382,7 @@ export default function Home() {
           <a href={siteConfig.downloads.github.href} target="_blank" rel="noreferrer">Latest Release ↗</a>
           <a href="/privacy/">Privacy</a>
         </div>
-        <p className="copyright">© 2026 Swifty Download Manager</p>
+        <p className="copyright">@ 2026 Kyle-Ye</p>
       </footer>
     </main>
   );
