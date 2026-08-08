@@ -23,13 +23,6 @@ struct ContentView: View {
             .sortedForDownloadList()
     }
 
-    private var selectedSnapshot: DownloadSnapshot? {
-        guard selectedDownloadIDs.count == 1, let selectedID = selectedDownloadIDs.first else {
-            return nil
-        }
-        return service.snapshots.first { $0.id == selectedID }
-    }
-
     private var selectedCommands: [DownloadCommand] {
         service.snapshots.commonCommands(for: selectedDownloadIDs)
     }
@@ -218,25 +211,16 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup {
-            if let selectedSnapshot {
-                Button("Info", systemImage: "info.circle") {
-                    openInfo(selectedSnapshot.id)
-                }
-                .keyboardShortcut("i", modifiers: .command)
+        ToolbarItem {
+            DownloadSelectionToolbar(
+                selectedDownloadIDs: selectedDownloadIDs,
+                commands: selectedCommands,
+                isBusy: selectedDownloadsAreBusy,
+                showInfo: openInfo
+            ) { command, ids in
+                performSelectedCommand(command, on: ids)
             }
-
-            ForEach(selectedCommands) { command in
-                Button(role: command.role) {
-                    performSelectedCommand(command, on: selectedDownloadIDs)
-                } label: {
-                    Label(
-                        command.title(forSelectionCount: selectedDownloadIDs.count),
-                        systemImage: command.systemImage
-                    )
-                }
-                .disabled(selectedDownloadsAreBusy)
-            }
+            .equatable()
         }
 
         ToolbarItem(placement: .primaryAction) {
