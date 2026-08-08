@@ -6,13 +6,15 @@ stack offers a C++/libcurl engine and a native URLSession engine behind one
 Swift API, distributed through local SwiftPM packages and a Tuist-generated
 Xcode project.
 
-The core download stack now supports HTTP probing, single and segmented Range
-transfers, pause/resume/cancel/retry, bounded scheduling and bandwidth,
-SQLite-backed recovery, and atomic file finalization. The SwiftUI application
+The core download stack now supports HTTP probing, single and adaptively
+segmented Range transfers, pause/resume/cancel/retry, bounded scheduling and
+bandwidth, SQLite-backed recovery, and atomic file finalization. Idle
+connections split the largest eligible remaining Range so uneven transfers do
+not leave available connection capacity unused. The SwiftUI application
 uses `DownloadService` to enqueue direct URLs, observe engine snapshots, show
 filterable progress and status, and issue pause, resume, cancel, retry, and
 remove commands. Every task can open a live Info window with transfer metadata,
-per-connection progress, lifecycle controls, and a bounded persistent activity
+per-Range progress, lifecycle controls, and a bounded persistent activity
 history. Project planning is maintained outside the application repository in
 the surrounding workspace.
 
@@ -23,7 +25,7 @@ existing tasks remain attached to the engine that created them.
 
 | Capability | libcurl | URLSession |
 | --- | --- | --- |
-| Multi-connection Range transfers | Yes | No |
+| Adaptive multi-connection Range transfers | Yes | No |
 | Per-download bandwidth limit | Yes | No |
 | Persistent recovery | Yes | Yes |
 | Native background transfer | No | Yes |

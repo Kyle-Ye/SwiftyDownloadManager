@@ -24,6 +24,13 @@ size_t sdm_test_plan_segments(
     size_t capacity
 );
 
+bool sdm_test_split_segment_tail(
+    sdm_test_segment_t *segment,
+    uint32_t new_ordinal,
+    uint64_t minimum_child_length,
+    sdm_test_segment_t *new_segment
+);
+
 bool sdm_test_can_transition(uint32_t from, uint32_t to);
 uint32_t sdm_test_validate_command(uint32_t state, uint32_t command);
 bool sdm_test_curl_error_is_retryable(uint32_t error_code);

@@ -25,6 +25,7 @@ following fields can be changed there:
 | `file_size` | Virtual `/empty.bin` size in bytes |
 | `bytes_per_second` | `/empty.bin` transfer rate per connection |
 | `chunk_size` | `/empty.bin` streaming write size |
+| `slow_initial_range_bytes_per_second` | Optional rate for a Range beginning at byte zero, used to test adaptive rebalancing |
 
 CLI arguments can override the main multi-connection fields for one run:
 
@@ -33,7 +34,8 @@ python3 Fixture/range_server.py \
   --max-concurrent-transfers <count> \
   --max-ranges-per-request <count> \
   --file-size <bytes> \
-  --bytes-per-second <bytes-per-second>
+  --bytes-per-second <bytes-per-second> \
+  --slow-initial-range-bytes-per-second <bytes-per-second>
 ```
 
 Endpoints:

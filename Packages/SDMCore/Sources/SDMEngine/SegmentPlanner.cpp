@@ -44,4 +44,29 @@ std::vector<Segment> plan_segments(
     return segments;
 }
 
+std::optional<Segment> split_segment_tail(
+    Segment &segment,
+    std::uint32_t new_ordinal,
+    std::uint64_t minimum_child_length
+) {
+    if (minimum_child_length == 0 || segment.next > segment.end) {
+        return std::nullopt;
+    }
+
+    const auto remaining_length = segment.end - segment.next + 1;
+    if (remaining_length / 2 < minimum_child_length) {
+        return std::nullopt;
+    }
+
+    const auto original_end = segment.end;
+    const auto split_start = segment.next + remaining_length / 2;
+    segment.end = split_start - 1;
+    return Segment{
+        .ordinal = new_ordinal,
+        .start = split_start,
+        .end = original_end,
+        .next = split_start,
+    };
+}
+
 } // namespace sdm
