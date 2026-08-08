@@ -27,12 +27,11 @@ Apache 2.0 license is included.
 
 ## Development-only LookInside server
 
-Debug builds generated with `TUIST_LOOK_INSIDE_ENABLED=true` link the pinned
+Debug builds link the pinned
 [`LookInsideServer` 0.2.7](https://github.com/LookInsideApp/LookInside-Release/releases/tag/0.2.7)
-binary to support local UI inspection; the integration is disabled by default.
-LookInside is licensed under GPL-3.0. The `SDMApp` Release configuration
-excludes `LookInsideServer*`; release validation must continue to confirm that
-the framework is absent from the app
+binary to support local UI inspection. LookInside is licensed under GPL-3.0.
+The `SDMApp` Release configuration excludes `LookInsideServer*`, and release
+validation must continue to confirm that the framework is absent from the app
 bundle and executable load commands. It is therefore not part of the app's
 distributed third-party notices. Anyone distributing a Debug build must review
 and comply with the upstream license separately.
