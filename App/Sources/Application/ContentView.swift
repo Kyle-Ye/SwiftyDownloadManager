@@ -183,6 +183,13 @@ struct ContentView: View {
                 }
                 .width(34)
             }
+            .background(
+                DownloadTableSelectionBridge(
+                    selectedIDs: $selectedDownloadIDs,
+                    rowIDs: tableItems.map(\.id),
+                    context: selectedFilter
+                )
+            )
             .contextMenu(forSelectionType: DownloadID.self) { ids in
                 if ids.count == 1, let id = ids.first {
                     Button("Show Info", systemImage: "info.circle") {
