@@ -457,7 +457,20 @@ private struct DownloadActionsMenu: View {
     }
 }
 
-#Preview {
-    ContentView(service: .preview())
+#if DEBUG
+private extension ContentView {
+    init(previewSnapshots: [DownloadSnapshot], selectedIDs: Set<DownloadID> = []) {
+        service = .preview(snapshots: previewSnapshots)
+        _selectedDownloadIDs = State(initialValue: selectedIDs)
+    }
 }
+
+#Preview("Download Table") {
+    ContentView(
+        previewSnapshots: DownloadPreviewFixtures.snapshots,
+        selectedIDs: [DownloadPreviewFixtures.downloading.id]
+    )
+    .frame(width: 1_180, height: 520)
+}
+#endif
 #endif

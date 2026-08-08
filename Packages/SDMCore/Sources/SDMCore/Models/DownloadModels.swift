@@ -97,6 +97,13 @@ public struct DownloadSegmentSnapshot: Sendable, Codable, Equatable, Identifiabl
     public let end: UInt64
     public let next: UInt64
 
+    public init(ordinal: Int, start: UInt64, end: UInt64, next: UInt64) {
+        self.ordinal = ordinal
+        self.start = start
+        self.end = end
+        self.next = next
+    }
+
     public var id: Int { ordinal }
 
     public var downloadedBytes: UInt64 {

@@ -24,4 +24,12 @@ struct MobileDownloadSegmentRow: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Download Segment Rows") {
+    List(DownloadPreviewFixtures.segments) { segment in
+        MobileDownloadSegmentRow(segment: segment)
+    }
+}
+#endif
 #endif

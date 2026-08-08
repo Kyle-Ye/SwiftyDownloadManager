@@ -111,3 +111,15 @@ struct MenuBarDownloadRow: View {
         ].joined(separator: ", ")
     }
 }
+
+#if DEBUG
+#Preview("Menu Bar Download Rows") {
+    VStack(spacing: 0) {
+        ForEach(DownloadPreviewFixtures.snapshots) { snapshot in
+            MenuBarDownloadRow(snapshot: snapshot)
+        }
+    }
+    .frame(width: 360)
+    .padding(.vertical, 6)
+}
+#endif

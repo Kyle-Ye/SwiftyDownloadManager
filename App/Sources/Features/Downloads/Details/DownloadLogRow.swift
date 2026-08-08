@@ -25,3 +25,12 @@ struct DownloadLogRow: View {
         )
     }
 }
+
+#if DEBUG
+#Preview("Download Log Rows") {
+    List(DownloadPreviewFixtures.diagnosticEvents) { entry in
+        DownloadLogRow(entry: entry)
+    }
+    .frame(minWidth: 640, minHeight: 220)
+}
+#endif

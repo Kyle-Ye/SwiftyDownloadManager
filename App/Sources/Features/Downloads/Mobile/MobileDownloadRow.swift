@@ -41,4 +41,12 @@ struct MobileDownloadRow: View {
         .contentShape(.rect)
     }
 }
+
+#if DEBUG
+#Preview("Download Rows") {
+    List(DownloadPreviewFixtures.snapshots) { snapshot in
+        MobileDownloadRow(snapshot: snapshot)
+    }
+}
+#endif
 #endif
