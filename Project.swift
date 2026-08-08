@@ -78,6 +78,7 @@ let project = Project(
                 "TARGETED_DEVICE_FAMILY[sdk=iphone*]": "1,2",
             ], configurations: [
                 .debug(name: "Debug", settings: [
+                    "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": "App/Support/SDMApp-Debug.entitlements",
                     "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development",
                     "CODE_SIGN_IDENTITY[sdk=iphoneos*]": "Apple Development",
                     "CODE_SIGN_STYLE": "Automatic",
