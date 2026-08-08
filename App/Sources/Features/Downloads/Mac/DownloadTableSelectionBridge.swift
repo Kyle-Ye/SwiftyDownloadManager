@@ -34,6 +34,11 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
         connect(context.coordinator, from: marker)
     }
 
+    static func dismantleNSView(_ marker: MarkerView, coordinator: Coordinator) {
+        marker.didMoveToWindow = nil
+        coordinator.disconnect()
+    }
+
     private func connect(_ coordinator: Coordinator, from marker: NSView) {
         guard coordinator.beginConnecting() else { return }
         Task { @MainActor [weak marker, weak coordinator] in
@@ -141,6 +146,12 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
                     object: clipView
                 )
             }
+            NSWorkspace.shared.notificationCenter.addObserver(
+                self,
+                selector: #selector(accessibilityDisplayOptionsDidChange(_:)),
+                name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                object: nil
+            )
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
                 [weak self, weak tableView] event in
                 guard let self, let tableView else { return event }
@@ -164,6 +175,7 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
 
         func disconnect() {
             NotificationCenter.default.removeObserver(self)
+            NSWorkspace.shared.notificationCenter.removeObserver(self)
             if let eventMonitor {
                 NSEvent.removeMonitor(eventMonitor)
                 self.eventMonitor = nil
@@ -182,6 +194,10 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
             scheduleSelectionAppearanceUpdate()
         }
 
+        @objc private func accessibilityDisplayOptionsDidChange(_: Notification) {
+            scheduleSelectionAppearanceUpdate()
+        }
+
         private func scheduleSelectionAppearanceUpdate() {
             selectionAppearanceUpdate?.cancel()
             selectionAppearanceUpdate = Task { @MainActor [weak self] in
@@ -193,7 +209,9 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
 
         private func updateSelectionAppearance() {
             guard let tableView else { return }
-            tableView.selectionHighlightStyle = .none
+            let usesNativeHighlight = NSWorkspace.shared
+                .accessibilityDisplayShouldIncreaseContrast
+            tableView.selectionHighlightStyle = usesNativeHighlight ? .regular : .none
             let visibleRows = tableView.rows(in: tableView.visibleRect)
             guard visibleRows.location != NSNotFound else { return }
 
@@ -201,9 +219,13 @@ struct DownloadTableSelectionBridge: NSViewRepresentable {
                 guard let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) else {
                     continue
                 }
-                rowView.backgroundColor = tableView.selectedRowIndexes.contains(row)
-                    ? Self.selectionBackgroundColor
-                    : .clear
+                rowView.backgroundColor = if usesNativeHighlight {
+                    .clear
+                } else if tableView.selectedRowIndexes.contains(row) {
+                    Self.selectionBackgroundColor
+                } else {
+                    .clear
+                }
             }
         }
 
