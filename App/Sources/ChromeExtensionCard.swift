@@ -6,46 +6,75 @@ struct ChromeExtensionCard: View {
     let webStoreURL: URL?
 
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading) {
-                Label(
-                    chromeIsInstalled ? "Google Chrome detected" : "Google Chrome not detected",
-                    systemImage: chromeIsInstalled
-                        ? "checkmark.circle.fill"
-                        : "exclamationmark.circle"
-                )
-                .foregroundStyle(chromeIsInstalled ? .green : .secondary)
-
-                Divider()
-
-                Label(
-                    "Send supported HTTP and HTTPS download links to SDM.",
-                    systemImage: "arrow.down.circle"
-                )
-                Label(
-                    "Use Download with SDM from a link's context menu.",
-                    systemImage: "contextualmenu.and.cursorarrow"
-                )
-                Label(
-                    "Recognize direct file links and downloads opened after a click.",
-                    systemImage: "link"
+        VStack(alignment: .leading, spacing: BrowserExtensionDesign.cardSpacing) {
+            HStack(alignment: .top, spacing: BrowserExtensionDesign.cardSpacing) {
+                BrowserExtensionIcon(
+                    systemImage: "globe.americas.fill",
+                    tint: .blue
                 )
 
-                Text("Downloads that require browser-only cookies, request bodies, or custom headers are not yet supported.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: BrowserExtensionDesign.compactSpacing) {
+                    HStack(spacing: BrowserExtensionDesign.inlineSpacing) {
+                        Text("Google Chrome")
+                            .font(.headline)
+
+                        BrowserExtensionStatusBadge(
+                            title: chromeIsInstalled ? "Chrome found" : "Chrome not found",
+                            systemImage: chromeIsInstalled
+                                ? "checkmark.circle.fill"
+                                : "exclamationmark.circle.fill",
+                            tint: chromeIsInstalled ? .green : .secondary
+                        )
+                    }
+
+                    Text("Capture direct download links without leaving the page you are browsing.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: BrowserExtensionDesign.inlineSpacing)
 
                 if let webStoreURL {
                     Link(destination: webStoreURL) {
-                        Label("Add Chrome Extension", systemImage: "arrow.up.right.square")
+                        Label("Add Chrome Extension", systemImage: "arrow.up.right")
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .accessibilityHint("Opens the Chrome Web Store")
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Label("Google Chrome", systemImage: "globe")
-                .font(.headline)
+
+            VStack(alignment: .leading, spacing: BrowserExtensionDesign.featureSpacing) {
+                BrowserFeatureRow(
+                    title: "Send supported HTTP and HTTPS downloads to SDM",
+                    systemImage: "arrow.down.circle.fill"
+                )
+                BrowserFeatureRow(
+                    title: "Start a download from the link context menu",
+                    systemImage: "cursorarrow.click.2"
+                )
+                BrowserFeatureRow(
+                    title: "Recognize direct file links opened after a click",
+                    systemImage: "link.circle.fill"
+                )
+            }
+
+            Label(
+                "Downloads that depend on browser-only cookies, request bodies, or custom headers are not supported yet.",
+                systemImage: "info.circle"
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(BrowserExtensionDesign.cardPadding)
+        .background(
+            Color(nsColor: .controlBackgroundColor),
+            in: .rect(cornerRadius: BrowserExtensionDesign.cardRadius)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: BrowserExtensionDesign.cardRadius)
+                .stroke(.quaternary)
         }
     }
 }
