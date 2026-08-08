@@ -171,7 +171,6 @@ struct ContentView: View {
                 }
                 .width(34)
             }
-            .background(MutedTableSelection(selectedIDs: selectedDownloadIDs))
             .contextMenu(forSelectionType: DownloadID.self) { ids in
                 if ids.count == 1, let id = ids.first {
                     Button("Show Info", systemImage: "info.circle") {
