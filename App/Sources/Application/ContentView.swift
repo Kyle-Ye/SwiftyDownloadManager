@@ -7,7 +7,9 @@ struct ContentView: View {
     let service: DownloadService
     @AppStorage(AppStorageKey.defaultConnectionCount) private var defaultConnectionCount = 8
     @State private var selection: DownloadFilter? = .all
-    @State private var selectedDownloadID: DownloadID?
+    @State private var selectedDownloadIDs: Set<DownloadID> = []
+    @State private var downloadsPendingRemoval: Set<DownloadID> = []
+    @State private var confirmsBatchRemoval = false
     @State private var showsNewDownload = false
     @State private var presentedError: PresentedDownloadError?
 
@@ -22,8 +24,18 @@ struct ContentView: View {
     }
 
     private var selectedSnapshot: DownloadSnapshot? {
-        guard let selectedDownloadID else { return nil }
-        return service.snapshots.first { $0.id == selectedDownloadID }
+        guard selectedDownloadIDs.count == 1, let selectedID = selectedDownloadIDs.first else {
+            return nil
+        }
+        return service.snapshots.first { $0.id == selectedID }
+    }
+
+    private var selectedCommands: [DownloadCommand] {
+        service.snapshots.commonCommands(for: selectedDownloadIDs)
+    }
+
+    private var selectedDownloadsAreBusy: Bool {
+        !service.commandInFlightIDs.isDisjoint(with: selectedDownloadIDs)
     }
 
     private var availableNewURLAction: (() -> Void)? {
@@ -62,8 +74,23 @@ struct ContentView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .confirmationDialog(
+            removalConfirmationTitle,
+            isPresented: $confirmsBatchRemoval
+        ) {
+            Button("Remove from History", role: .destructive, action: removePendingDownloads)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "Partial data and diagnostics for the selected downloads will be deleted. "
+                    + "Downloaded files will be kept."
+            )
+        }
         .onChange(of: selection) { _, _ in
-            selectedDownloadID = nil
+            selectedDownloadIDs.removeAll()
+        }
+        .onChange(of: Set(service.snapshots.map(\.id))) { _, availableIDs in
+            selectedDownloadIDs.formIntersection(availableIDs)
         }
         .onOpenURL(perform: handleExternalURL)
         .onReceive(
@@ -97,7 +124,7 @@ struct ContentView: View {
                 .keyboardShortcut("n", modifiers: .command)
             }
         } else {
-            Table(visibleSnapshots, selection: $selectedDownloadID) {
+            Table(visibleSnapshots, selection: $selectedDownloadIDs) {
                 TableColumn("Name") { snapshot in
                     DownloadNameCell(snapshot: snapshot)
                 }
@@ -153,14 +180,27 @@ struct ContentView: View {
                 }
                 .width(34)
             }
+            .background(MutedTableSelection(selectedIDs: selectedDownloadIDs))
             .contextMenu(forSelectionType: DownloadID.self) { ids in
-                if let id = ids.first {
+                if ids.count == 1, let id = ids.first {
                     Button("Show Info", systemImage: "info.circle") {
                         openInfo(id)
                     }
                 }
+
+                ForEach(service.snapshots.commonCommands(for: ids)) { command in
+                    Button(role: command.role) {
+                        performSelectedCommand(command, on: ids)
+                    } label: {
+                        Label(
+                            command.title(forSelectionCount: ids.count),
+                            systemImage: command.systemImage
+                        )
+                    }
+                    .disabled(!service.commandInFlightIDs.isDisjoint(with: ids))
+                }
             } primaryAction: { ids in
-                if let id = ids.first {
+                if ids.count == 1, let id = ids.first {
                     openInfo(id)
                 }
             }
@@ -175,15 +215,18 @@ struct ContentView: View {
                     openInfo(selectedSnapshot.id)
                 }
                 .keyboardShortcut("i", modifiers: .command)
+            }
 
-                ForEach(selectedSnapshot.availableCommands) { command in
-                    Button(role: command.role) {
-                        perform(command, on: selectedSnapshot.id)
-                    } label: {
-                        Label(command.title, systemImage: command.systemImage)
-                    }
-                    .disabled(service.commandInFlightIDs.contains(selectedSnapshot.id))
+            ForEach(selectedCommands) { command in
+                Button(role: command.role) {
+                    performSelectedCommand(command, on: selectedDownloadIDs)
+                } label: {
+                    Label(
+                        command.title(forSelectionCount: selectedDownloadIDs.count),
+                        systemImage: command.systemImage
+                    )
                 }
+                .disabled(selectedDownloadsAreBusy)
             }
         }
 
@@ -212,9 +255,9 @@ struct ContentView: View {
     private func perform(_ command: DownloadCommand, on id: DownloadID) {
         Task { @MainActor in
             do {
-                try await service.perform(command, on: id)
-                if command == .remove, selectedDownloadID == id {
-                    selectedDownloadID = nil
+                let didPerform = try await service.perform(command, on: id)
+                if didPerform, command == .remove {
+                    selectedDownloadIDs.remove(id)
                 }
             } catch {
                 presentedError = PresentedDownloadError(
@@ -229,12 +272,64 @@ struct ContentView: View {
         Task { @MainActor in
             do {
                 try await service.deleteDownloadedFileAndHistory(for: snapshot.id)
-                if selectedDownloadID == snapshot.id {
-                    selectedDownloadID = nil
-                }
+                selectedDownloadIDs.remove(snapshot.id)
             } catch {
                 presentedError = PresentedDownloadError(
                     title: "Could Not Delete Downloaded File",
+                    error: error
+                )
+            }
+        }
+    }
+
+    private var removalConfirmationTitle: String {
+        if downloadsPendingRemoval.count == 1 {
+            "Remove Download from History?"
+        } else {
+            "Remove \(downloadsPendingRemoval.count) Downloads from History?"
+        }
+    }
+
+    private func performSelectedCommand(
+        _ command: DownloadCommand,
+        on ids: Set<DownloadID>
+    ) {
+        guard !ids.isEmpty else { return }
+        if command == .remove {
+            confirmRemoval(of: ids)
+        } else {
+            perform(command, on: ids)
+        }
+    }
+
+    private func perform(_ command: DownloadCommand, on ids: Set<DownloadID>) {
+        Task { @MainActor in
+            do {
+                _ = try await service.perform(command, on: ids)
+            } catch {
+                presentedError = PresentedDownloadError(
+                    title: "Could Not \(command.title) Downloads",
+                    error: error
+                )
+            }
+        }
+    }
+
+    private func confirmRemoval(of ids: Set<DownloadID>) {
+        downloadsPendingRemoval = ids
+        confirmsBatchRemoval = true
+    }
+
+    private func removePendingDownloads() {
+        let ids = downloadsPendingRemoval
+        Task { @MainActor in
+            do {
+                let removedIDs = try await service.perform(.remove, on: ids)
+                selectedDownloadIDs.subtract(removedIDs)
+                downloadsPendingRemoval.removeAll()
+            } catch {
+                presentedError = PresentedDownloadError(
+                    title: "Could Not Remove Downloads",
                     error: error
                 )
             }

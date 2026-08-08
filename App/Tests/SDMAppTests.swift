@@ -210,6 +210,60 @@ final class SDMAppTests: XCTestCase {
         XCTAssertFalse(DownloadState.completed.allows(.cancel))
     }
 
+    func testBatchCommandsAreTheIntersectionOfEverySelectedDownload() throws {
+        let completed = DownloadSnapshot(
+            id: DownloadID(),
+            sourceURL: try XCTUnwrap(URL(string: "https://example.com/completed.zip")),
+            filename: "completed.zip",
+            state: .completed
+        )
+        let failed = DownloadSnapshot(
+            id: DownloadID(),
+            sourceURL: try XCTUnwrap(URL(string: "https://example.com/failed.zip")),
+            filename: "failed.zip",
+            state: .failed
+        )
+        let downloading = DownloadSnapshot(
+            id: DownloadID(),
+            sourceURL: try XCTUnwrap(URL(string: "https://example.com/downloading.zip")),
+            filename: "downloading.zip",
+            state: .downloading
+        )
+        let snapshots = [completed, failed, downloading]
+
+        XCTAssertEqual(
+            snapshots.commonCommands(for: [failed.id, downloading.id]).map(\.title),
+            ["Cancel"]
+        )
+        XCTAssertEqual(
+            snapshots.commonCommands(for: [completed.id, failed.id]).map(\.title),
+            ["Remove from History"]
+        )
+        XCTAssertTrue(
+            snapshots.commonCommands(for: [completed.id, downloading.id]).isEmpty
+        )
+        XCTAssertTrue(snapshots.commonCommands(for: []).isEmpty)
+        XCTAssertTrue(snapshots.commonCommands(for: [DownloadID()]).isEmpty)
+    }
+
+    @MainActor
+    func testServiceIgnoresCommandsUnavailableForTheCurrentState() async throws {
+        let failed = DownloadSnapshot(
+            id: DownloadID(),
+            sourceURL: try XCTUnwrap(URL(string: "https://example.com/failed.zip")),
+            filename: "failed.zip",
+            state: .failed
+        )
+        let service = DownloadService.preview(snapshots: [failed])
+
+        let didPerform = try await service.perform(.pause, on: failed.id)
+        let performedIDs = try await service.perform(.pause, on: [failed.id])
+
+        XCTAssertFalse(didPerform)
+        XCTAssertTrue(performedIDs.isEmpty)
+        XCTAssertFalse(service.commandInFlightIDs.contains(failed.id))
+    }
+
     func testProgressFractionIsBounded() throws {
         let snapshot = DownloadSnapshot(
             id: DownloadID(),

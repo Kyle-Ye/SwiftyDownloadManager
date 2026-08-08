@@ -84,6 +84,17 @@ extension DownloadSnapshot {
     }
 }
 
+extension Collection where Element == DownloadSnapshot {
+    func commonCommands(for selectedIDs: Set<DownloadID>) -> [DownloadCommand] {
+        guard !selectedIDs.isEmpty else { return [] }
+        let selectedSnapshots = filter { selectedIDs.contains($0.id) }
+        guard selectedSnapshots.count == selectedIDs.count else { return [] }
+        return DownloadCommand.allCases.filter { command in
+            selectedSnapshots.allSatisfy { $0.state.allows(command) }
+        }
+    }
+}
+
 extension DownloadSegmentSnapshot {
     var progressFraction: Double? {
         guard totalBytes > 0 else { return nil }

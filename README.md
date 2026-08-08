@@ -47,7 +47,9 @@ Completed, failed, cancelled, and paused tasks remain until the user chooses
 diagnostics, but never deletes a finalized file. **Delete Downloaded File** is a
 separate confirmed action. Finalized downloads stay in Downloads or another
 user-selected directory, and security-scoped bookmarks preserve access to
-custom destinations across launches.
+custom destinations across launches. Select multiple rows on macOS, or tap
+**Edit** on iOS and iPadOS, to remove several eligible tasks from history at
+once.
 
 ## Build
 
