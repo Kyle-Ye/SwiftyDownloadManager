@@ -61,7 +61,10 @@ let package = Package(
         ),
         .target(
             name: "SDMEngineTestSupport",
-            dependencies: ["SDMEngine"],
+            dependencies: [
+                "SDMEngine",
+                .product(name: "CurlBinary", package: "CurlBinary"),
+            ],
             path: "Tests/SDMEngineTestSupport",
             publicHeadersPath: "include"
         ),

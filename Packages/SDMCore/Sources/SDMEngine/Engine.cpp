@@ -29,6 +29,26 @@ std::string_view sdm::Engine::version() noexcept {
     return "0.4.0-dev";
 }
 
+bool sdm::is_retryable_curl_error(std::uint32_t error_code) noexcept {
+    switch (static_cast<CURLcode>(error_code)) {
+    case CURLE_SSL_ENGINE_NOTFOUND:
+    case CURLE_SSL_ENGINE_SETFAILED:
+    case CURLE_SSL_CERTPROBLEM:
+    case CURLE_SSL_CIPHER:
+    case CURLE_PEER_FAILED_VERIFICATION:
+    case CURLE_SSL_ENGINE_INITFAILED:
+    case CURLE_SSL_CACERT_BADFILE:
+    case CURLE_SSL_CRL_BADFILE:
+    case CURLE_SSL_ISSUER_ERROR:
+    case CURLE_SSL_PINNEDPUBKEYNOTMATCH:
+    case CURLE_SSL_INVALIDCERTSTATUS:
+    case CURLE_SSL_CLIENTCERT:
+        return false;
+    default:
+        return true;
+    }
+}
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -1046,6 +1066,10 @@ private:
                 : std::string(curl_easy_strerror(curl_result));
             if (transfer.write_failed) {
                 fail_task(task, Result::io_error, message);
+            } else if (!sdm::is_retryable_curl_error(
+                           static_cast<std::uint32_t>(curl_result)
+                       )) {
+                fail_task(task, Result::network_error, message);
             } else {
                 retry_or_fail(task, Result::network_error, message);
             }

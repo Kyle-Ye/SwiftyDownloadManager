@@ -46,6 +46,20 @@ final class DownloadModelsTests: XCTestCase {
         XCTAssertEqual(sdm_test_validate_command(5, 2), 0)
     }
 
+    func testCurlCertificateFailuresAreNotRetried() {
+        XCTAssertFalse(sdm_test_curl_error_is_retryable(sdm_test_curl_bad_ca_file_error()))
+        XCTAssertFalse(
+            sdm_test_curl_error_is_retryable(sdm_test_curl_peer_verification_error())
+        )
+    }
+
+    func testCurlTransientNetworkFailuresAreRetried() {
+        XCTAssertTrue(sdm_test_curl_error_is_retryable(sdm_test_curl_timeout_error()))
+        XCTAssertTrue(
+            sdm_test_curl_error_is_retryable(sdm_test_curl_could_not_connect_error())
+        )
+    }
+
     func testSegmentSnapshotCalculatesProgress() {
         let segment = DownloadSegmentSnapshot(
             ordinal: 0,

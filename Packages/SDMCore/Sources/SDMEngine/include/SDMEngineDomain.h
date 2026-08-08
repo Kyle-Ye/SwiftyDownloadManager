@@ -58,6 +58,10 @@ struct Segment final {
     CommandKind command
 ) noexcept;
 
+[[nodiscard]] bool is_retryable_curl_error(
+    std::uint32_t error_code
+) noexcept;
+
 [[nodiscard]] std::vector<Segment> plan_segments(
     std::uint64_t content_length,
     std::uint32_t requested_connections,

@@ -26,6 +26,11 @@ size_t sdm_test_plan_segments(
 
 bool sdm_test_can_transition(uint32_t from, uint32_t to);
 uint32_t sdm_test_validate_command(uint32_t state, uint32_t command);
+bool sdm_test_curl_error_is_retryable(uint32_t error_code);
+uint32_t sdm_test_curl_bad_ca_file_error(void);
+uint32_t sdm_test_curl_peer_verification_error(void);
+uint32_t sdm_test_curl_timeout_error(void);
+uint32_t sdm_test_curl_could_not_connect_error(void);
 bool sdm_test_create_v1_database(
     const char *path,
     const char *download_id,
