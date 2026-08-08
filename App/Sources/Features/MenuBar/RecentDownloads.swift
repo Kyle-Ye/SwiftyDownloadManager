@@ -18,13 +18,7 @@ enum RecentDownloads {
         if lhs.state.isActiveForMenuBar != rhs.state.isActiveForMenuBar {
             return lhs.state.isActiveForMenuBar
         }
-        if lhs.updatedAt != rhs.updatedAt {
-            return lhs.updatedAt > rhs.updatedAt
-        }
-        if lhs.createdAt != rhs.createdAt {
-            return lhs.createdAt > rhs.createdAt
-        }
-        return lhs.id.description < rhs.id.description
+        return lhs.isOrderedBeforeInDownloadList(rhs)
     }
 }
 

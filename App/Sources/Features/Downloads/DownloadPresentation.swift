@@ -62,6 +62,20 @@ extension DownloadState {
 }
 
 extension DownloadSnapshot {
+    var listOrderDate: Date {
+        lastAttemptAt ?? createdAt
+    }
+
+    func isOrderedBeforeInDownloadList(_ other: DownloadSnapshot) -> Bool {
+        if listOrderDate != other.listOrderDate {
+            return listOrderDate > other.listOrderDate
+        }
+        if createdAt != other.createdAt {
+            return createdAt > other.createdAt
+        }
+        return id.description < other.id.description
+    }
+
     var displayFilename: String {
         if let destinationURL, !destinationURL.lastPathComponent.isEmpty {
             return destinationURL.lastPathComponent
@@ -85,6 +99,10 @@ extension DownloadSnapshot {
 }
 
 extension Collection where Element == DownloadSnapshot {
+    func sortedForDownloadList() -> [DownloadSnapshot] {
+        sorted { $0.isOrderedBeforeInDownloadList($1) }
+    }
+
     func commonCommands(for selectedIDs: Set<DownloadID>) -> [DownloadCommand] {
         guard !selectedIDs.isEmpty else { return [] }
         let selectedSnapshots = filter { selectedIDs.contains($0.id) }

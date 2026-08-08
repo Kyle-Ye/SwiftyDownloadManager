@@ -21,7 +21,7 @@ struct MobileContentView: View {
     private var visibleSnapshots: [DownloadSnapshot] {
         service.snapshots
             .filter { selectedFilter.includes($0.state) }
-            .sorted { $0.updatedAt > $1.updatedAt }
+            .sortedForDownloadList()
     }
 
     private var selectedCommands: [DownloadCommand] {

@@ -20,7 +20,7 @@ struct ContentView: View {
     private var visibleSnapshots: [DownloadSnapshot] {
         service.snapshots
             .filter { selectedFilter.includes($0.state) }
-            .sorted { $0.updatedAt > $1.updatedAt }
+            .sortedForDownloadList()
     }
 
     private var selectedSnapshot: DownloadSnapshot? {
@@ -158,15 +158,6 @@ struct ContentView: View {
                         .monospacedDigit()
                 }
                 .width(min: 72, ideal: 90)
-
-                TableColumn("Updated") { snapshot in
-                    Text(
-                        snapshot.updatedAt,
-                        format: .dateTime.month().day().hour().minute()
-                    )
-                        .foregroundStyle(.secondary)
-                }
-                .width(min: 100, ideal: 120)
 
                 TableColumn("") { snapshot in
                     DownloadActionsMenu(
