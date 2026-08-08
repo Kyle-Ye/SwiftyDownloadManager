@@ -14,18 +14,28 @@ struct ChromeExtensionCard: View {
                     placeholderSystemImage: "questionmark.app.dashed"
                 )
 
-                HStack(spacing: BrowserExtensionDesign.inlineSpacing) {
-                    Text("Google Chrome")
-                        .font(.headline)
+                VStack(alignment: .leading, spacing: BrowserExtensionDesign.compactSpacing) {
+                    HStack(spacing: BrowserExtensionDesign.inlineSpacing) {
+                        Text("Google Chrome")
+                            .font(.headline)
 
-                    BrowserExtensionStatusBadge(
-                        title: chromeIsInstalled ? "Chrome found" : "Chrome not found",
-                        systemImage: chromeIsInstalled
-                            ? "checkmark.circle.fill"
-                            : "exclamationmark.circle.fill",
-                        tint: chromeIsInstalled ? .green : .secondary
-                    )
+                        BrowserExtensionStatusBadge(
+                            title: chromeIsInstalled ? "Chrome found" : "Chrome not found",
+                            systemImage: chromeIsInstalled
+                                ? "checkmark.circle.fill"
+                                : "exclamationmark.circle.fill",
+                            tint: chromeIsInstalled ? .green : .secondary
+                        )
+                    }
+
+                    Text("Capture direct download links without leaving the page you are browsing.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
 
                 Spacer(minLength: BrowserExtensionDesign.inlineSpacing)
 
@@ -35,16 +45,10 @@ struct ChromeExtensionCard: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+                    .fixedSize()
                     .accessibilityHint("Opens the Chrome Web Store")
                 }
             }
-
-            Text("Capture direct download links without leaving the page you are browsing.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(0)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, BrowserExtensionDesign.cardContentInset)
 
             VStack(alignment: .leading, spacing: BrowserExtensionDesign.featureSpacing) {
                 BrowserFeatureRow(

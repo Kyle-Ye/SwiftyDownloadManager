@@ -14,17 +14,27 @@ struct SafariExtensionCard: View {
                     placeholderSystemImage: "safari"
                 )
 
-                HStack(spacing: BrowserExtensionDesign.inlineSpacing) {
-                    Text("Safari")
-                        .font(.headline)
+                VStack(alignment: .leading, spacing: BrowserExtensionDesign.compactSpacing) {
+                    HStack(spacing: BrowserExtensionDesign.inlineSpacing) {
+                        Text("Safari")
+                            .font(.headline)
 
-                    BrowserExtensionStatusBadge(
-                        title: statusTitle,
-                        systemImage: statusSystemImage,
-                        tint: statusStyle,
-                        showsProgress: isEnabled == nil
-                    )
+                        BrowserExtensionStatusBadge(
+                            title: statusTitle,
+                            systemImage: statusSystemImage,
+                            tint: statusStyle,
+                            showsProgress: isEnabled == nil
+                        )
+                    }
+
+                    Text("Use the extension already bundled with Swifty Download Manager.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
 
                 Spacer(minLength: BrowserExtensionDesign.inlineSpacing)
 
@@ -35,15 +45,9 @@ struct SafariExtensionCard: View {
                 )
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                .fixedSize()
                 .accessibilityHint("Opens Safari extension settings")
             }
-
-            Text("Use the extension already bundled with Swifty Download Manager.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(0)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, BrowserExtensionDesign.cardContentInset)
 
             HStack(spacing: BrowserExtensionDesign.wideSpacing) {
                 BrowserFeatureRow(
