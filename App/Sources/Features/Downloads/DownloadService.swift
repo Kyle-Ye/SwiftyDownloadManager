@@ -163,9 +163,14 @@ final class DownloadService {
         selectedEngine = engine
     }
 
-    func perform(_ command: DownloadCommand, on id: DownloadID) async throws {
+    @discardableResult
+    func perform(_ command: DownloadCommand, on id: DownloadID) async throws -> Bool {
+        guard let snapshot = snapshots.first(where: { $0.id == id }),
+              snapshot.state.allows(command) else {
+            return false
+        }
         let manager = try requiredManager()
-        guard commandInFlightIDs.insert(id).inserted else { return }
+        guard commandInFlightIDs.insert(id).inserted else { return false }
         defer { commandInFlightIDs.remove(id) }
 
         switch command {
@@ -180,6 +185,26 @@ final class DownloadService {
         case .remove:
             try await manager.remove(id)
         }
+        return true
+    }
+
+    @discardableResult
+    func perform(
+        _ command: DownloadCommand,
+        on ids: Set<DownloadID>
+    ) async throws -> Set<DownloadID> {
+        guard commandInFlightIDs.isDisjoint(with: ids) else {
+            throw ServiceError.unavailable(
+                "Another operation is already in progress for one of the selected downloads."
+            )
+        }
+        var performedIDs: Set<DownloadID> = []
+        for id in ids {
+            if try await perform(command, on: id) {
+                performedIDs.insert(id)
+            }
+        }
+        return performedIDs
     }
 
     func logs(for id: DownloadID) -> [DownloadDiagnosticEvent] {

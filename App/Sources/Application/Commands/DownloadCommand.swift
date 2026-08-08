@@ -35,4 +35,15 @@ enum DownloadCommand: CaseIterable, Identifiable {
         default: nil
         }
     }
+
+    func title(forSelectionCount count: Int) -> String {
+        guard count > 1 else { return title }
+        return switch self {
+        case .pause: "Pause \(count) Downloads"
+        case .resume: "Resume \(count) Downloads"
+        case .cancel: "Cancel \(count) Downloads"
+        case .retry: "Retry \(count) Downloads"
+        case .remove: "Remove \(count) from History"
+        }
+    }
 }

@@ -3,9 +3,13 @@ import SDMCore
 import SwiftUI
 
 struct MobileContentView: View {
+    @Environment(\.editMode) private var editMode
     @Bindable var service: DownloadService
     @AppStorage(AppStorageKey.defaultConnectionCount) private var defaultConnectionCount = 8
     @State private var selection: DownloadFilter? = .all
+    @State private var selectedDownloadIDs: Set<DownloadID> = []
+    @State private var downloadsPendingRemoval: Set<DownloadID> = []
+    @State private var confirmsBatchRemoval = false
     @State private var showsNewDownload = false
     @State private var showsSettings = false
     @State private var presentedError: PresentedDownloadError?
@@ -18,6 +22,18 @@ struct MobileContentView: View {
         service.snapshots
             .filter { selectedFilter.includes($0.state) }
             .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var selectedCommands: [DownloadCommand] {
+        service.snapshots.commonCommands(for: selectedDownloadIDs)
+    }
+
+    private var selectedDownloadsAreBusy: Bool {
+        !service.commandInFlightIDs.isDisjoint(with: selectedDownloadIDs)
+    }
+
+    private var isEditing: Bool {
+        editMode?.wrappedValue.isEditing == true
     }
 
     var body: some View {
@@ -48,7 +64,7 @@ struct MobileContentView: View {
                             Button("New Download", action: presentNewDownload)
                         }
                     } else {
-                        List(visibleSnapshots) { snapshot in
+                        List(visibleSnapshots, selection: $selectedDownloadIDs) { snapshot in
                             NavigationLink(value: snapshot.id) {
                                 MobileDownloadRow(snapshot: snapshot)
                             }
@@ -73,12 +89,39 @@ struct MobileContentView: View {
                     DownloadInfoView(service: service, downloadID: id)
                 }
                 .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        EditButton()
+                            .disabled(visibleSnapshots.isEmpty)
+                    }
+
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button("Settings", systemImage: "gearshape") {
                             showsSettings = true
                         }
                         Button("New Download", systemImage: "plus", action: presentNewDownload)
                             .disabled(service.initializationError != nil)
+                    }
+
+                    if isEditing {
+                        ToolbarItemGroup(placement: .bottomBar) {
+                            Spacer()
+                            ForEach(selectedCommands) { command in
+                                Button(role: command.role) {
+                                    performSelectedCommand(
+                                        command,
+                                        on: selectedDownloadIDs
+                                    )
+                                } label: {
+                                    Label(
+                                        command.title(
+                                            forSelectionCount: selectedDownloadIDs.count
+                                        ),
+                                        systemImage: command.systemImage
+                                    )
+                                }
+                                .disabled(selectedDownloadsAreBusy)
+                            }
+                        }
                     }
                 }
             }
@@ -117,6 +160,24 @@ struct MobileContentView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .confirmationDialog(
+            removalConfirmationTitle,
+            isPresented: $confirmsBatchRemoval
+        ) {
+            Button("Remove from History", role: .destructive, action: removePendingDownloads)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "Partial data and diagnostics for the selected downloads will be deleted. "
+                    + "Downloaded files will be kept."
+            )
+        }
+        .onChange(of: selection) { _, _ in
+            finishEditing()
+        }
+        .onChange(of: Set(service.snapshots.map(\.id))) { _, availableIDs in
+            selectedDownloadIDs.formIntersection(availableIDs)
+        }
         .onOpenURL(perform: handleExternalURL)
     }
 
@@ -137,7 +198,10 @@ struct MobileContentView: View {
     private func perform(_ command: DownloadCommand, on id: DownloadID) {
         Task { @MainActor in
             do {
-                try await service.perform(command, on: id)
+                let didPerform = try await service.perform(command, on: id)
+                if didPerform, command == .remove {
+                    selectedDownloadIDs.remove(id)
+                }
             } catch {
                 presentedError = PresentedDownloadError(
                     title: "Could Not \(command.title)",
@@ -145,6 +209,64 @@ struct MobileContentView: View {
                 )
             }
         }
+    }
+
+    private var removalConfirmationTitle: String {
+        if downloadsPendingRemoval.count == 1 {
+            "Remove Download from History?"
+        } else {
+            "Remove \(downloadsPendingRemoval.count) Downloads from History?"
+        }
+    }
+
+    private func performSelectedCommand(
+        _ command: DownloadCommand,
+        on ids: Set<DownloadID>
+    ) {
+        guard !ids.isEmpty else { return }
+        if command == .remove {
+            downloadsPendingRemoval = ids
+            confirmsBatchRemoval = true
+        } else {
+            perform(command, on: ids)
+        }
+    }
+
+    private func perform(_ command: DownloadCommand, on ids: Set<DownloadID>) {
+        Task { @MainActor in
+            do {
+                _ = try await service.perform(command, on: ids)
+            } catch {
+                presentedError = PresentedDownloadError(
+                    title: "Could Not \(command.title) Downloads",
+                    error: error
+                )
+            }
+        }
+    }
+
+    private func removePendingDownloads() {
+        let ids = downloadsPendingRemoval
+        Task { @MainActor in
+            do {
+                let removedIDs = try await service.perform(.remove, on: ids)
+                selectedDownloadIDs.subtract(removedIDs)
+                downloadsPendingRemoval.removeAll()
+                if selectedDownloadIDs.isEmpty {
+                    editMode?.wrappedValue = .inactive
+                }
+            } catch {
+                presentedError = PresentedDownloadError(
+                    title: "Could Not Remove Downloads",
+                    error: error
+                )
+            }
+        }
+    }
+
+    private func finishEditing() {
+        selectedDownloadIDs.removeAll()
+        editMode?.wrappedValue = .inactive
     }
 
     private func handleExternalURL(_ callbackURL: URL) {
