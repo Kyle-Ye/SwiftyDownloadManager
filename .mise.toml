@@ -1,2 +1,5 @@
 [tools]
 tuist = "4.203.1"
+
+[env]
+# TUIST_LOOK_INSIDE_ENABLED = "true"

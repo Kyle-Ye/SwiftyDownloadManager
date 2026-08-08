@@ -82,11 +82,26 @@ archive, App packaging, GitHub Release, and post-release development workflow.
 
 ## LookInside
 
-Debug builds embed the
+LookInside integration is disabled by default so SwiftUI previews do not load
+its auto-starting server. To opt in, uncomment
+`TUIST_LOOK_INSIDE_ENABLED = "true"` in `.mise.toml`, trust the edited config,
+and regenerate the workspace:
+
+```bash
+mise trust .mise.toml
+mise exec -- tuist generate --no-open
+```
+
+The generated Debug app then embeds the
 [`LookInsideServer`](https://github.com/LookInsideApp/LookInside-Release)
-package so the running macOS or iOS app can be inspected from LookInside.
-Install dependencies, generate the workspace, and run the `SDMApp` scheme in
-the Debug configuration. The app then appears in LookInside's connection list.
+package so the running macOS or iOS app can be inspected from LookInside. Run
+the `SDMApp` scheme in the Debug configuration and the app appears in
+LookInside's connection list. Comment the setting and regenerate to disable the
+integration again.
+
+On Xcode 26.6, select **Editor → Canvas → Use Legacy Previews Execution** when
+working with this app target. Its JIT preview executor can time out before app
+startup even when LookInside is disabled.
 
 The server binary is excluded from Release builds. Keep any future direct
 `LookInsideServer` API calls behind `#if DEBUG` guards.

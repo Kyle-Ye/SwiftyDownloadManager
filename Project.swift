@@ -1,5 +1,8 @@
 import ProjectDescription
 
+let lookInsideDependencies: [TargetDependency] = Environment.lookInsideEnabled
+    .getBoolean(default: false) ? [.external(name: "LookInsideServer")] : []
+
 let project = Project(
     name: "SDM",
     settings: .settings(
@@ -63,8 +66,7 @@ let project = Project(
             dependencies: [
                 .target(name: "SDMSafariExtension"),
                 .external(name: "SDMCore"),
-                .external(name: "LookInsideServer"),
-            ],
+            ] + lookInsideDependencies,
             settings: .settings(base: [
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
