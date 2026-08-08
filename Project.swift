@@ -63,6 +63,7 @@ let project = Project(
             dependencies: [
                 .target(name: "SDMSafariExtension"),
                 .external(name: "SDMCore"),
+                .external(name: "LookInsideServer"),
             ],
             settings: .settings(base: [
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
@@ -86,6 +87,7 @@ let project = Project(
                     "CODE_SIGN_INJECT_BASE_ENTITLEMENTS[sdk=macosx*]": "NO",
                     "CODE_SIGN_STYLE[sdk=iphoneos*]": "Automatic",
                     "CODE_SIGN_STYLE[sdk=macosx*]": "Manual",
+                    "EXCLUDED_SOURCE_FILE_NAMES": "$(inherited) LookInsideServer*",
                 ]),
             ]),
             metadata: .metadata(tags: [

@@ -25,6 +25,17 @@ redistribution terms are followed. The repository and app bundle retain all
 four license texts. OpenSSL 3.6.0 has no upstream `NOTICE` file; its complete
 Apache 2.0 license is included.
 
+## Development-only LookInside server
+
+Debug builds link the pinned
+[`LookInsideServer` 0.2.7](https://github.com/LookInsideApp/LookInside-Release/releases/tag/0.2.7)
+binary to support local UI inspection. LookInside is licensed under GPL-3.0.
+The `SDMApp` Release configuration excludes `LookInsideServer*`, and release
+validation must continue to confirm that the framework is absent from the app
+bundle and executable load commands. It is therefore not part of the app's
+distributed third-party notices. Anyone distributing a Debug build must review
+and comply with the upstream license separately.
+
 On macOS, `SDMCore` exports Apple system trust anchors into the app's private
 storage and configures `CURLOPT_CAINFO` with that file. iOS does not expose its
 system root certificates, so the iOS libcurl backend uses the audited

@@ -80,6 +80,22 @@ ports and clean them up automatically.
 See [`Docs/Releasing.md`](Docs/Releasing.md) for the versioning, validation,
 archive, App packaging, GitHub Release, and post-release development workflow.
 
+## LookInside
+
+Debug builds embed the
+[`LookInsideServer`](https://github.com/LookInsideApp/LookInside-Release)
+package so the running macOS or iOS app can be inspected from LookInside.
+Install dependencies, generate the workspace, and run the `SDMApp` scheme in
+the Debug configuration. The app then appears in LookInside's connection list.
+
+The server binary is excluded from Release builds. Keep any future direct
+`LookInsideServer` API calls behind `#if DEBUG` guards.
+
+To resolve private Swift type discriminators, open **Private Discriminator
+Settings…** in LookInside, import module `SDMApp`, and select `App/Sources` as
+its source folder. LookInside indexes filenames locally without uploading the
+source files.
+
 ## Browser extensions
 
 The macOS app provides a **Browser Extensions…** window for setting up Google
