@@ -2,6 +2,8 @@
 
 set -eu
 
+export PATH="$HOME/.local/bin:$PATH"
+
 case "${CI_WORKFLOW:-}:${CI_XCODEBUILD_ACTION:-}" in
   Main:build)
     ;;
@@ -15,7 +17,7 @@ esac
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 
 if [ "$CI_WORKFLOW" = "Main" ]; then
-  bash Scripts/test.sh
+  mise exec -- bash Scripts/test.sh
   exit 0
 fi
 
@@ -64,6 +66,6 @@ engine_test=Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
 grep -F "return \"$release_version\";" "$engine_source"
 grep -F "SDMCoreInfo.engineVersion, \"$release_version\"" "$engine_test"
 
-bash Scripts/test.sh
+mise exec -- bash Scripts/test.sh
 Scripts/package-chrome-extension.sh \
   "$TMPDIR/SwiftyDownloadManager-Chrome-$release_version.zip"
