@@ -162,17 +162,30 @@ until artifact
     "fields[ciBuildActions]" => "name,actionType,completionStatus",
     "limit" => "200"
   ).fetch("data")
-  archive_actions = actions.select { |item| item.dig("attributes", "actionType") == "ARCHIVE" }
-  abort "Expected one Xcode Cloud archive action, found #{archive_actions.length}" unless archive_actions.length == 1
+  archive_actions = actions.select do |item|
+    attributes = item.fetch("attributes")
+    attributes["actionType"] == "ARCHIVE" && attributes["completionStatus"] == SUCCESS_STATUS
+  end
+  if archive_actions.empty?
+    warn "Waiting for a successful Xcode Cloud archive action..."
+    sleep options[:interval]
+    next
+  end
 
-  artifacts = request_json(
-    "/ciBuildActions/#{archive_actions.first.fetch('id')}/artifacts",
-    private_key,
-    options,
-    "fields[ciArtifacts]" => "fileType,fileName,fileSize,downloadUrl",
-    "limit" => "200"
-  ).fetch("data")
-  artifact = artifacts.find { |item| item.dig("attributes", "fileType") == NOTARIZED_ARTIFACT_TYPE }
+  notarized_artifacts = archive_actions.flat_map do |archive_action|
+    request_json(
+      "/ciBuildActions/#{archive_action.fetch('id')}/artifacts",
+      private_key,
+      options,
+      "fields[ciArtifacts]" => "fileType,fileName,fileSize,downloadUrl",
+      "limit" => "200"
+    ).fetch("data").select do |item|
+      item.dig("attributes", "fileType") == NOTARIZED_ARTIFACT_TYPE
+    end
+  end
+  abort "Expected at most one stapled notarized archive, found #{notarized_artifacts.length}" if notarized_artifacts.length > 1
+
+  artifact = notarized_artifacts.first
   unless artifact
     warn "Waiting for the stapled notarized archive..."
     sleep options[:interval]
