@@ -66,6 +66,12 @@ engine_test=Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
 grep -F "return \"$release_version\";" "$engine_source"
 grep -F "SDMCoreInfo.engineVersion, \"$release_version\"" "$engine_test"
 
+# Both release archive actions validate the branch and source versions. Run the
+# cross-language tests and Chrome packaging only once, before the macOS archive.
+if [ "${CI_PRODUCT_PLATFORM:-macOS}" != "macOS" ]; then
+  exit 0
+fi
+
 mise exec -- bash Scripts/test.sh
 mise exec -- Scripts/package-chrome-extension.sh \
   "$TMPDIR/SwiftyDownloadManager-Chrome-$release_version.zip"
