@@ -291,6 +291,11 @@ The complete flow is:
 8. GitHub Actions repackages the verified macOS app and creates or updates the
    GitHub Release with generated changelog notes. It never downloads or
    uploads the iOS archive.
+9. Build `Artifacts/SwiftyDownloadManager-Chrome-${SDM_VERSION}.zip` from the
+   tagged source and upload it to the existing Chrome Web Store item. For the
+   first listing and for any behavior or permission change, review every field
+   in `../Resources/ChromeWebStore/Submission.md` and confirm the public privacy page
+   still matches the extension before submitting the store draft for review.
 
 The GitHub workflow's manual dispatch can republish an existing semantic tag
 after Xcode Cloud has successfully produced the matching release-branch

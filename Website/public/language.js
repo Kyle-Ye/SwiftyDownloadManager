@@ -9,7 +9,7 @@
     "Resume anytime.": "随时续传。",
     "Download Latest Version": "下载最新版本",
     "Download on the App Store": "前往 App Store 下载",
-    "No accounts. No analytics. No data collection.": "无账户、无分析、零数据收集。",
+    "No accounts. No analytics. No developer data collection.": "无账户、无分析，开发者不收集数据。",
     "Downloads": "下载任务",
     "3 active": "3 个进行中",
     "Complete · 126 MB": "已完成 · 126 MB",
@@ -56,7 +56,7 @@
     "SDM takes it from here.": "接下来交给 SDM。",
     "On macOS, extensions for Safari and Chrome recognize download links, eligible click-triggered downloads, and the Download with SDM context-menu action.": "在 macOS 上，Safari 与 Chrome 扩展可识别下载链接、点击触发的下载，并支持通过“使用 SDM 下载”右键菜单交给 SDM。",
     "Private means private": "隐私就该名副其实",
-    "Nothing to collect.": "没有数据可收集。",
+    "Nothing leaves.": "数据不会离开设备。",
     "Nothing to sell.": "自然也无从出售。",
     "Read the privacy statement": "阅读隐私说明",
     "Ready when you are": "随时准备就绪",
@@ -73,13 +73,13 @@
     "without": "任何信息都不会",
     "you.": "离开设备。",
     "Effective": "生效日期",
-    "August 8, 2026": "2026 年 8 月 8 日",
+    "August 9, 2026": "2026 年 8 月 9 日",
     "Questions": "问题反馈",
     "Privacy should be easy to verify.": "隐私承诺应该易于验证。",
     "SDM’s source and issue tracker are public on GitHub.": "SDM 的源代码与问题追踪均公开在 GitHub。",
     "Review the project on GitHub ↗": "在 GitHub 查看项目 ↗",
     "← Swifty Download Manager": "← 返回 Swifty Download Manager",
-    "Zero data collection": "零数据收集",
+    "Local-only data handling": "仅在本地处理数据",
   };
 
   const originalText = new WeakMap();

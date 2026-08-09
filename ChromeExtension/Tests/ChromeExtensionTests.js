@@ -19,7 +19,6 @@ const safariResourcesDirectory = path.join(
   "SafariExtension",
   "Resources"
 );
-
 function sourcePath(resource) {
   if (resource.startsWith("Shared/")) {
     return path.join(sharedResourcesDirectory, resource.slice("Shared/".length));

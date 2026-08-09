@@ -78,6 +78,7 @@ final class SDMAppTests: XCTestCase {
 
         XCTAssertEqual(url.scheme, "https")
         XCTAssertEqual(url.host, "chromewebstore.google.com")
+        XCTAssertEqual(url.lastPathComponent, "jjhjgmnpneldikhkejhoeonjpbbekbpg")
     }
 
     @MainActor

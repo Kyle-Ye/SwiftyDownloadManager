@@ -68,7 +68,10 @@ node --test ChromeExtension/Tests/ChromeExtensionTests.js
 Use the checked-in packager so the manifest remains at the archive root:
 
 ```bash
-Scripts/package-chrome-extension.sh
+SDM_VERSION="$(plutil -extract version raw -o - \
+  ChromeExtension/Resources/manifest.json)"
+Scripts/package-chrome-extension.sh \
+  "Artifacts/SwiftyDownloadManager-Chrome-${SDM_VERSION}.zip"
 ```
 
 The default output is
@@ -80,6 +83,16 @@ temporary directory, then creates a ZIP containing only runtime resources and
 PNG icons. Chrome does not support SVG files for manifest icons, so the package
 includes 16, 32, 48, and 128 pixel PNG variants.
 
+Regenerate the small promotional tile after changing the app icon or its source
+layout:
+
+```bash
+node ../Resources/ChromeWebStore/generate-small-promo.mjs
+```
+
+The script uses the website workspace's pinned `sharp` dependency and composites
+the canonical app icon without redrawing it.
+
 ## Publish to the Chrome Web Store
 
 Chrome supports direct consumer installation on macOS through the Chrome Web
@@ -88,14 +101,18 @@ Store. Follow the official
 registering a developer account:
 
 1. Build and upload the ZIP as a new draft item.
-2. Complete the store description, permission justifications, privacy fields,
-   icon, promotional image, and at least one screenshot.
-3. Disclose that page/download URLs are processed locally and passed to the SDM
+2. Copy the reviewed listing text, permission justifications, privacy fields,
+   and distribution answers from `../Resources/ChromeWebStore/Submission.md`.
+3. Upload `../Resources/ChromeWebStore/Assets/small-promo-440x280.png` and
+   `../Resources/ChromeWebStore/Assets/screenshot-download-confirmation-1280x800.png`.
+   The 128-pixel store icon is already included in the ZIP manifest.
+4. Disclose that page/download URLs are processed locally and passed to the SDM
    app, and that SDM does not send them to a developer-operated service.
-4. Submit the draft for review and publish it after approval.
-5. Replace the search URL in `ChromeExtensionSupport.webStoreURL` with the
-   final listing URL:
-   `https://chromewebstore.google.com/detail/swifty-download-manager/ITEM_ID`.
+5. Confirm the public privacy page matches those disclosures, then submit the
+   draft for review and publish it after approval.
+6. Confirm `ChromeExtensionSupport.webStoreURL` still uses the assigned item
+   URL:
+   `https://chromewebstore.google.com/detail/swifty-download-manager/jjhjgmnpneldikhkejhoeonjpbbekbpg`.
 
 The Web Store assigns the item ID when the first draft is uploaded. After that,
 the public key can be copied into the manifest's `key` field when a stable ID is
@@ -104,3 +121,8 @@ needed for unpacked development builds. Do not commit a private packaging key.
 The Chrome manifest version must match the App and Safari extension marketing
 version in every stable release. `Docs/Releasing.md` and the release workflow
 validate this invariant.
+
+Chrome Web Store policy treats locally processed page and download URLs as user
+data that must be disclosed even when the developer never receives them. Keep
+the store Privacy tab and the public privacy statement synchronized with actual
+extension behavior. Re-review both before any permission or interception change.

@@ -69,7 +69,7 @@ test("server-renders the SDM landing page", async () => {
   assert.match(html, /FSL-1\.1-MIT/);
   assert.match(html, /blob\/main\/LICENSE\.md/);
   assert.doesNotMatch(html, /Download (?:version )?0\.3\.0/i);
-  assert.match(html, /No accounts\. No analytics\. No data collection\./);
+  assert.match(html, /No accounts\. No analytics\. No developer data collection\./);
   assert.match(html, /@ 2026 Kyle-Ye/);
   assert.doesNotMatch(html, /© 2026 Swifty Download Manager/);
   assert.match(html, /href=["']\/privacy\/["']>Privacy<\/a>/);
@@ -89,17 +89,19 @@ test("server-renders the bilingual privacy statement", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Privacy · Swifty Download Manager<\/title>/);
-  assert.match(html, /Swifty Download Manager does not collect any data\./);
-  assert.match(html, /Swifty Download Manager 不收集任何数据。/);
+  assert.match(html, /Your download and browsing data stays on your device\./);
+  assert.match(html, /你的下载与浏览数据只在设备本地处理。/);
   assert.match(html, /No analytics or telemetry/);
   assert.match(html, /无分析与遥测/);
   assert.match(html, /Website privacy/);
   assert.match(html, /网站隐私/);
-  assert.match(html, /August 8, 2026/);
+  assert.match(html, /August 9, 2026/);
   assert.match(html, />Privacy statement</);
   assert.match(html, />Effective\s*</);
   assert.match(html, />Questions</);
-  assert.match(html, />Zero data collection</);
+  assert.match(html, />Local-only data handling</);
+  assert.match(html, /Browser extension data handling/);
+  assert.match(html, /Chrome Web Store Limited Use/);
   assert.doesNotMatch(html, /Privacy · 隐私|Effective · 生效日期|Questions · 问题反馈|Zero collection · 零数据收集/);
   assert.match(html, /data-language-option=["']en["']/);
   assert.match(html, /data-language-option=["']zh["']/);

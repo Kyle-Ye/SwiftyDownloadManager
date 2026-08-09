@@ -166,7 +166,7 @@ export default function Home() {
           </div>
           <div className="privacy-note">
             <span className="privacy-mark" aria-hidden="true">✓</span>
-            No accounts. No analytics. No data collection.
+            No accounts. No analytics. No developer data collection.
           </div>
         </div>
 
@@ -342,14 +342,14 @@ export default function Home() {
         <div className="privacy-banner-mark" aria-hidden="true"><span>✓</span></div>
         <div>
           <p className="eyebrow">Private means private</p>
-          <h2>Nothing to collect.<br />Nothing to sell.</h2>
+          <h2>Nothing leaves.<br />Nothing to sell.</h2>
         </div>
         <div className="privacy-banner-copy">
           <p className="lang-en" lang="en">
             SDM has no account system, analytics SDK, advertising, or telemetry.
             Your download history and settings stay on your device.
           </p>
-          <p className="privacy-banner-zh lang-zh" lang="zh-Hans">SDM 不收集任何数据。下载记录与设置只保存在你的设备上。</p>
+          <p className="privacy-banner-zh lang-zh" lang="zh-Hans">SDM 不会把浏览或下载数据发送给开发者；下载记录与设置只保存在你的设备上。</p>
           <a href="/privacy/">Read the privacy statement <span>→</span></a>
         </div>
       </section>
