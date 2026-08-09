@@ -22,7 +22,7 @@ OptionParser.new do |parser|
   parser.banner = "Usage: wait-for-xcode-cloud-artifact.rb [options]"
   parser.on("--bundle-id VALUE") { |value| options[:bundle_id] = value }
   parser.on("--workflow VALUE") { |value| options[:workflow] = value }
-  parser.on("--tag VALUE") { |value| options[:tag] = value }
+  parser.on("--branch VALUE") { |value| options[:branch] = value }
   parser.on("--commit VALUE") { |value| options[:commit] = value.downcase }
   parser.on("--key-id VALUE") { |value| options[:key_id] = value }
   parser.on("--issuer-id VALUE") { |value| options[:issuer_id] = value }
@@ -32,10 +32,10 @@ OptionParser.new do |parser|
   parser.on("--interval SECONDS", Integer) { |value| options[:interval] = value }
 end.parse!
 
-required = %i[bundle_id workflow tag commit key_id issuer_id private_key output]
+required = %i[bundle_id workflow branch commit key_id issuer_id private_key output]
 missing = required.select { |key| options[key].nil? || options[key].empty? }
 abort "Missing required options: #{missing.join(', ')}" unless missing.empty?
-abort "Tag must use MAJOR.MINOR.PATCH format" unless options[:tag].match?(/\A\d+\.\d+\.\d+\z/)
+abort "Branch must use release/MAJOR.MINOR format" unless options[:branch].match?(%r{\Arelease/\d+\.\d+\z})
 
 private_key = OpenSSL::PKey::EC.new(File.read(options[:private_key]))
 
@@ -103,7 +103,7 @@ deadline = Time.now + options[:timeout]
 build_run = nil
 
 until build_run
-  abort "Timed out waiting for Xcode Cloud to start tag #{options[:tag]}" if Time.now >= deadline
+  abort "Timed out waiting for Xcode Cloud to build #{options[:branch]}" if Time.now >= deadline
 
   response = request_json(
     "/ciWorkflows/#{workflow.fetch('id')}/buildRuns",
@@ -121,12 +121,12 @@ until build_run
     reference_id = item.dig("relationships", "sourceBranchOrTag", "data", "id")
     reference = references[reference_id] || {}
     commit_matches = attributes.dig("sourceCommit", "commitSha").to_s.downcase == options[:commit]
-    tag_matches = reference["canonicalName"] == "refs/tags/#{options[:tag]}"
-    commit_matches && tag_matches
+    branch_matches = reference["canonicalName"] == "refs/heads/#{options[:branch]}"
+    commit_matches && branch_matches
   end
 
   unless build_run
-    warn "Waiting for Xcode Cloud to start #{options[:tag]}..."
+    warn "Waiting for Xcode Cloud to build #{options[:branch]} at #{options[:commit]}..."
     sleep options[:interval]
   end
 end
@@ -183,6 +183,8 @@ artifact_attributes = artifact.fetch("attributes")
 result = {
   build_run_id: build_run.fetch("id"),
   build_number: attributes.fetch("number"),
+  source_branch: options[:branch],
+  source_commit: options[:commit],
   artifact_name: artifact_attributes.fetch("fileName"),
   artifact_size: artifact_attributes.fetch("fileSize"),
   artifact_url: artifact_attributes.fetch("downloadUrl"),
