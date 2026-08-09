@@ -4,22 +4,19 @@ set -eu
 
 export PATH="$HOME/.local/bin:$PATH"
 
-case "${CI_WORKFLOW:-}:${CI_XCODEBUILD_ACTION:-}" in
-  Main:build)
+cd "$CI_PRIMARY_REPOSITORY_PATH"
+
+case "${CI_XCODEBUILD_ACTION:-}" in
+  build-for-testing)
+    mise exec -- bash Scripts/test.sh
+    exit 0
     ;;
-  Release:archive)
+  archive)
     ;;
   *)
     exit 0
     ;;
 esac
-
-cd "$CI_PRIMARY_REPOSITORY_PATH"
-
-if [ "$CI_WORKFLOW" = "Main" ]; then
-  mise exec -- bash Scripts/test.sh
-  exit 0
-fi
 
 release_branch="${CI_BRANCH:-}"
 safari_manifest_version="$(

@@ -1,18 +1,19 @@
 # Release process
 
 SDM uses two Xcode Cloud workflows. Changes to `main` run the `Main` workflow
-for continuous validation and produce an iOS archive eligible for internal
-TestFlight testing. Changes to a `release/MAJOR.MINOR` branch run the `Release`
-workflow to archive the iOS app for App Store Connect and to archive, sign,
-and notarize the macOS app. After that workflow succeeds, pushing a
-semantic-version tag for the same commit starts the GitHub
-`Publish Xcode Cloud Release` workflow.
+to build and test the iOS and macOS apps without producing distributable
+archives. Changes to a `release/MAJOR.MINOR` branch run the `Release` workflow
+to archive both apps, distribute release candidates through internal
+TestFlight testing, and notarize the macOS app. After that workflow succeeds,
+tag the same commit. When a GitHub Release asset is wanted, manually run the
+`Publish Xcode Cloud Release` workflow for that tag.
 
 Xcode Cloud owns the release binary. It archives the macOS app, signs the
 export with Developer ID, sends it to Apple's notary service, and produces a
-`STAPLED_NOTARIZED_ARCHIVE` artifact. GitHub Actions waits for that exact
-artifact through the App Store Connect API, verifies it, and publishes one
-user-facing asset: `SwiftyDownloadManager.app.zip`.
+`STAPLED_NOTARIZED_ARCHIVE` artifact. The on-demand GitHub workflow fetches
+that exact artifact through the App Store Connect API, verifies it, and
+publishes one user-facing asset: `SwiftyDownloadManager.app.zip`. Pushing a
+tag alone does not publish a GitHub Release.
 
 The Xcode Cloud archives and logs remain available in App Store Connect for
 Apple's retention period. GitHub Releases only stores the packaged macOS app.
@@ -46,11 +47,11 @@ Configure two enabled workflows. The development workflow uses these values:
 - Primary repository: `Kyle-Ye/SwiftyDownloadManager`.
 - Project or Workspace: `SDM.xcworkspace`.
 - Start condition: Branch Changes for the exact `main` branch.
+- Build action: `SDMApp`, iOS.
 - Build action: `SDMApp`, macOS, Any Mac.
-- Archive action: `SDMApp`, iOS, with Distribution Preparation set to
-  TestFlight (Internal Testing Only).
-- After an internal group exists, TestFlight Internal Testing post-action:
-  the iOS archive and the internal `Main` tester group.
+- Test action: `SDMApp`, iOS, required to pass.
+- Test action: `SDMApp`, macOS, required to pass.
+- No Archive actions or distribution post-actions.
 - Environment: a current supported release of Xcode and macOS.
 
 The release workflow uses these values:
@@ -64,8 +65,8 @@ The release workflow uses these values:
 - Archive action: `SDMApp`, iOS, with Distribution Preparation set to App
   Store Connect.
 - Post-action: Notarize the macOS archive only.
-- After an internal group exists, TestFlight Internal Testing post-action:
-  the iOS archive and the internal `Release Candidates` tester group.
+- TestFlight Internal Testing post-actions: the iOS and macOS archives and the
+  internal `Release Candidates` tester group.
 - Environment: a current supported release of Xcode and macOS.
 - Restrict Editing: enabled, as required for notarization workflows.
 
@@ -79,13 +80,15 @@ without Notarize, then add the post-action before publishing a version tag.
 
 ### TestFlight groups and promotion
 
-Create two internal TestFlight groups in App Store Connect before adding the
+Keep the internal `Release Candidates` group in App Store Connect for the
 post-actions above:
 
-- `Main`: receives every successful `main` iOS archive for day-to-day
-  dogfooding. Keep this group internal-only.
-- `Release Candidates`: receives successful `release/MAJOR.MINOR` iOS
-  archives for final validation.
+- `Release Candidates`: receives successful `release/MAJOR.MINOR` iOS and
+  macOS archives for final validation.
+
+The existing `Main` group can remain available for manual assignments, but
+the `Main` workflow no longer produces archives and therefore cannot
+automatically send builds to that group.
 
 Xcode doesn't allow an Internal Testing post-action to be saved while no
 internal group exists. Until the groups are created, keep the archive actions
@@ -109,20 +112,21 @@ screenshots and category.
 
 The iOS Release archive uses App Store Connect distribution preparation, so
 the same approved build can move from internal testing to external testing
-and then to App Store submission without rebuilding it. The `Main` archive
-uses the internal-only preparation and cannot be promoted outside the team.
+and then to App Store submission without rebuilding it.
 
-`ci_scripts/ci_pre_xcodebuild.sh` runs the cross-language test suite before the
-`Main` macOS build. Before both `Release` archive actions, it verifies that the
-source version is an exact `MAJOR.MINOR.PATCH`, that its major-minor line
-matches the `release/MAJOR.MINOR` branch, and that all source versions agree.
-The complete test suite and Chrome extension packaging run once, before the
-macOS archive, rather than once per platform.
+The `Main` Test actions run the scheme tests on both platforms.
+`ci_scripts/ci_pre_xcodebuild.sh` additionally runs the cross-language test
+suite during the `build-for-testing` phase of each Test action. Before both
+`Release` archive actions, it verifies that the source version is an exact
+`MAJOR.MINOR.PATCH`, that its major-minor line matches the
+`release/MAJOR.MINOR` branch, and that all source versions agree. The complete
+test suite and Chrome extension packaging run once, before the macOS archive,
+rather than once per platform.
 
-## Required GitHub Actions secrets
+## On-demand GitHub publication secrets
 
-GitHub Actions needs read access to Xcode Cloud build metadata and artifacts
-through the App Store Connect API:
+The optional `Publish Xcode Cloud Release` workflow needs read access to Xcode
+Cloud build metadata and artifacts through the App Store Connect API:
 
 | Secret | Value |
 | --- | --- |
@@ -268,7 +272,8 @@ branch's current commit.
 ## Publish a release
 
 After the release-branch build succeeds, create and push an annotated tag on
-that same commit:
+that same commit. Tagging does not start another build or publish a GitHub
+Release:
 
 ```bash
 git tag -a "$SDM_VERSION" \
@@ -289,27 +294,35 @@ The complete flow is:
    signing after the pre-archive tests pass.
 5. The Notarize post-action submits the macOS app, waits for acceptance, and
    staples the ticket.
-6. Pushing the semantic-version tag starts GitHub Actions. It verifies that
-   the tag belongs to the corresponding `origin/release/MAJOR.MINOR` branch.
-7. GitHub Actions matches the Xcode Cloud release-branch build by branch and
-   commit, then downloads only its `STAPLED_NOTARIZED_ARCHIVE` and verifies the
+6. Push the semantic-version tag for the successfully archived commit. The
+   tag is the release identity but has no automatic publication side effect.
+7. When a GitHub macOS download is wanted, manually dispatch `Publish Xcode
+   Cloud Release` with that tag. It verifies that the tag belongs to the
+   corresponding `origin/release/MAJOR.MINOR` branch.
+8. The on-demand job matches the Xcode Cloud release-branch build by branch
+   and commit, downloads only its `STAPLED_NOTARIZED_ARCHIVE`, and verifies the
    signature, ticket, Gatekeeper result, versions, architectures, licenses,
    and absence of development-only LookInside code.
-8. GitHub Actions repackages the verified macOS app and creates or updates the
-   GitHub Release with generated changelog notes. It never downloads or
-   uploads the iOS archive.
-9. Build `Artifacts/SwiftyDownloadManager-Chrome-${SDM_VERSION}.zip` from the
+9. The job repackages the verified macOS app and creates or updates the GitHub
+   Release with generated changelog notes. It never downloads or uploads the
+   iOS archive.
+10. Build `Artifacts/SwiftyDownloadManager-Chrome-${SDM_VERSION}.zip` from the
    tagged source and upload it to the existing Chrome Web Store item. For the
    first listing and for any behavior or permission change, review every field
    in `../Resources/ChromeWebStore/Submission.md` and confirm the public privacy page
    still matches the extension before submitting the store draft for review.
 
-The GitHub workflow's manual dispatch can republish an existing semantic tag
-after Xcode Cloud has successfully produced the matching release-branch
-artifact.
+Run the optional GitHub publication only when the release should offer a
+direct macOS download:
 
-Monitor Xcode Cloud in Xcode or App Store Connect. Monitor the publishing job
-with GitHub CLI:
+```bash
+gh workflow run "Publish Xcode Cloud Release" \
+  --repo Kyle-Ye/SwiftyDownloadManager \
+  -f tag="$SDM_VERSION"
+```
+
+Monitor Xcode Cloud in Xcode or App Store Connect. If the optional publication
+job was started, monitor it with GitHub CLI:
 
 ```bash
 gh run list \
