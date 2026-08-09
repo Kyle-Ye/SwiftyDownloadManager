@@ -116,12 +116,10 @@ and then to App Store submission without rebuilding it.
 
 The `Main` Test actions run the scheme tests on both platforms.
 `ci_scripts/ci_pre_xcodebuild.sh` additionally runs the cross-language test
-suite during the `build-for-testing` phase of each Test action. Before both
-`Release` archive actions, it verifies that the source version is an exact
-`MAJOR.MINOR.PATCH`, that its major-minor line matches the
-`release/MAJOR.MINOR` branch, and that all source versions agree. The complete
-test suite and Chrome extension packaging run once, before the macOS archive,
-rather than once per platform.
+suite during the `build-for-testing` phase of each Test action. Archive actions
+do not run repository-specific validation or packaging hooks; release source
+versions are checked during release preparation and optional GitHub
+publication instead.
 
 ## On-demand GitHub publication secrets
 
@@ -284,29 +282,27 @@ git push origin "$SDM_VERSION"
 The complete flow is:
 
 1. Pushing `release/MAJOR.MINOR` starts the Xcode Cloud `Release` workflow.
-2. The pre-archive script validates the branch line and source versions, then
-   runs the test suite and packages the Chrome extension once.
-3. Xcode Cloud archives the iOS app with App Store Connect distribution
+2. Xcode Cloud archives the iOS app with App Store Connect distribution
    preparation. The Xcode Cloud artifact is eligible for internal testing,
    external testing, and App Store submission; the TestFlight post-action
    uploads and assigns it after tester groups are configured.
-4. Xcode Cloud archives the universal macOS app with managed Developer ID
-   signing after the pre-archive tests pass.
-5. The Notarize post-action submits the macOS app, waits for acceptance, and
+3. Xcode Cloud archives the universal macOS app with managed Developer ID
+   signing.
+4. The Notarize post-action submits the macOS app, waits for acceptance, and
    staples the ticket.
-6. Push the semantic-version tag for the successfully archived commit. The
+5. Push the semantic-version tag for the successfully archived commit. The
    tag is the release identity but has no automatic publication side effect.
-7. When a GitHub macOS download is wanted, manually dispatch `Publish Xcode
+6. When a GitHub macOS download is wanted, manually dispatch `Publish Xcode
    Cloud Release` with that tag. It verifies that the tag belongs to the
    corresponding `origin/release/MAJOR.MINOR` branch.
-8. The on-demand job matches the Xcode Cloud release-branch build by branch
+7. The on-demand job matches the Xcode Cloud release-branch build by branch
    and commit, downloads only its `STAPLED_NOTARIZED_ARCHIVE`, and verifies the
    signature, ticket, Gatekeeper result, versions, architectures, licenses,
    and absence of development-only LookInside code.
-9. The job repackages the verified macOS app and creates or updates the GitHub
+8. The job repackages the verified macOS app and creates or updates the GitHub
    Release with generated changelog notes. It never downloads or uploads the
    iOS archive.
-10. Build `Artifacts/SwiftyDownloadManager-Chrome-${SDM_VERSION}.zip` from the
+9. Build `Artifacts/SwiftyDownloadManager-Chrome-${SDM_VERSION}.zip` from the
    tagged source and upload it to the existing Chrome Web Store item. For the
    first listing and for any behavior or permission change, review every field
    in `../Resources/ChromeWebStore/Submission.md` and confirm the public privacy page
