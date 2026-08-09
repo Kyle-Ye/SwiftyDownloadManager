@@ -37,6 +37,7 @@ let project = Project(
                     ],
                 ],
                 "CFBundleVersion": "6",
+                "ITSAppUsesNonExemptEncryption": false,
                 "LSApplicationCategoryType": "public.app-category.productivity",
                 "LSSupportsOpeningDocumentsInPlace": true,
                 "NSAppTransportSecurity": [
