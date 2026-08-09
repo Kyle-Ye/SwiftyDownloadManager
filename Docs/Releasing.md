@@ -41,15 +41,22 @@ Configure one enabled workflow with these exact values:
 - Name: `Release`.
 - Primary repository: `Kyle-Ye/SwiftyDownloadManager`.
 - Project or Workspace: `SDM.xcworkspace`.
-- Start condition: Tag Changes matching `*.*.*`; no branch start condition.
+- Start condition: Tag Changes for Any Tag; no branch start condition.
 - Archive action: `SDMApp`, macOS, Any Mac.
 - Post-action: Notarize the macOS archive.
 - Environment: a current supported release of Xcode and macOS.
 
+Xcode Cloud custom tag conditions match either an exact tag or a tag prefix;
+they do not accept a semantic-version glob such as `*.*.*`. Use Any Tag here
+and let `ci_scripts/ci_pre_xcodebuild.sh` reject anything other than an exact
+`MAJOR.MINOR.PATCH` tag.
+
 The Notarize post-action becomes available after the initial Xcode Cloud setup
-and first build complete. Add it before publishing the next version tag.
-The initial non-tag setup build skips release-tag validation; tagged builds do
-not.
+and first build complete. For that bootstrap build only, temporarily add the
+default branch as a Branch Changes start condition, run the build manually,
+then remove the branch condition and add Notarize before publishing a version
+tag. The initial non-tag setup build skips release-tag validation; tagged
+builds do not.
 
 `ci_scripts/ci_pre_xcodebuild.sh` validates the tag and all source versions,
 runs the cross-language test suite, and packages the Chrome extension before
