@@ -100,6 +100,13 @@ branch build. If automatic external distribution is later desired, add a
 TestFlight External Testing post-action only to `Release`, select the iOS
 archive and external group, and require clean builds for that workflow.
 
+Use the reviewed Test Information, Beta App Review notes, group-specific What
+to Test copy, and upload-ready product screenshots in
+`../Resources/TestFlight/Submission.md`. TestFlight invitation images are not
+uploaded separately: keep the invitation App Information option off until an
+approved App Store version exists, then decide whether to reuse that version's
+screenshots and category.
+
 The iOS Release archive uses App Store Connect distribution preparation, so
 the same approved build can move from internal testing to external testing
 and then to App Store submission without rebuilding it. The `Main` archive

@@ -103,10 +103,13 @@ final class DownloadService {
         }
     }
 
-    static func preview(snapshots: [DownloadSnapshot] = []) -> DownloadService {
+    static func preview(
+        snapshots: [DownloadSnapshot] = [],
+        destinationDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> DownloadService {
         DownloadService(
             manager: nil,
-            destinationDirectory: FileManager.default.temporaryDirectory,
+            destinationDirectory: destinationDirectory,
             databaseURL: nil,
             destinationBookmarks: nil,
             initializationError: nil,

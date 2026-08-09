@@ -1,3 +1,4 @@
+import Foundation
 import SDMCore
 import SwiftUI
 
@@ -11,14 +12,42 @@ struct SDMApp: App {
     private var applicationDelegate
     #endif
     @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
-    @State private var downloadService = DownloadService.live()
+    @State private var downloadService: DownloadService
+    private let preparesStoreScreenshots: Bool
+
+    init() {
+        #if DEBUG
+        let preparesStoreScreenshots = ProcessInfo.processInfo.arguments.contains(
+            "-StoreScreenshots"
+        )
+        #else
+        let preparesStoreScreenshots = false
+        #endif
+        self.preparesStoreScreenshots = preparesStoreScreenshots
+
+        #if DEBUG
+        if preparesStoreScreenshots {
+            _downloadService = State(
+                initialValue: .preview(
+                    snapshots: DownloadPreviewFixtures.snapshots,
+                    destinationDirectory: URL(filePath: "/Downloads")
+                )
+            )
+            return
+        }
+        #endif
+        _downloadService = State(initialValue: .live())
+    }
 
     var body: some Scene {
         #if os(macOS)
         Window("Swifty Download Manager", id: AppWindowID.main) {
             ContentView(service: downloadService)
         }
-        .defaultSize(width: 1_080, height: 680)
+        .defaultSize(
+            width: preparesStoreScreenshots ? 1_280 : 1_080,
+            height: preparesStoreScreenshots ? 748 : 680
+        )
         .commands {
             DownloadCommands()
             BrowserCommands()
