@@ -1,76 +1,86 @@
 # Release process
 
-SDM releases are built, signed, notarized, stapled, and published by
-`.github/workflows/release.yml`. Pushing a semantic-version tag starts the
-workflow and publishes one user-facing asset:
-`SwiftyDownloadManager.app.zip`.
+SDM uses Xcode Cloud to build, test, sign, and notarize macOS releases. Pushing
+a semantic-version tag starts the Xcode Cloud `Release` workflow and the
+GitHub `Publish Xcode Cloud Release` workflow.
 
-The full Xcode archive remains ephemeral on the runner and is never uploaded to
-GitHub Releases.
+Xcode Cloud owns the release binary. It archives the macOS app, signs the
+export with Developer ID, sends it to Apple's notary service, and produces a
+`STAPLED_NOTARIZED_ARCHIVE` artifact. GitHub Actions waits for that exact
+artifact through the App Store Connect API, verifies it, and publishes one
+user-facing asset: `SwiftyDownloadManager.app.zip`.
 
-This workflow currently publishes only the universal macOS application. iOS
-and iPadOS share the source and Xcode targets, but require a separate App Store
-archive/export workflow in App Store Connect.
+The Xcode Cloud archive and logs remain available in App Store Connect for
+Apple's retention period. GitHub Releases only stores the packaged app.
+
+This workflow currently publishes the universal macOS application. iOS and
+iPadOS share the source and Xcode targets but require a separate App Store
+archive and distribution workflow.
 
 ## Signing model
 
-`Project.swift` uses configuration-specific signing:
+`Project.swift` uses automatic signing for Debug and Release on every
+platform. Xcode Cloud manages the Developer ID signing assets for the macOS
+archive and its Notarize post-action. Hardened Runtime and disabled injected
+base entitlements still apply to macOS Release builds.
 
-- Debug uses automatic Apple Development signing on every platform.
-- macOS Release uses manual Developer ID Application signing.
-- iOS and iPadOS Release use automatic signing for App Store archives.
-- Hardened Runtime and disabled injected base entitlements apply to macOS
-  Release builds.
+No Developer ID certificate, private key, certificate password, or
+notarization credential belongs in the repository, GitHub Actions, or a local
+release script.
 
-No certificate, private key, password, or notarization credential belongs in
-the repository. The workflow imports them into a temporary keychain and removes
-the signing material when the job finishes.
+## Xcode Cloud setup
+
+The initial Xcode Cloud product must be configured from Xcode with the locally
+generated `SDM.xcworkspace` and the `Swifty Download Manager` app product. The
+repository keeps generated Xcode projects and workspaces out of Git, so
+`ci_scripts/ci_post_clone.sh` installs the pinned Tuist version and generates
+the workspace after every cloud clone.
+
+Configure one enabled workflow with these exact values:
+
+- Name: `Release`.
+- Primary repository: `Kyle-Ye/SwiftyDownloadManager`.
+- Project or Workspace: `SDM.xcworkspace`.
+- Start condition: Tag Changes matching `*.*.*`; no branch start condition.
+- Archive action: `SDMApp`, macOS, Any Mac.
+- Post-action: Notarize the macOS archive.
+- Environment: a current supported release of Xcode and macOS.
+
+The Notarize post-action becomes available after the initial Xcode Cloud setup
+and first build complete. Add it before publishing the next version tag.
+The initial non-tag setup build skips release-tag validation; tagged builds do
+not.
+
+`ci_scripts/ci_pre_xcodebuild.sh` validates the tag and all source versions,
+runs the cross-language test suite, and packages the Chrome extension before
+the Archive action begins.
 
 ## Required GitHub Actions secrets
 
-Configure these repository secrets before pushing the first release tag:
+GitHub Actions needs read access to Xcode Cloud build metadata and artifacts
+through the App Store Connect API:
 
 | Secret | Value |
 | --- | --- |
-| `DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64` | Base64-encoded Developer ID Application `.p12`, including its private key |
-| `DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12` |
 | `APP_STORE_CONNECT_API_KEY_BASE64` | Base64-encoded App Store Connect API key `.p8` |
 | `APP_STORE_CONNECT_API_KEY_ID` | App Store Connect API key ID |
 | `APP_STORE_CONNECT_API_ISSUER_ID` | App Store Connect API issuer UUID |
 
-The Developer ID certificate must belong to team `VB7MJ8R223`. The App Store
-Connect API key must have access to the same team and permission to submit to
-the Apple notary service.
-
-Encode and upload the files without committing intermediate Base64 files:
-
-```bash
-base64 -i /path/to/DeveloperIDApplication.p12 | \
-  gh secret set DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 \
-    --repo Kyle-Ye/SwiftyDownloadManager
-
-printf '%s' 'P12_PASSWORD' | \
-  gh secret set DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD \
-    --repo Kyle-Ye/SwiftyDownloadManager
-
-base64 -i /path/to/AuthKey_KEY_ID.p8 | \
-  gh secret set APP_STORE_CONNECT_API_KEY_BASE64 \
-    --repo Kyle-Ye/SwiftyDownloadManager
-
-printf '%s' 'KEY_ID' | \
-  gh secret set APP_STORE_CONNECT_API_KEY_ID \
-    --repo Kyle-Ye/SwiftyDownloadManager
-
-printf '%s' 'ISSUER_UUID' | \
-  gh secret set APP_STORE_CONNECT_API_ISSUER_ID \
-    --repo Kyle-Ye/SwiftyDownloadManager
-```
+The API key must be able to read the app's Xcode Cloud products, workflows,
+builds, actions, and artifacts. GitHub Actions writes the key to its temporary
+runner directory, uses short-lived JWTs, and removes the key when the job ends.
 
 Confirm that the required names exist. GitHub does not expose their values:
 
 ```bash
 gh secret list --repo Kyle-Ye/SwiftyDownloadManager
 ```
+
+The old GitHub-hosted signing secrets are not used and should be removed after
+the first successful Xcode Cloud release:
+
+- `DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64`
+- `DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD`
 
 ## Version model
 
@@ -98,11 +108,11 @@ such as `0.3.0-dev`. Remove the suffix in the release commit before tagging.
 After a mainline release is verified, advance the Engine and its test to the
 next development version, such as `0.4.0-dev`, in a separate commit.
 
-If `main` has already advanced to the next development version, prepare a patch
+If `main` has already advanced to the next planned version, prepare a patch
 release from the corresponding stable tag or release branch. Do not merge the
-newer `main` development line into that branch. The patch release commit must
-set every release version to the patch version and must not contain an Engine
-`-dev` suffix.
+newer `main` line into that branch. The patch release commit must set every
+source version to the patch version and use an appropriate unused build
+number.
 
 ## Prepare a release
 
@@ -123,11 +133,9 @@ SDM_BUILD_NUMBER=4
 SDM_NEXT_DEV_VERSION=0.4.0-dev
 ```
 
-Update both target versions and build numbers in `Project.swift`, both manifest
-versions, the Engine version, and its matching test. The Engine value must
-equal `${SDM_VERSION}` without a `-dev` suffix.
-
-Check all source release values before generating the workspace:
+Confirm that both target versions and build numbers in `Project.swift`, both
+manifest versions, the Engine version, and its matching test equal the release
+values:
 
 ```bash
 test "$(rg -F -c \
@@ -147,7 +155,7 @@ rg -n -F "SDMCoreInfo.engineVersion, \"${SDM_VERSION}\"" \
   Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
 ```
 
-Regenerate the workspace and run all tests:
+Regenerate the workspace and run all tests locally:
 
 ```bash
 mise install
@@ -171,32 +179,17 @@ git diff --check
 ```
 
 Review `Docs/ThirdPartyLicensing.md` and confirm every file under
-`App/Resources/Legal` is present in the archived application. The pinned
+`App/Resources/Legal` is present in the built application. The pinned
 XCFramework statically includes OpenSSL, so Apple encryption export-compliance
 answers must be reviewed independently of open-source license compliance.
 
-Review, commit, and push only the intended release changes:
-
-```bash
-git diff -- \
-  Project.swift \
-  SafariExtension/Resources/manifest.json \
-  ChromeExtension/Resources/manifest.json \
-  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
-  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
-git add \
-  Project.swift \
-  SafariExtension/Resources/manifest.json \
-  ChromeExtension/Resources/manifest.json \
-  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
-  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
-git commit -m "chore: prepare ${SDM_VERSION} release"
-git push -u origin "$(git branch --show-current)"
-```
+If the source versions were already advanced after the previous release and
+no correction is needed, do not create an empty release-preparation commit;
+tag the validated `HEAD`.
 
 ## Publish a release
 
-Create and push an annotated tag from the release commit:
+Create and push an annotated tag from the validated release commit:
 
 ```bash
 git tag -a "$SDM_VERSION" \
@@ -204,33 +197,36 @@ git tag -a "$SDM_VERSION" \
 git push origin "$SDM_VERSION"
 ```
 
-The workflow then:
+The tag starts both services:
 
-1. Checks out the exact tag and validates every source release version.
-2. Generates the Tuist workspace and runs the test suites.
-3. Imports the Developer ID certificate into a temporary keychain.
-4. Archives a universal `arm64` and `x86_64` Release build.
-5. Verifies the App, Extension, manifest, and Engine versions against the tag.
-6. Verifies the App and nested Safari Extension signatures.
-7. Submits the App to Apple with `notarytool` and waits for acceptance.
-8. Staples and validates the notarization ticket, then runs Gatekeeper
-   assessment.
-9. Packages only `SwiftyDownloadManager.app.zip`.
-10. Creates a GitHub Release with automatically generated changelog notes.
+1. Xcode Cloud checks out the exact tag and runs the post-clone generation.
+2. The pre-archive script validates source versions and runs the test suite.
+3. Xcode Cloud archives the universal macOS app with managed Developer ID
+   signing after the pre-archive tests pass.
+4. The Notarize post-action submits the app, waits for acceptance, and staples
+   the ticket.
+5. GitHub Actions matches the Xcode Cloud build by workflow, tag, and commit,
+   then waits for a successful completion.
+6. GitHub Actions downloads only the `STAPLED_NOTARIZED_ARCHIVE`, verifies its
+   signature, ticket, Gatekeeper result, versions, architectures, licenses,
+   and absence of development-only LookInside code.
+7. GitHub Actions repackages the verified app and creates or updates the GitHub
+   Release with generated changelog notes.
 
-Monitor the run and inspect failures with GitHub CLI:
+The GitHub workflow's manual dispatch can republish an existing semantic tag
+after Xcode Cloud has successfully produced its notarized artifact.
+
+Monitor Xcode Cloud in Xcode or App Store Connect. Monitor the publishing job
+with GitHub CLI:
 
 ```bash
 gh run list \
-  --workflow Release \
+  --workflow "Publish Xcode Cloud Release" \
   --repo Kyle-Ye/SwiftyDownloadManager
 gh run watch RUN_ID \
   --repo Kyle-Ye/SwiftyDownloadManager \
   --exit-status
 ```
-
-If a tag-triggered run needs retrying, rerun the failed workflow. The manual
-`workflow_dispatch` input can also release an existing semantic-version tag.
 
 ## Release notes
 
@@ -242,12 +238,12 @@ GitHub generates release notes from merged pull requests using
 - `Other Changes` for uncategorized pull requests.
 - `skip-changelog` excludes internal-only pull requests.
 
-Do not add certificate names, Team IDs, notarization implementation details, or
-local build paths to release notes.
+Do not add certificate names, Team IDs, notarization implementation details,
+App Store Connect artifact URLs, or local build paths to release notes.
 
 ## Verify the published artifact
 
-Download and verify the exact uploaded App:
+Download and verify the exact uploaded app:
 
 ```bash
 SDM_VERIFY_DIR="$(mktemp -d /private/tmp/sdm-release-verify.XXXXXX)"
@@ -272,7 +268,7 @@ xcrun stapler validate "$SDM_APP_PATH"
 spctl --assess --type execute --verbose=4 "$SDM_APP_PATH"
 ```
 
-Confirm that the Release contains exactly one App zip and record its digest:
+Confirm that the Release contains exactly one app zip and record its digest:
 
 ```bash
 gh release view "$SDM_VERSION" \
@@ -281,10 +277,12 @@ gh release view "$SDM_VERSION" \
 shasum -a 256 "$SDM_VERIFY_DIR/SwiftyDownloadManager.app.zip"
 ```
 
-After a mainline release is verified, advance the Engine and its matching test
-to `${SDM_NEXT_DEV_VERSION}`, run the focused version test, and commit the
-development version separately from the release tag.
+After a mainline release is verified, advance both target versions and build
+numbers in `Project.swift`, both manifest versions, the Engine version, and its
+matching test to `${SDM_NEXT_VERSION}` and `${SDM_NEXT_BUILD_NUMBER}`. Run the
+source-version checks and focused Engine version test, then commit the planned
+version separately from the release tag.
 
 For a patch release made from a release branch while `main` already carries the
-next development version, skip that step. Return to `main` without merging the
-stable patch version back over its newer Engine development version.
+next planned version, skip that step. Return to `main` without merging the
+stable patch version back over its newer planned version.

@@ -84,10 +84,8 @@ let project = Project(
                     "CODE_SIGN_STYLE": "Automatic",
                 ]),
                 .release(name: "Release", settings: [
-                    "CODE_SIGN_IDENTITY[sdk=macosx*]": "Developer ID Application",
                     "CODE_SIGN_INJECT_BASE_ENTITLEMENTS[sdk=macosx*]": "NO",
-                    "CODE_SIGN_STYLE[sdk=iphoneos*]": "Automatic",
-                    "CODE_SIGN_STYLE[sdk=macosx*]": "Manual",
+                    "CODE_SIGN_STYLE": "Automatic",
                     "EXCLUDED_SOURCE_FILE_NAMES": "$(inherited) LookInsideServer*",
                 ]),
             ]),
@@ -140,10 +138,8 @@ let project = Project(
                     "CODE_SIGN_STYLE": "Automatic",
                 ]),
                 .release(name: "Release", settings: [
-                    "CODE_SIGN_IDENTITY[sdk=macosx*]": "Developer ID Application",
                     "CODE_SIGN_INJECT_BASE_ENTITLEMENTS[sdk=macosx*]": "NO",
-                    "CODE_SIGN_STYLE[sdk=iphoneos*]": "Automatic",
-                    "CODE_SIGN_STYLE[sdk=macosx*]": "Manual",
+                    "CODE_SIGN_STYLE": "Automatic",
                 ]),
             ]),
             metadata: .metadata(tags: [

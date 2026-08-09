@@ -1,4 +1,4 @@
-name: Release
+name: Publish Xcode Cloud Release
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing semantic-version tag to release
+        description: Existing semantic-version tag built by Xcode Cloud
         required: true
         type: string
 
@@ -19,12 +19,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build, notarize, and publish
+  publish:
+    name: Publish notarized Xcode Cloud artifact
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 100
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      APP_BUNDLE_ID: top.kyleye.swifty-download-manager-app
+      XCODE_CLOUD_WORKFLOW: Release
     steps:
       - name: Check out the release tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -32,27 +34,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.RELEASE_TAG }}
 
-      - name: Configure release paths
-        run: |
-          {
-            echo "ARCHIVE_PATH=$RUNNER_TEMP/Swifty Download Manager.xcarchive"
-            echo "APP_PATH=$RUNNER_TEMP/Swifty Download Manager.xcarchive/Products/Applications/Swifty Download Manager.app"
-            echo "EXTENSION_PATH=$RUNNER_TEMP/Swifty Download Manager.xcarchive/Products/Applications/Swifty Download Manager.app/Contents/PlugIns/Swifty Download Manager Extension.appex"
-            echo "CERTIFICATE_PATH=$RUNNER_TEMP/DeveloperIDApplication.p12"
-            echo "API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8"
-            echo "KEYCHAIN_PATH=$RUNNER_TEMP/sdm-signing.keychain-db"
-            echo "NOTARY_ARCHIVE=$RUNNER_TEMP/SwiftyDownloadManager-notarization.zip"
-            echo "NOTARY_RESULT=$RUNNER_TEMP/notary-result.json"
-            echo "RELEASE_ZIP=$RUNNER_TEMP/SwiftyDownloadManager.app.zip"
-            echo "VERIFY_DIR=$RUNNER_TEMP/release-verification"
-          } >> "$GITHUB_ENV"
-
-      - name: Install pinned tools
-        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
-        with:
-          cache: true
-
-      - name: Validate the release tag
+      - name: Validate the release tag and source versions
         run: |
           set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -65,220 +47,114 @@ jobs:
             echo "Checked-out commit does not match tag $RELEASE_TAG" >&2
             exit 1
           fi
+          echo "RELEASE_COMMIT=$tag_commit" >> "$GITHUB_ENV"
 
-      - name: Validate release versions
-        run: |
-          set -euo pipefail
-          app_version_count="$(
-            grep -F -c \
-              "\"CFBundleShortVersionString\": \"$RELEASE_TAG\"" \
-              Project.swift || true
-          )"
-          safari_manifest_version="$(
-            plutil -extract version raw -o - \
-              SafariExtension/Resources/manifest.json
-          )"
-          chrome_manifest_version="$(
-            plutil -extract version raw -o - \
-              ChromeExtension/Resources/manifest.json
-          )"
-          if [[ "$app_version_count" != 2 || \
-                "$safari_manifest_version" != "$RELEASE_TAG" || \
-                "$chrome_manifest_version" != "$RELEASE_TAG" ]]; then
-            echo "Source App, Extension, or browser manifest version does not match tag $RELEASE_TAG" >&2
-            exit 1
-          fi
+          test "$(grep -F -c "\"CFBundleShortVersionString\": \"$RELEASE_TAG\"" Project.swift)" -eq 2
+          test "$(plutil -extract version raw -o - SafariExtension/Resources/manifest.json)" = "$RELEASE_TAG"
+          test "$(plutil -extract version raw -o - ChromeExtension/Resources/manifest.json)" = "$RELEASE_TAG"
+          grep -F "return \"$RELEASE_TAG\";" Packages/SDMCore/Sources/SDMEngine/Engine.cpp
+          grep -F "SDMCoreInfo.engineVersion, \"$RELEASE_TAG\"" Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
 
-          engine_source=Packages/SDMCore/Sources/SDMEngine/Engine.cpp
-          engine_test=Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
-          if ! grep -F "return \"$RELEASE_TAG\";" "$engine_source" || \
-             ! grep -F \
-               "SDMCoreInfo.engineVersion, \"$RELEASE_TAG\"" \
-               "$engine_test"; then
-            echo "Engine source or test version does not match tag $RELEASE_TAG" >&2
-            exit 1
-          fi
-          if grep -E '[0-9]+\.[0-9]+\.[0-9]+-dev' \
-            "$engine_source" "$engine_test"; then
-            echo "Stable releases cannot contain a development Engine version" >&2
-            exit 1
-          fi
-
-      - name: Generate the Tuist workspace
-        run: |
-          set -euo pipefail
-          mise exec -- tuist install
-          mise exec -- tuist generate --no-open
-
-      - name: Run tests
-        run: |
-          set -euo pipefail
-          bash Scripts/test.sh
-          Scripts/package-chrome-extension.sh \
-            "$RUNNER_TEMP/SwiftyDownloadManager-Chrome-$RELEASE_TAG.zip"
-          xcodebuild test -quiet \
-            -workspace SDM.xcworkspace \
-            -scheme SDMApp \
-            -destination 'platform=macOS,arch=arm64' \
-            -only-testing:SDMAppTests \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: Import Developer ID certificate
+      - name: Configure App Store Connect API key
         env:
-          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
         run: |
           set -euo pipefail
-          : "${CERTIFICATE_BASE64:?Missing DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 secret}"
-          : "${CERTIFICATE_PASSWORD:?Missing DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD secret}"
+          : "${API_KEY_BASE64:?Missing APP_STORE_CONNECT_API_KEY_BASE64 secret}"
+          api_key_path="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$API_KEY_BASE64" | base64 --decode > "$api_key_path"
+          chmod 600 "$api_key_path"
+          echo "API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
+          echo "ARTIFACT_METADATA=$RUNNER_TEMP/xcode-cloud-artifact.json" >> "$GITHUB_ENV"
+          echo "ARTIFACT_DOWNLOAD=$RUNNER_TEMP/xcode-cloud-artifact.zip" >> "$GITHUB_ENV"
+          echo "EXTRACT_DIR=$RUNNER_TEMP/xcode-cloud-extract" >> "$GITHUB_ENV"
+          echo "RELEASE_ZIP=$RUNNER_TEMP/SwiftyDownloadManager.app.zip" >> "$GITHUB_ENV"
 
-          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
-          keychain_password="$(openssl rand -hex 32)"
-          security create-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" \
-            -P "$CERTIFICATE_PASSWORD" \
-            -A \
-            -t cert \
-            -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
-          security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: \
-            -s \
-            -k "$keychain_password" \
-            "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | \
-            grep -F 'Developer ID Application:'
-
-      - name: Archive the signed app
+      - name: Wait for Xcode Cloud notarization
+        env:
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
         run: |
           set -euo pipefail
-          xcodebuild archive -quiet \
-            -workspace SDM.xcworkspace \
-            -scheme SDMApp \
-            -configuration Release \
-            -destination 'generic/platform=macOS' \
-            -archivePath "$ARCHIVE_PATH" \
-            ARCHS='arm64 x86_64' \
-            ONLY_ACTIVE_ARCH=NO
+          : "${API_KEY_ID:?Missing APP_STORE_CONNECT_API_KEY_ID secret}"
+          : "${API_ISSUER_ID:?Missing APP_STORE_CONNECT_API_ISSUER_ID secret}"
+          ruby Scripts/wait-for-xcode-cloud-artifact.rb \
+            --bundle-id "$APP_BUNDLE_ID" \
+            --workflow "$XCODE_CLOUD_WORKFLOW" \
+            --tag "$RELEASE_TAG" \
+            --commit "$RELEASE_COMMIT" \
+            --key-id "$API_KEY_ID" \
+            --issuer-id "$API_ISSUER_ID" \
+            --private-key "$API_KEY_PATH" \
+            --output "$ARTIFACT_METADATA"
 
-      - name: Validate the archive
+      - name: Download the notarized artifact
         run: |
           set -euo pipefail
-          app_version="$(plutil -extract CFBundleShortVersionString raw -o - "$APP_PATH/Contents/Info.plist")"
-          app_build="$(plutil -extract CFBundleVersion raw -o - "$APP_PATH/Contents/Info.plist")"
-          extension_version="$(plutil -extract CFBundleShortVersionString raw -o - "$EXTENSION_PATH/Contents/Info.plist")"
-          extension_build="$(plutil -extract CFBundleVersion raw -o - "$EXTENSION_PATH/Contents/Info.plist")"
-          manifest_version="$(plutil -extract version raw -o - "$EXTENSION_PATH/Contents/Resources/manifest.json")"
+          artifact_url="$(jq -r '.artifact_url' "$ARTIFACT_METADATA")"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output "$ARTIFACT_DOWNLOAD" \
+            "$artifact_url"
+          test "$(stat -f '%z' "$ARTIFACT_DOWNLOAD")" -gt 0
+
+      - name: Verify and package the notarized app
+        run: |
+          set -euo pipefail
+          mkdir "$EXTRACT_DIR"
+          ditto -x -k "$ARTIFACT_DOWNLOAD" "$EXTRACT_DIR"
+
+          apps=()
+          while IFS= read -r -d '' app; do
+            apps+=("$app")
+          done < <(find "$EXTRACT_DIR" \
+            -type d \
+            -name 'Swifty Download Manager.app' \
+            -print0)
+          if [[ "${#apps[@]}" -ne 1 ]]; then
+            echo "Expected one notarized app, found ${#apps[@]}" >&2
+            find "$EXTRACT_DIR" -maxdepth 5 -print
+            exit 1
+          fi
+          app_path="${apps[0]}"
+          extension_path="$app_path/Contents/PlugIns/Swifty Download Manager Extension.appex"
+
+          codesign --verify --deep --strict --verbose=4 "$app_path"
+          xcrun stapler validate "$app_path"
+          spctl --assess --type execute --verbose=4 "$app_path"
+
+          app_version="$(plutil -extract CFBundleShortVersionString raw -o - "$app_path/Contents/Info.plist")"
+          extension_version="$(plutil -extract CFBundleShortVersionString raw -o - "$extension_path/Contents/Info.plist")"
+          manifest_version="$(plutil -extract version raw -o - "$extension_path/Contents/Resources/manifest.json")"
           if [[ "$app_version" != "$RELEASE_TAG" || \
                 "$extension_version" != "$RELEASE_TAG" || \
                 "$manifest_version" != "$RELEASE_TAG" ]]; then
-            echo "Tag and bundle versions do not match" >&2
-            exit 1
-          fi
-          if [[ "$app_build" != "$extension_build" ]]; then
-            echo "App and Extension build numbers do not match" >&2
+            echo "Tag and notarized bundle versions do not match" >&2
             exit 1
           fi
 
           binary_versions="$(
-            strings "$APP_PATH/Contents/MacOS/SDMApp" | \
-              grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-dev)?$' | \
+            strings "$app_path/Contents/MacOS/SDMApp" | \
+              grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
               sort -u || true
           )"
-          if ! grep -Fxq "$RELEASE_TAG" <<< "$binary_versions"; then
-            echo "Engine version $RELEASE_TAG is missing from the App binary" >&2
-            echo "Detected standalone semantic versions: $binary_versions" >&2
-            exit 1
-          fi
-          if grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-dev$' <<< "$binary_versions"; then
-            echo "App binary contains a development version: $binary_versions" >&2
-            exit 1
-          fi
+          grep -Fxq "$RELEASE_TAG" <<< "$binary_versions"
 
-          architectures="$(lipo -archs "$APP_PATH/Contents/MacOS/SDMApp")"
+          architectures="$(lipo -archs "$app_path/Contents/MacOS/SDMApp")"
           if [[ "$architectures" != *arm64* || "$architectures" != *x86_64* ]]; then
             echo "Release must contain arm64 and x86_64: $architectures" >&2
             exit 1
           fi
 
-          codesign --verify --deep --strict --verbose=4 "$APP_PATH"
-          codesign -dv --verbose=4 "$APP_PATH" 2>&1 | \
-            grep -F 'Authority=Developer ID Application:'
-          codesign -dv --verbose=4 "$EXTENSION_PATH" 2>&1 | \
-            grep -F 'Authority=Developer ID Application:'
-
-          app_bundle_identifier="$(
-            plutil -extract CFBundleIdentifier raw -o - \
-              "$APP_PATH/Contents/Info.plist"
-          )"
-          app_identifier="$(
-            codesign -d --entitlements - --xml "$APP_PATH" 2>/dev/null | \
-              plutil -extract 'com\.apple\.application-identifier' raw -o - -
-          )"
-          expected_app_identifier="VB7MJ8R223.${app_bundle_identifier}"
-          if [[ "$app_identifier" != "$expected_app_identifier" ]]; then
-            echo "Unexpected application identifier: $app_identifier" >&2
-            echo "Expected: $expected_app_identifier" >&2
+          for legal_file in App/Resources/Legal/*; do
+            test -f "$app_path/Contents/Resources/${legal_file##*/}"
+          done
+          if find "$app_path" -iname '*LookInside*' -print -quit | grep -q .; then
+            echo "Release contains a development-only LookInside artifact" >&2
             exit 1
           fi
 
-      - name: Submit for notarization
-        env:
-          API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
-          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
-        run: |
-          set -euo pipefail
-          : "${API_KEY_BASE64:?Missing APP_STORE_CONNECT_API_KEY_BASE64 secret}"
-          : "${API_KEY_ID:?Missing APP_STORE_CONNECT_API_KEY_ID secret}"
-          : "${API_ISSUER_ID:?Missing APP_STORE_CONNECT_API_ISSUER_ID secret}"
-
-          printf '%s' "$API_KEY_BASE64" | base64 --decode > "$API_KEY_PATH"
-          chmod 600 "$API_KEY_PATH"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$NOTARY_ARCHIVE"
-
-          submission_succeeded=false
-          if xcrun notarytool submit "$NOTARY_ARCHIVE" \
-            --key "$API_KEY_PATH" \
-            --key-id "$API_KEY_ID" \
-            --issuer "$API_ISSUER_ID" \
-            --wait \
-            --output-format json > "$NOTARY_RESULT"; then
-            submission_succeeded=true
-          fi
-          cat "$NOTARY_RESULT"
-
-          notary_status="$(jq -r '.status // empty' "$NOTARY_RESULT" 2>/dev/null || true)"
-          if [[ "$submission_succeeded" != true || "$notary_status" != "Accepted" ]]; then
-            submission_id="$(jq -r '.id // empty' "$NOTARY_RESULT" 2>/dev/null || true)"
-            if [[ -n "$submission_id" ]]; then
-              xcrun notarytool log "$submission_id" \
-                --key "$API_KEY_PATH" \
-                --key-id "$API_KEY_ID" \
-                --issuer "$API_ISSUER_ID" || true
-            fi
-            exit 1
-          fi
-
-      - name: Staple and package the app
-        run: |
-          set -euo pipefail
-          xcrun stapler staple "$APP_PATH"
-          xcrun stapler validate "$APP_PATH"
-          codesign --verify --deep --strict --verbose=4 "$APP_PATH"
-          spctl --assess --type execute --verbose=4 "$APP_PATH"
-
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$RELEASE_ZIP"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "$RELEASE_ZIP"
           unzip -t "$RELEASE_ZIP"
-          mkdir "$VERIFY_DIR"
-          ditto -x -k "$RELEASE_ZIP" "$VERIFY_DIR"
-          extracted_app="$VERIFY_DIR/Swifty Download Manager.app"
-          codesign --verify --deep --strict --verbose=4 "$extracted_app"
-          xcrun stapler validate "$extracted_app"
-          spctl --assess --type execute --verbose=4 "$extracted_app"
           shasum -a 256 "$RELEASE_ZIP"
 
       - name: Create GitHub Release
@@ -296,12 +172,9 @@ jobs:
               --latest
           fi
 
-      - name: Remove signing material
+      - name: Remove App Store Connect key
         if: always()
         run: |
-          if [[ -n "${CERTIFICATE_PATH:-}" && -n "${API_KEY_PATH:-}" ]]; then
-            rm -f "$CERTIFICATE_PATH" "$API_KEY_PATH"
-          fi
-          if [[ -n "${KEYCHAIN_PATH:-}" && -f "$KEYCHAIN_PATH" ]]; then
-            security delete-keychain "$KEYCHAIN_PATH"
+          if [[ -n "${API_KEY_PATH:-}" && -f "$API_KEY_PATH" ]]; then
+            rm -f "$API_KEY_PATH"
           fi
