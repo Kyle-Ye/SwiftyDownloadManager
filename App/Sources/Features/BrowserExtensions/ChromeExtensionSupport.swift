@@ -3,7 +3,7 @@ import SwiftUI
 
 enum ChromeExtensionSupport {
     static let webStoreURL = URL(
-        string: "https://chromewebstore.google.com/detail/swifty-download-manager/jjhjgmnpneldikhkejhoeonjpbbekbpg"
+        string: "https://chromewebstore.google.com/detail/jjhjgmnpneldikhkejhoeonjpbbekbpg"
     )
 
     private static let applicationBundleIdentifiers = [

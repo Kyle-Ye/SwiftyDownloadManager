@@ -73,12 +73,13 @@ final class SDMAppTests: XCTestCase {
         )
     }
 
-    func testChromeExtensionStoreLinkUsesHTTPS() throws {
+    func testChromeExtensionStoreLinkUsesAssignedItemURL() throws {
         let url = try XCTUnwrap(ChromeExtensionSupport.webStoreURL)
 
-        XCTAssertEqual(url.scheme, "https")
-        XCTAssertEqual(url.host, "chromewebstore.google.com")
-        XCTAssertEqual(url.lastPathComponent, "jjhjgmnpneldikhkejhoeonjpbbekbpg")
+        XCTAssertEqual(
+            url.absoluteString,
+            "https://chromewebstore.google.com/detail/jjhjgmnpneldikhkejhoeonjpbbekbpg"
+        )
     }
 
     @MainActor

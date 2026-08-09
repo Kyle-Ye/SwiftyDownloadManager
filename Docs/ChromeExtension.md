@@ -112,7 +112,7 @@ registering a developer account:
    draft for review and publish it after approval.
 6. Confirm `ChromeExtensionSupport.webStoreURL` still uses the assigned item
    URL:
-   `https://chromewebstore.google.com/detail/swifty-download-manager/jjhjgmnpneldikhkejhoeonjpbbekbpg`.
+   `https://chromewebstore.google.com/detail/jjhjgmnpneldikhkejhoeonjpbbekbpg`.
 
 The Web Store assigns the item ID when the first draft is uploaded. After that,
 the public key can be copied into the manifest's `key` field when a stable ID is
