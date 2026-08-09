@@ -67,5 +67,5 @@ grep -F "return \"$release_version\";" "$engine_source"
 grep -F "SDMCoreInfo.engineVersion, \"$release_version\"" "$engine_test"
 
 mise exec -- bash Scripts/test.sh
-Scripts/package-chrome-extension.sh \
+mise exec -- Scripts/package-chrome-extension.sh \
   "$TMPDIR/SwiftyDownloadManager-Chrome-$release_version.zip"
