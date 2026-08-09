@@ -26,7 +26,7 @@
 static_assert(sdm::engine_abi_version > 0);
 
 std::string_view sdm::Engine::version() noexcept {
-    return "0.5.0-dev";
+    return "0.5.0";
 }
 
 bool sdm::is_retryable_curl_error(std::uint32_t error_code) noexcept {

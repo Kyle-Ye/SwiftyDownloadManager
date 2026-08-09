@@ -74,11 +74,9 @@ gh secret list --repo Kyle-Ye/SwiftyDownloadManager
 
 ## Version model
 
-SDM uses one release version across the App, Safari Extension, Safari Web
-Extension, Chrome Extension, and Engine. A stable release must not expose a
-development Engine version.
-For a release such as `0.3.0`, all of these values must be `0.3.0` in the
-tagged release commit:
+SDM uses one version across the App, Safari Extension, Safari Web Extension,
+Chrome Extension, and Engine on both release tags and `main`. For a planned
+version such as `0.5.0`, all of these values must be `0.5.0`:
 
 - App marketing version in `Project.swift`.
 - Safari Extension marketing version in `Project.swift`.
@@ -91,18 +89,19 @@ tagged release commit:
   `Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift`.
 
 The App and Safari Extension also share a monotonically increasing build
-number in `Project.swift`.
+number in `Project.swift`. Version values always use the plain `X.Y.Z` form;
+prerelease suffixes are not used.
 
-During development, the Engine may use the next version with a `-dev` suffix,
-such as `0.3.0-dev`. Remove the suffix in the release commit before tagging.
-After a mainline release is verified, advance the Engine and its test to the
-next development version, such as `0.4.0-dev`, in a separate commit.
+After a mainline release is verified, advance every source version to the next
+planned release and increment the shared build number in a separate commit.
+This means development builds from `main` identify themselves as the next
+planned release before that release is published.
 
-If `main` has already advanced to the next development version, prepare a patch
+If `main` has already advanced to the next planned version, prepare a patch
 release from the corresponding stable tag or release branch. Do not merge the
 newer `main` development line into that branch. The patch release commit must
-set every release version to the patch version and must not contain an Engine
-`-dev` suffix.
+set every source version to the patch version and use an appropriate unused
+build number.
 
 ## Prepare a release
 
@@ -118,14 +117,16 @@ git status --short --branch
 Set the release values explicitly:
 
 ```bash
-SDM_VERSION=0.3.0
-SDM_BUILD_NUMBER=4
-SDM_NEXT_DEV_VERSION=0.4.0-dev
+SDM_VERSION=0.5.0
+SDM_BUILD_NUMBER=6
+SDM_NEXT_VERSION=0.6.0
+SDM_NEXT_BUILD_NUMBER=7
 ```
 
-Update both target versions and build numbers in `Project.swift`, both manifest
-versions, the Engine version, and its matching test. The Engine value must
-equal `${SDM_VERSION}` without a `-dev` suffix.
+Confirm that both target versions and build numbers in `Project.swift`, both
+manifest versions, the Engine version, and its matching test equal the release
+values. Normally these values were already established by the post-release
+advancement after the previous release; correct any mismatch before tagging.
 
 Check all source release values before generating the workspace:
 
@@ -141,9 +142,6 @@ test "$(jq -r '.version' ChromeExtension/Resources/manifest.json)" = \
 rg -n -F "return \"${SDM_VERSION}\";" \
   Packages/SDMCore/Sources/SDMEngine/Engine.cpp
 rg -n -F "SDMCoreInfo.engineVersion, \"${SDM_VERSION}\"" \
-  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
-! rg -n '[0-9]+\.[0-9]+\.[0-9]+-dev' \
-  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
   Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
 ```
 
@@ -175,7 +173,10 @@ Review `Docs/ThirdPartyLicensing.md` and confirm every file under
 XCFramework statically includes OpenSSL, so Apple encryption export-compliance
 answers must be reviewed independently of open-source license compliance.
 
-Review, commit, and push only the intended release changes:
+Review and commit only intended release corrections. If all source versions
+were already advanced after the previous release and no correction is needed,
+do not create an empty release-preparation commit; tag the validated `HEAD`.
+When corrections are required:
 
 ```bash
 git diff -- \
@@ -262,12 +263,10 @@ SDM_APP_PATH="$SDM_VERIFY_DIR/Swifty Download Manager.app"
 codesign --verify --deep --strict --verbose=4 "$SDM_APP_PATH"
 SDM_BINARY_VERSIONS="$(
   strings "$SDM_APP_PATH/Contents/MacOS/SDMApp" | \
-    rg -x '[0-9]+\.[0-9]+\.[0-9]+(-dev)?' | \
+    rg -x '[0-9]+\.[0-9]+\.[0-9]+' | \
     sort -u || true
 )"
 printf '%s\n' "$SDM_BINARY_VERSIONS" | rg -Fx "$SDM_VERSION"
-! printf '%s\n' "$SDM_BINARY_VERSIONS" | \
-  rg -x '[0-9]+\.[0-9]+\.[0-9]+-dev'
 xcrun stapler validate "$SDM_APP_PATH"
 spctl --assess --type execute --verbose=4 "$SDM_APP_PATH"
 ```
@@ -281,10 +280,13 @@ gh release view "$SDM_VERSION" \
 shasum -a 256 "$SDM_VERIFY_DIR/SwiftyDownloadManager.app.zip"
 ```
 
-After a mainline release is verified, advance the Engine and its matching test
-to `${SDM_NEXT_DEV_VERSION}`, run the focused version test, and commit the
-development version separately from the release tag.
+After a mainline release is verified, advance both target versions and build
+numbers in `Project.swift`, both manifest versions, the Engine version, and its
+matching test to `${SDM_NEXT_VERSION}` and `${SDM_NEXT_BUILD_NUMBER}`. Run the
+source-version checks and focused Engine version test, then commit the planned
+version separately from the release tag. The planned version uses the same
+plain `X.Y.Z` form as a release tag.
 
 For a patch release made from a release branch while `main` already carries the
-next development version, skip that step. Return to `main` without merging the
-stable patch version back over its newer Engine development version.
+next planned version, skip that step. Return to `main` without merging the
+stable patch version back over its newer planned version.
