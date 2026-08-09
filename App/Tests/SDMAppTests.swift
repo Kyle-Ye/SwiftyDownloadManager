@@ -73,6 +73,7 @@ final class SDMAppTests: XCTestCase {
         )
     }
 
+    #if os(macOS)
     func testChromeExtensionStoreLinkUsesAssignedItemURL() throws {
         let url = try XCTUnwrap(ChromeExtensionSupport.webStoreURL)
 
@@ -81,6 +82,7 @@ final class SDMAppTests: XCTestCase {
             "https://chromewebstore.google.com/detail/jjhjgmnpneldikhkejhoeonjpbbekbpg"
         )
     }
+    #endif
 
     @MainActor
     func testDestinationBookmarkStorePersistsAndRestoresFolderReference() throws {
@@ -467,6 +469,7 @@ final class SDMAppTests: XCTestCase {
         )
     }
 
+    #if os(macOS)
     @MainActor
     func testClosingLastWindowKeepsMenuBarApplicationRunning() {
         let delegate = SDMApplicationDelegate()
@@ -492,6 +495,7 @@ final class SDMAppTests: XCTestCase {
 
         XCTAssertGreaterThan(hostingView.fittingSize.height, 70)
     }
+    #endif
 
     @MainActor
     func testDownloadServiceInitializesAndShutsDown() async throws {

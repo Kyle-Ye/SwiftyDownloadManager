@@ -150,10 +150,10 @@ let project = Project(
         ),
         .target(
             name: "SDMAppTests",
-            destinations: .macOS,
+            destinations: [.iPhone, .iPad, .mac],
             product: .unitTests,
             bundleId: "top.kyleye.swifty-download-manager-app-tests",
-            deploymentTargets: .macOS("14.0"),
+            deploymentTargets: .multiplatform(iOS: "17.0", macOS: "14.0"),
             infoPlist: .default,
             buildableFolders: ["App/Tests"],
             dependencies: [
