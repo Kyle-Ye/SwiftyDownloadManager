@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing semantic-version tag built by Xcode Cloud
+        description: Existing semantic-version tag built from its Xcode Cloud release branch
         required: true
         type: string
 
@@ -34,7 +34,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.RELEASE_TAG }}
 
-      - name: Validate the release tag and source versions
+      - name: Validate the release tag, branch, and source versions
         run: |
           set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -47,7 +47,19 @@ jobs:
             echo "Checked-out commit does not match tag $RELEASE_TAG" >&2
             exit 1
           fi
+
+          release_line="${RELEASE_TAG%.*}"
+          release_branch="release/$release_line"
+          git fetch --no-tags origin \
+            "refs/heads/$release_branch:refs/remotes/origin/$release_branch"
+          if ! git merge-base --is-ancestor \
+            "$tag_commit" "refs/remotes/origin/$release_branch"; then
+            echo "$RELEASE_TAG is not on origin/$release_branch" >&2
+            exit 1
+          fi
+
           echo "RELEASE_COMMIT=$tag_commit" >> "$GITHUB_ENV"
+          echo "RELEASE_BRANCH=$release_branch" >> "$GITHUB_ENV"
 
           test "$(grep -F -c "\"CFBundleShortVersionString\": \"$RELEASE_TAG\"" Project.swift)" -eq 2
           test "$(plutil -extract version raw -o - SafariExtension/Resources/manifest.json)" = "$RELEASE_TAG"
@@ -81,7 +93,7 @@ jobs:
           ruby Scripts/wait-for-xcode-cloud-artifact.rb \
             --bundle-id "$APP_BUNDLE_ID" \
             --workflow "$XCODE_CLOUD_WORKFLOW" \
-            --tag "$RELEASE_TAG" \
+            --branch "$RELEASE_BRANCH" \
             --commit "$RELEASE_COMMIT" \
             --key-id "$API_KEY_ID" \
             --issuer-id "$API_ISSUER_ID" \

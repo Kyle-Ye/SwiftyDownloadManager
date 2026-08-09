@@ -1,8 +1,10 @@
 # Release process
 
-SDM uses Xcode Cloud to build, test, sign, and notarize macOS releases. Pushing
-a semantic-version tag starts the Xcode Cloud `Release` workflow and the
-GitHub `Publish Xcode Cloud Release` workflow.
+SDM uses two Xcode Cloud workflows. Changes to `main` run the `Main` workflow
+for continuous validation. Changes to a `release/MAJOR.MINOR` branch run the
+`Release` workflow to test, archive, sign, and notarize the macOS app. After
+that workflow succeeds, pushing a semantic-version tag for the same commit
+starts the GitHub `Publish Xcode Cloud Release` workflow.
 
 Xcode Cloud owns the release binary. It archives the macOS app, signs the
 export with Developer ID, sends it to Apple's notary service, and produces a
@@ -36,31 +38,40 @@ repository keeps generated Xcode projects and workspaces out of Git, so
 `ci_scripts/ci_post_clone.sh` installs the pinned Tuist version and generates
 the workspace after every cloud clone.
 
-Configure one enabled workflow with these exact values:
+Configure two enabled workflows. The development workflow uses these values:
+
+- Name: `Main`.
+- Primary repository: `Kyle-Ye/SwiftyDownloadManager`.
+- Project or Workspace: `SDM.xcworkspace`.
+- Start condition: Branch Changes for the exact `main` branch.
+- Build action: `SDMApp`, macOS, Any Mac.
+- No post-action.
+- Environment: a current supported release of Xcode and macOS.
+
+The release workflow uses these values:
 
 - Name: `Release`.
 - Primary repository: `Kyle-Ye/SwiftyDownloadManager`.
 - Project or Workspace: `SDM.xcworkspace`.
-- Start condition: Tag Changes for Any Tag; no branch start condition.
+- Start condition: Branch Changes for branches beginning with `release/`.
 - Archive action: `SDMApp`, macOS, Any Mac.
 - Post-action: Notarize the macOS archive.
 - Environment: a current supported release of Xcode and macOS.
+- Restrict Editing: enabled, as required for notarization workflows.
 
-Xcode Cloud custom tag conditions match either an exact tag or a tag prefix;
-they do not accept a semantic-version glob such as `*.*.*`. Use Any Tag here
-and let `ci_scripts/ci_pre_xcodebuild.sh` reject anything other than an exact
-`MAJOR.MINOR.PATCH` tag.
+When adding the custom release branch condition, enter `release/` and select
+the Xcode option for branches beginning with that value. Do not configure a
+literal branch named `release/`.
 
 The Notarize post-action becomes available after the initial Xcode Cloud setup
-and first build complete. For that bootstrap build only, temporarily add the
-default branch as a Branch Changes start condition, run the build manually,
-then remove the branch condition and add Notarize before publishing a version
-tag. The initial non-tag setup build skips release-tag validation; tagged
-builds do not.
+and first build complete. For that bootstrap build only, run a branch build
+without Notarize, then add the post-action before publishing a version tag.
 
-`ci_scripts/ci_pre_xcodebuild.sh` validates the tag and all source versions,
-runs the cross-language test suite, and packages the Chrome extension before
-the Archive action begins.
+`ci_scripts/ci_pre_xcodebuild.sh` runs the cross-language test suite before the
+`Main` build. Before a `Release` archive, it also verifies that the source
+version is an exact `MAJOR.MINOR.PATCH`, that its major-minor line matches the
+`release/MAJOR.MINOR` branch, that all source versions agree, and that the
+Chrome extension packages successfully.
 
 ## Required GitHub Actions secrets
 
@@ -83,19 +94,17 @@ Confirm that the required names exist. GitHub does not expose their values:
 gh secret list --repo Kyle-Ye/SwiftyDownloadManager
 ```
 
-The old GitHub-hosted signing secrets are not used and should be removed after
-the first successful Xcode Cloud release:
+The old GitHub-hosted signing secrets have been removed and must not be
+recreated:
 
 - `DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64`
 - `DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD`
 
 ## Version model
 
-SDM uses one release version across the App, Safari Extension, Safari Web
-Extension, Chrome Extension, and Engine. A stable release must not expose a
-development Engine version.
-For a release such as `0.3.0`, all of these values must be `0.3.0` in the
-tagged release commit:
+SDM uses one version across the App, Safari Extension, Safari Web Extension,
+Chrome Extension, and Engine on both release tags and `main`. For a planned
+version such as `0.5.0`, all of these values must be `0.5.0`:
 
 - App marketing version in `Project.swift`.
 - Safari Extension marketing version in `Project.swift`.
@@ -108,12 +117,13 @@ tagged release commit:
   `Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift`.
 
 The App and Safari Extension also share a monotonically increasing build
-number in `Project.swift`.
+number in `Project.swift`. Version values always use the plain `X.Y.Z` form;
+prerelease suffixes are not used.
 
-During development, the Engine may use the next version with a `-dev` suffix,
-such as `0.3.0-dev`. Remove the suffix in the release commit before tagging.
-After a mainline release is verified, advance the Engine and its test to the
-next development version, such as `0.4.0-dev`, in a separate commit.
+After a mainline release is verified, advance every source version to the next
+planned release and increment the shared build number in a separate commit.
+This means development builds from `main` identify themselves as the next
+planned release before that release is published.
 
 If `main` has already advanced to the next planned version, prepare a patch
 release from the corresponding stable tag or release branch. Do not merge the
@@ -123,21 +133,29 @@ number.
 
 ## Prepare a release
 
-Start from a clean release branch. For a planned mainline release, synchronize
-`main` first:
+Set the release values and branch name explicitly:
+
+```bash
+SDM_VERSION=0.5.0
+SDM_BUILD_NUMBER=6
+SDM_RELEASE_BRANCH="release/${SDM_VERSION%.*}"
+```
+
+For a planned mainline release, synchronize `main` and create the stable
+major-minor branch before making release-only changes:
 
 ```bash
 git switch main
 git pull --ff-only origin main
 git status --short --branch
+git switch -c "$SDM_RELEASE_BRANCH"
 ```
 
-Set the release values explicitly:
+For a patch release, use the existing stable branch instead:
 
 ```bash
-SDM_VERSION=0.3.0
-SDM_BUILD_NUMBER=4
-SDM_NEXT_DEV_VERSION=0.4.0-dev
+git switch "$SDM_RELEASE_BRANCH"
+git pull --ff-only origin "$SDM_RELEASE_BRANCH"
 ```
 
 Confirm that both target versions and build numbers in `Project.swift`, both
@@ -156,9 +174,6 @@ test "$(jq -r '.version' ChromeExtension/Resources/manifest.json)" = \
 rg -n -F "return \"${SDM_VERSION}\";" \
   Packages/SDMCore/Sources/SDMEngine/Engine.cpp
 rg -n -F "SDMCoreInfo.engineVersion, \"${SDM_VERSION}\"" \
-  Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
-! rg -n '[0-9]+\.[0-9]+\.[0-9]+-dev' \
-  Packages/SDMCore/Sources/SDMEngine/Engine.cpp \
   Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
 ```
 
@@ -190,13 +205,22 @@ Review `Docs/ThirdPartyLicensing.md` and confirm every file under
 XCFramework statically includes OpenSSL, so Apple encryption export-compliance
 answers must be reviewed independently of open-source license compliance.
 
-If the source versions were already advanced after the previous release and
-no correction is needed, do not create an empty release-preparation commit;
-tag the validated `HEAD`.
+If the source versions already match and no correction is needed, do not
+create an empty release-preparation commit. Push the branch itself so Xcode
+Cloud builds the exact release commit:
+
+```bash
+git push -u origin "$SDM_RELEASE_BRANCH"
+```
+
+Wait for the `Release` workflow to complete its Archive and Notarize actions.
+Do not create the version tag until Xcode Cloud has produced the stapled,
+notarized artifact for the branch's current commit.
 
 ## Publish a release
 
-Create and push an annotated tag from the validated release commit:
+After the release-branch build succeeds, create and push an annotated tag on
+that same commit:
 
 ```bash
 git tag -a "$SDM_VERSION" \
@@ -204,24 +228,27 @@ git tag -a "$SDM_VERSION" \
 git push origin "$SDM_VERSION"
 ```
 
-The tag starts both services:
+The complete flow is:
 
-1. Xcode Cloud checks out the exact tag and runs the post-clone generation.
-2. The pre-archive script validates source versions and runs the test suite.
+1. Pushing `release/MAJOR.MINOR` starts the Xcode Cloud `Release` workflow.
+2. The pre-archive script validates the branch line and source versions, then
+   runs the test suite.
 3. Xcode Cloud archives the universal macOS app with managed Developer ID
    signing after the pre-archive tests pass.
 4. The Notarize post-action submits the app, waits for acceptance, and staples
    the ticket.
-5. GitHub Actions matches the Xcode Cloud build by workflow, tag, and commit,
-   then waits for a successful completion.
-6. GitHub Actions downloads only the `STAPLED_NOTARIZED_ARCHIVE`, verifies its
+5. Pushing the semantic-version tag starts GitHub Actions. It verifies that
+   the tag belongs to the corresponding `origin/release/MAJOR.MINOR` branch.
+6. GitHub Actions matches the Xcode Cloud release-branch build by branch and
+   commit, then downloads only its `STAPLED_NOTARIZED_ARCHIVE` and verifies the
    signature, ticket, Gatekeeper result, versions, architectures, licenses,
    and absence of development-only LookInside code.
 7. GitHub Actions repackages the verified app and creates or updates the GitHub
    Release with generated changelog notes.
 
 The GitHub workflow's manual dispatch can republish an existing semantic tag
-after Xcode Cloud has successfully produced its notarized artifact.
+after Xcode Cloud has successfully produced the matching release-branch
+artifact.
 
 Monitor Xcode Cloud in Xcode or App Store Connect. Monitor the publishing job
 with GitHub CLI:
@@ -265,12 +292,10 @@ SDM_APP_PATH="$SDM_VERIFY_DIR/Swifty Download Manager.app"
 codesign --verify --deep --strict --verbose=4 "$SDM_APP_PATH"
 SDM_BINARY_VERSIONS="$(
   strings "$SDM_APP_PATH/Contents/MacOS/SDMApp" | \
-    rg -x '[0-9]+\.[0-9]+\.[0-9]+(-dev)?' | \
+    rg -x '[0-9]+\.[0-9]+\.[0-9]+' | \
     sort -u || true
 )"
 printf '%s\n' "$SDM_BINARY_VERSIONS" | rg -Fx "$SDM_VERSION"
-! printf '%s\n' "$SDM_BINARY_VERSIONS" | \
-  rg -x '[0-9]+\.[0-9]+\.[0-9]+-dev'
 xcrun stapler validate "$SDM_APP_PATH"
 spctl --assess --type execute --verbose=4 "$SDM_APP_PATH"
 ```
