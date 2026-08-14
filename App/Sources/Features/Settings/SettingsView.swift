@@ -1,5 +1,6 @@
 import SDMCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     #if os(macOS)
@@ -9,6 +10,9 @@ struct SettingsView: View {
     @AppStorage(AppStorageKey.downloadEngine) private var selectedEngine = DownloadEngineKind.libcurl.rawValue
     #if os(macOS)
     @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
+    @State private var defaultDownloadLocation: DefaultDownloadLocation
+    @State private var locationBeforeCustomPicker: DefaultDownloadLocation?
+    @State private var showsCustomDestinationPicker = false
     #endif
     @State private var safariExtensionIsEnabled: Bool?
     @State private var presentedError: PresentedDownloadError?
@@ -16,6 +20,13 @@ struct SettingsView: View {
     @State private var showsLegalNotices = false
     #endif
     @Bindable var service: DownloadService
+
+    init(service: DownloadService) {
+        self.service = service
+        #if os(macOS)
+        _defaultDownloadLocation = State(initialValue: service.defaultDownloadLocation)
+        #endif
+    }
 
     var body: some View {
         Form {
@@ -32,12 +43,15 @@ struct SettingsView: View {
             #else
             MacSettingsFormContent(
                 defaultConnectionCount: $defaultConnectionCount,
+                defaultDownloadLocation: $defaultDownloadLocation,
                 showsMenuBarIcon: $showsMenuBarIcon,
                 selectedEngine: $selectedEngine,
                 engineDescriptors: service.engineDescriptors,
                 selectedDescriptor: selectedDescriptor,
                 safariExtensionIsEnabled: safariExtensionIsEnabled,
                 databaseURL: service.databaseURL,
+                defaultDestinationDirectory: service.defaultDestinationDirectory,
+                chooseCustomDefaultDestination: presentCustomDestinationPicker,
                 openSafariSettings: SafariExtensionSupport.showPreferences,
                 showBrowserExtensions: showBrowserExtensions,
                 showLegalNotices: { showsLegalNotices = true }
@@ -70,6 +84,21 @@ struct SettingsView: View {
         .onChange(of: selectedEngine) { _, _ in
             applyEngineSelection()
         }
+        #if os(macOS)
+        .onChange(of: defaultDownloadLocation) { oldLocation, newLocation in
+            applyDefaultDownloadLocation(
+                from: oldLocation,
+                to: newLocation
+            )
+        }
+        .fileImporter(
+            isPresented: $showsCustomDestinationPicker,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false,
+            onCompletion: applyCustomDestination,
+            onCancellation: cancelCustomDestinationPicker
+        )
+        #endif
         .alert(item: $presentedError) { error in
             Alert(
                 title: Text(error.title),
@@ -121,6 +150,63 @@ struct SettingsView: View {
     #if os(macOS)
     private func showBrowserExtensions() {
         openWindow(id: AppWindowID.browsers)
+    }
+
+    private func applyDefaultDownloadLocation(
+        from oldLocation: DefaultDownloadLocation,
+        to newLocation: DefaultDownloadLocation
+    ) {
+        guard newLocation != service.defaultDownloadLocation else { return }
+        if newLocation == .custom, !service.hasStoredCustomDefaultDestination {
+            locationBeforeCustomPicker = oldLocation
+            showsCustomDestinationPicker = true
+            return
+        }
+
+        do {
+            try service.selectDefaultDestination(newLocation)
+        } catch {
+            defaultDownloadLocation = service.defaultDownloadLocation
+            presentedError = PresentedDownloadError(
+                title: "Could Not Change Default Save Location",
+                error: error
+            )
+        }
+    }
+
+    private func presentCustomDestinationPicker() {
+        locationBeforeCustomPicker = service.defaultDownloadLocation
+        showsCustomDestinationPicker = true
+    }
+
+    private func applyCustomDestination(_ result: Result<[URL], Error>) {
+        do {
+            guard let directory = try result.get().first else {
+                cancelCustomDestinationPicker()
+                return
+            }
+            try service.selectDefaultDestination(
+                .custom,
+                customDirectory: directory
+            )
+            defaultDownloadLocation = .custom
+            locationBeforeCustomPicker = nil
+        } catch {
+            defaultDownloadLocation = locationBeforeCustomPicker
+                ?? service.defaultDownloadLocation
+            locationBeforeCustomPicker = nil
+            guard (error as? CocoaError)?.code != .userCancelled else { return }
+            presentedError = PresentedDownloadError(
+                title: "Could Not Choose Default Save Location",
+                error: error
+            )
+        }
+    }
+
+    private func cancelCustomDestinationPicker() {
+        defaultDownloadLocation = locationBeforeCustomPicker
+            ?? service.defaultDownloadLocation
+        locationBeforeCustomPicker = nil
     }
     #endif
 }

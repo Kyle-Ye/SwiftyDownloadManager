@@ -4,12 +4,15 @@ import SwiftUI
 
 struct MacSettingsFormContent: View {
     @Binding var defaultConnectionCount: Int
+    @Binding var defaultDownloadLocation: DefaultDownloadLocation
     @Binding var showsMenuBarIcon: Bool
     @Binding var selectedEngine: String
     let engineDescriptors: [DownloadEngineDescriptor]
     let selectedDescriptor: DownloadEngineDescriptor?
     let safariExtensionIsEnabled: Bool?
     let databaseURL: URL?
+    let defaultDestinationDirectory: URL
+    let chooseCustomDefaultDestination: () -> Void
     let openSafariSettings: () -> Void
     let showBrowserExtensions: () -> Void
     let showLegalNotices: () -> Void
@@ -48,6 +51,25 @@ struct MacSettingsFormContent: View {
         }
 
         Section {
+            Picker("Default save location", selection: $defaultDownloadLocation) {
+                ForEach(DefaultDownloadLocation.allCases) { location in
+                    Text(location.title)
+                        .tag(location)
+                }
+            }
+            .pickerStyle(.menu)
+
+            LabeledContent("Current folder") {
+                Text(defaultDestinationPath)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+
+            if defaultDownloadLocation == .custom {
+                Button("Choose Custom Folder…", action: chooseCustomDefaultDestination)
+            }
+
             Stepper(
                 "Default connections: \(defaultConnectionCount)",
                 value: $defaultConnectionCount,
@@ -57,8 +79,11 @@ struct MacSettingsFormContent: View {
         } header: {
             Text("Downloads")
         } footer: {
-            if selectedDescriptor?.supports(.multiConnectionTransfers) == false {
-                Text("URLSession manages connections internally and uses one connection per download.")
+            VStack(alignment: .leading) {
+                Text("New downloads use this folder by default. You can still choose a different folder for an individual download.")
+                if selectedDescriptor?.supports(.multiConnectionTransfers) == false {
+                    Text("URLSession manages connections internally and uses one connection per download.")
+                }
             }
         }
 
@@ -98,6 +123,15 @@ struct MacSettingsFormContent: View {
                 .foregroundStyle(.secondary)
 
             Button("View Third-Party Licenses", action: showLegalNotices)
+        }
+    }
+
+    private var defaultDestinationPath: String {
+        switch defaultDownloadLocation {
+        case .downloads, .downloadsSDM:
+            defaultDownloadLocation.title
+        case .appSandbox, .custom:
+            defaultDestinationDirectory.path(percentEncoded: false)
         }
     }
 
