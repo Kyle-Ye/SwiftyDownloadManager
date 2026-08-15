@@ -96,8 +96,12 @@ final class SDMAppTests: XCTestCase {
         let storeURL = root.appending(path: "destination-bookmarks.plist")
 
         let firstStore = try DestinationBookmarkStore(storeURL: storeURL)
-        XCTAssertEqual(try firstStore.authorize(destination), destination.standardizedFileURL)
+        XCTAssertEqual(
+            try firstStore.authorize(destination, owner: "test"),
+            destination.standardizedFileURL
+        )
         XCTAssertTrue(FileManager.default.fileExists(atPath: storeURL.path))
+        try firstStore.release(owner: "test")
         firstStore.stopAllAccess()
 
         let restoredStore = try DestinationBookmarkStore(storeURL: storeURL)
@@ -149,8 +153,9 @@ final class SDMAppTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: appSandbox.path))
 
         try service.selectDefaultDestination(.downloadsSDM)
-        XCTAssertEqual(service.defaultDestinationDirectory, directories.downloadsSDM)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: directories.downloadsSDM.path))
+        let downloadsSDM = try XCTUnwrap(directories.downloadsSDM)
+        XCTAssertEqual(service.defaultDestinationDirectory, downloadsSDM)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsSDM.path))
 
         try service.selectDefaultDestination(.custom, customDirectory: custom)
         XCTAssertEqual(service.defaultDownloadLocation, .custom)
@@ -223,6 +228,53 @@ final class SDMAppTests: XCTestCase {
         )
     }
     #endif
+
+    @MainActor
+    func testDocumentsAndExternalDefaultDestinationsRemainSelectable() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        let documents = root.appending(path: "Documents", directoryHint: .isDirectory)
+        let external = root.appending(path: "External", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "SDMAppTests.\(UUID().uuidString)"
+        let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let bookmarks = try DestinationBookmarkStore(
+            storeURL: root.appending(path: "destination-bookmarks.plist")
+        )
+        let directories = DefaultDownloadDestinationDirectories(appSandbox: documents)
+        let service = try DownloadService(
+            configuration: DownloadManagerConfiguration(
+                databaseURL: root.appending(path: "downloads.sqlite3"),
+                temporaryDirectory: root.appending(
+                    path: "PartialDownloads",
+                    directoryHint: .isDirectory
+                )
+            ),
+            destinationDirectory: documents,
+            destinationBookmarks: bookmarks,
+            defaultDownloadLocation: .appSandbox,
+            defaultDestinationDirectories: directories,
+            userDefaults: userDefaults
+        )
+
+        try service.selectDefaultDestination(.custom, customDirectory: external)
+        XCTAssertEqual(service.defaultDownloadLocation, .custom)
+        XCTAssertEqual(service.defaultDestinationDirectory, external.standardizedFileURL)
+
+        try service.selectDefaultDestination(.appSandbox)
+        XCTAssertEqual(service.defaultDownloadLocation, .appSandbox)
+        XCTAssertEqual(service.defaultDestinationDirectory, documents.standardizedFileURL)
+        XCTAssertNil(directories.directory(for: .downloads))
+        XCTAssertNil(directories.directory(for: .downloadsSDM))
+
+        await service.shutdown()
+    }
 
     func testAppStoragePathsStayUnderInjectedApplicationSupportDirectory() throws {
         let applicationSupport = FileManager.default.temporaryDirectory.appending(

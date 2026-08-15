@@ -332,7 +332,11 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
                 at: record.request.destinationDirectory,
                 withIntermediateDirectories: true
             )
-            try FileManager.default.moveItem(at: stagedURL, to: destinationURL)
+            try CoordinatedFileFinalizer.move(
+                from: stagedURL,
+                to: destinationURL,
+                replacesExisting: record.request.conflictPolicy == .replace
+            )
             let now = Date.now
             let fileSize = try? destinationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
             let contentLength = fileSize.map(UInt64.init)
@@ -592,7 +596,6 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         guard FileManager.default.fileExists(atPath: original.path) else { return original }
         switch policy {
         case .replace:
-            try FileManager.default.removeItem(at: original)
             return original
         case .fail:
             throw DownloadError(

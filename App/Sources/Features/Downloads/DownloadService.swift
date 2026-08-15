@@ -7,6 +7,8 @@ import SDMCore
 @Observable
 @MainActor
 final class DownloadService {
+    private static let defaultDestinationBookmarkOwner = "default-destination"
+
     private(set) var snapshots: [DownloadSnapshot]
     private(set) var isLoadingHistory: Bool
     private(set) var commandInFlightIDs: Set<DownloadID> = []
@@ -18,6 +20,7 @@ final class DownloadService {
 
     let databaseURL: URL?
     let initializationError: String?
+    let defaultDestinationRecoveryMessage: String?
 
     private let manager: DownloadManager?
     private let destinationBookmarks: DestinationBookmarkStore?
@@ -33,6 +36,7 @@ final class DownloadService {
         destinationBookmarks: DestinationBookmarkStore? = nil,
         defaultDownloadLocation: DefaultDownloadLocation = .custom,
         defaultDestinationDirectories: DefaultDownloadDestinationDirectories? = nil,
+        defaultDestinationRecoveryMessage: String? = nil,
         userDefaults: UserDefaults = .standard
     ) throws {
         manager = try DownloadManager(configuration: configuration)
@@ -41,6 +45,7 @@ final class DownloadService {
         defaultDestinationDirectory = destinationDirectory
         self.defaultDownloadLocation = defaultDownloadLocation
         self.defaultDestinationDirectories = defaultDestinationDirectories
+        self.defaultDestinationRecoveryMessage = defaultDestinationRecoveryMessage
         self.userDefaults = userDefaults
         databaseURL = configuration.databaseURL
         initializationError = nil
@@ -57,6 +62,7 @@ final class DownloadService {
         destinationBookmarks: DestinationBookmarkStore?,
         defaultDownloadLocation: DefaultDownloadLocation,
         defaultDestinationDirectories: DefaultDownloadDestinationDirectories?,
+        defaultDestinationRecoveryMessage: String?,
         userDefaults: UserDefaults,
         initializationError: String?,
         snapshots: [DownloadSnapshot]
@@ -66,6 +72,7 @@ final class DownloadService {
         defaultDestinationDirectory = destinationDirectory
         self.defaultDownloadLocation = defaultDownloadLocation
         self.defaultDestinationDirectories = defaultDestinationDirectories
+        self.defaultDestinationRecoveryMessage = defaultDestinationRecoveryMessage
         self.userDefaults = userDefaults
         self.databaseURL = databaseURL
         self.initializationError = initializationError
@@ -101,32 +108,8 @@ final class DownloadService {
                 ),
                 downloads: downloadsDirectory
             )
-            var defaultDownloadLocation = storedDefaultDownloadLocation(in: userDefaults)
-            let destinationDirectory: URL
-            do {
-                destinationDirectory = try resolveDefaultDestination(
-                    location: defaultDownloadLocation,
-                    customDirectory: storedCustomDefaultDestination(in: userDefaults),
-                    directories: defaultDestinationDirectories,
-                    destinationBookmarks: destinationBookmarks,
-                    fileManager: fileManager
-                )
-            } catch {
-                defaultDownloadLocation = .downloads
-                destinationDirectory = try resolveDefaultDestination(
-                    location: defaultDownloadLocation,
-                    customDirectory: nil,
-                    directories: defaultDestinationDirectories,
-                    destinationBookmarks: destinationBookmarks,
-                    fileManager: fileManager
-                )
-                userDefaults.set(
-                    defaultDownloadLocation.rawValue,
-                    forKey: AppStorageKey.defaultDownloadLocation
-                )
-            }
             #else
-            guard let destinationDirectory = fileManager.urls(
+            guard let documentsDirectory = fileManager.urls(
                 for: .documentDirectory,
                 in: .userDomainMask
             ).first else {
@@ -134,9 +117,47 @@ final class DownloadService {
                     "The Documents directory could not be located."
                 )
             }
-            let defaultDownloadLocation = DefaultDownloadLocation.appSandbox
-            let defaultDestinationDirectories: DefaultDownloadDestinationDirectories? = nil
+            let defaultDestinationDirectories = DefaultDownloadDestinationDirectories(
+                appSandbox: documentsDirectory
+            )
             #endif
+
+            var defaultDownloadLocation = storedDefaultDownloadLocation(in: userDefaults)
+            var defaultDestinationRecoveryMessage: String?
+            let destinationDirectory: URL
+            do {
+                destinationDirectory = try resolveDefaultDestination(
+                    location: defaultDownloadLocation,
+                    customDirectory: storedCustomDefaultDestination(in: userDefaults),
+                    directories: defaultDestinationDirectories,
+                    destinationBookmarks: destinationBookmarks,
+                    bookmarkOwner: defaultDestinationBookmarkOwner,
+                    fileManager: fileManager
+                )
+            } catch {
+                if defaultDownloadLocation == .custom {
+                    defaultDestinationRecoveryMessage =
+                        "The previously selected external folder is unavailable. "
+                        + "SDM is using \(DefaultDownloadLocation.fallback.title). "
+                        + "Choose the external folder again in Settings."
+                }
+                defaultDownloadLocation = .fallback
+                destinationDirectory = try resolveDefaultDestination(
+                    location: defaultDownloadLocation,
+                    customDirectory: nil,
+                    directories: defaultDestinationDirectories,
+                    destinationBookmarks: destinationBookmarks,
+                    bookmarkOwner: defaultDestinationBookmarkOwner,
+                    fileManager: fileManager
+                )
+                try? destinationBookmarks?.release(
+                    owner: defaultDestinationBookmarkOwner
+                )
+                userDefaults.set(
+                    defaultDownloadLocation.rawValue,
+                    forKey: AppStorageKey.defaultDownloadLocation
+                )
+            }
 
             return try DownloadService(
                 configuration: storagePaths.managerConfiguration(
@@ -149,6 +170,7 @@ final class DownloadService {
                 destinationBookmarks: destinationBookmarks,
                 defaultDownloadLocation: defaultDownloadLocation,
                 defaultDestinationDirectories: defaultDestinationDirectories,
+                defaultDestinationRecoveryMessage: defaultDestinationRecoveryMessage,
                 userDefaults: userDefaults
             )
         } catch {
@@ -159,6 +181,7 @@ final class DownloadService {
                 destinationBookmarks: nil,
                 defaultDownloadLocation: .appSandbox,
                 defaultDestinationDirectories: nil,
+                defaultDestinationRecoveryMessage: nil,
                 userDefaults: userDefaults,
                 initializationError: Self.message(for: error),
                 snapshots: []
@@ -177,6 +200,7 @@ final class DownloadService {
             destinationBookmarks: nil,
             defaultDownloadLocation: .appSandbox,
             defaultDestinationDirectories: nil,
+            defaultDestinationRecoveryMessage: nil,
             userDefaults: .standard,
             initializationError: nil,
             snapshots: snapshots
@@ -203,6 +227,7 @@ final class DownloadService {
             customDirectory: customDirectory ?? storedCustomDirectory,
             directories: defaultDestinationDirectories,
             destinationBookmarks: destinationBookmarks,
+            bookmarkOwner: Self.defaultDestinationBookmarkOwner,
             fileManager: fileManager
         )
 
@@ -210,6 +235,10 @@ final class DownloadService {
             userDefaults.set(
                 resolvedDirectory.path(percentEncoded: false),
                 forKey: AppStorageKey.customDefaultDownloadDirectory
+            )
+        } else {
+            try destinationBookmarks?.release(
+                owner: Self.defaultDestinationBookmarkOwner
             )
         }
         userDefaults.set(location.rawValue, forKey: AppStorageKey.defaultDownloadLocation)
@@ -225,27 +254,40 @@ final class DownloadService {
     ) async throws -> DownloadID {
         let manager = try requiredManager()
         let requestedDestination = destinationDirectory ?? defaultDestinationDirectory
+        let requestID = DownloadID()
+        let bookmarkOwner = Self.downloadBookmarkOwner(for: requestID)
+        let usesDefaultDestination = requestedDestination.standardizedFileURL ==
+            defaultDestinationDirectory.standardizedFileURL
+        let requiresBookmark = !usesDefaultDestination || defaultDownloadLocation == .custom
         let authorizedDestination: URL
-        if requestedDestination.standardizedFileURL !=
-            defaultDestinationDirectory.standardizedFileURL {
+        if requiresBookmark {
             guard let destinationBookmarks else {
                 throw ServiceError.unavailable(
                     "Persistent access to custom download folders is unavailable."
                 )
             }
             authorizedDestination = try destinationBookmarks.authorize(
-                requestedDestination
+                requestedDestination,
+                owner: bookmarkOwner
             )
         } else {
             authorizedDestination = requestedDestination
         }
         let request = DownloadRequest(
+            id: requestID,
             url: url,
             destinationDirectory: authorizedDestination,
             filename: suggestedFilename,
             connectionLimit: connectionCount
         )
-        return try await manager.enqueue(request)
+        do {
+            return try await manager.enqueue(request)
+        } catch {
+            if requiresBookmark {
+                try? destinationBookmarks?.release(owner: bookmarkOwner)
+            }
+            throw error
+        }
     }
 
     var selectedEngineDescriptor: DownloadEngineDescriptor {
@@ -287,6 +329,9 @@ final class DownloadService {
             try await manager.retry(id)
         case .remove:
             try await manager.remove(id)
+            try? destinationBookmarks?.release(
+                owner: Self.downloadBookmarkOwner(for: id)
+            )
         }
         return true
     }
@@ -334,6 +379,9 @@ final class DownloadService {
         }
         try FileManager.default.removeItem(at: destinationURL)
         try await manager.remove(id)
+        try destinationBookmarks?.release(
+            owner: Self.downloadBookmarkOwner(for: id)
+        )
     }
 
     func shutdown() async {
@@ -418,12 +466,20 @@ final class DownloadService {
             ?? .libcurl
     }
 
+    private static func downloadBookmarkOwner(for id: DownloadID) -> String {
+        "download:\(id.description)"
+    }
+
     private static func storedDefaultDownloadLocation(
         in userDefaults: UserDefaults
     ) -> DefaultDownloadLocation {
-        userDefaults.string(forKey: AppStorageKey.defaultDownloadLocation)
-            .flatMap(DefaultDownloadLocation.init(rawValue:))
-            ?? .downloads
+        guard let location = userDefaults.string(
+            forKey: AppStorageKey.defaultDownloadLocation
+        ).flatMap(DefaultDownloadLocation.init(rawValue:)),
+            DefaultDownloadLocation.availableLocations.contains(location) else {
+            return .fallback
+        }
+        return location
     }
 
     private static func storedCustomDefaultDestination(
@@ -442,6 +498,7 @@ final class DownloadService {
         customDirectory: URL?,
         directories: DefaultDownloadDestinationDirectories,
         destinationBookmarks: DestinationBookmarkStore?,
+        bookmarkOwner: String,
         fileManager: FileManager
     ) throws -> URL {
         if let directory = directories.directory(for: location) {
@@ -452,6 +509,12 @@ final class DownloadService {
             return directory.standardizedFileURL
         }
 
+        guard location == .custom else {
+            throw ServiceError.unavailable(
+                "The selected default download folder is unavailable on this platform."
+            )
+        }
+
         guard let customDirectory else {
             throw ServiceError.unavailable("Choose a custom download folder first.")
         }
@@ -460,12 +523,16 @@ final class DownloadService {
                 "Persistent access to custom download folders is unavailable."
             )
         }
-        let authorizedDirectory = try destinationBookmarks.authorize(customDirectory)
+        let authorizedDirectory = try destinationBookmarks.authorize(
+            customDirectory,
+            owner: bookmarkOwner
+        )
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(
             atPath: authorizedDirectory.path,
             isDirectory: &isDirectory
         ), isDirectory.boolValue else {
+            try? destinationBookmarks.release(owner: bookmarkOwner)
             throw ServiceError.unavailable(
                 "The selected custom download folder is no longer available."
             )

@@ -159,4 +159,9 @@ struct PresentedDownloadError: Identifiable {
         self.title = title
         message = DownloadService.message(for: error)
     }
+
+    init(title: String, message: String) {
+        self.title = title
+        self.message = message
+    }
 }

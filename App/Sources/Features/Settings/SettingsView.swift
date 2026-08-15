@@ -10,10 +10,10 @@ struct SettingsView: View {
     @AppStorage(AppStorageKey.downloadEngine) private var selectedEngine = DownloadEngineKind.libcurl.rawValue
     #if os(macOS)
     @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
+    #endif
     @State private var defaultDownloadLocation: DefaultDownloadLocation
     @State private var locationBeforeCustomPicker: DefaultDownloadLocation?
     @State private var showsCustomDestinationPicker = false
-    #endif
     @State private var safariExtensionIsEnabled: Bool?
     @State private var presentedError: PresentedDownloadError?
     #if os(macOS)
@@ -23,9 +23,7 @@ struct SettingsView: View {
 
     init(service: DownloadService) {
         self.service = service
-        #if os(macOS)
         _defaultDownloadLocation = State(initialValue: service.defaultDownloadLocation)
-        #endif
     }
 
     var body: some View {
@@ -33,11 +31,14 @@ struct SettingsView: View {
             #if os(iOS)
             MobileSettingsFormContent(
                 defaultConnectionCount: $defaultConnectionCount,
+                defaultDownloadLocation: $defaultDownloadLocation,
                 selectedEngine: $selectedEngine,
                 engineDescriptors: service.engineDescriptors,
                 selectedDescriptor: selectedDescriptor,
                 safariExtensionIsEnabled: safariExtensionIsEnabled,
                 databaseURL: service.databaseURL,
+                defaultDestinationDirectory: service.defaultDestinationDirectory,
+                chooseCustomDefaultDestination: presentCustomDestinationPicker,
                 openSafariSettings: SafariExtensionSupport.showPreferences
             )
             #else
@@ -84,7 +85,6 @@ struct SettingsView: View {
         .onChange(of: selectedEngine) { _, _ in
             applyEngineSelection()
         }
-        #if os(macOS)
         .onChange(of: defaultDownloadLocation) { oldLocation, newLocation in
             applyDefaultDownloadLocation(
                 from: oldLocation,
@@ -98,7 +98,6 @@ struct SettingsView: View {
             onCompletion: applyCustomDestination,
             onCancellation: cancelCustomDestinationPicker
         )
-        #endif
         .alert(item: $presentedError) { error in
             Alert(
                 title: Text(error.title),
@@ -151,16 +150,25 @@ struct SettingsView: View {
     private func showBrowserExtensions() {
         openWindow(id: AppWindowID.browsers)
     }
+    #endif
 
     private func applyDefaultDownloadLocation(
         from oldLocation: DefaultDownloadLocation,
         to newLocation: DefaultDownloadLocation
     ) {
         guard newLocation != service.defaultDownloadLocation else { return }
-        if newLocation == .custom, !service.hasStoredCustomDefaultDestination {
+        if newLocation == .custom {
+            #if os(iOS)
             locationBeforeCustomPicker = oldLocation
             showsCustomDestinationPicker = true
             return
+            #else
+            if !service.hasStoredCustomDefaultDestination {
+                locationBeforeCustomPicker = oldLocation
+                showsCustomDestinationPicker = true
+                return
+            }
+            #endif
         }
 
         do {
@@ -208,7 +216,6 @@ struct SettingsView: View {
             ?? service.defaultDownloadLocation
         locationBeforeCustomPicker = nil
     }
-    #endif
 }
 
 #Preview {

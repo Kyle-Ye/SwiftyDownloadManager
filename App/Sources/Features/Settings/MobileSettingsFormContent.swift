@@ -4,11 +4,14 @@ import SwiftUI
 
 struct MobileSettingsFormContent: View {
     @Binding var defaultConnectionCount: Int
+    @Binding var defaultDownloadLocation: DefaultDownloadLocation
     @Binding var selectedEngine: String
     let engineDescriptors: [DownloadEngineDescriptor]
     let selectedDescriptor: DownloadEngineDescriptor?
     let safariExtensionIsEnabled: Bool?
     let databaseURL: URL?
+    let defaultDestinationDirectory: URL
+    let chooseCustomDefaultDestination: () -> Void
     let openSafariSettings: () -> Void
 
     var body: some View {
@@ -31,6 +34,28 @@ struct MobileSettingsFormContent: View {
         }
 
         Section {
+            Picker("Default save location", selection: $defaultDownloadLocation) {
+                ForEach(DefaultDownloadLocation.availableLocations) { location in
+                    Text(location.title)
+                        .tag(location)
+                }
+            }
+            .pickerStyle(.navigationLink)
+
+            LabeledContent("Current folder") {
+                Text(currentFolderName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            if defaultDownloadLocation == .custom {
+                Button(
+                    "Choose External Folder…",
+                    systemImage: "folder",
+                    action: chooseCustomDefaultDestination
+                )
+            }
+
             Stepper(value: $defaultConnectionCount, in: 1 ... 16) {
                 LabeledContent("Default connections") {
                     Text(defaultConnectionCount, format: .number)
@@ -40,10 +65,13 @@ struct MobileSettingsFormContent: View {
         } header: {
             Text("Downloads")
         } footer: {
-            if selectedDescriptor?.supports(.multiConnectionTransfers) == false {
-                Text("URLSession manages connections internally and uses one connection per download.")
-            } else {
-                Text("New downloads use this many connections when the server supports segmented transfers.")
+            VStack(alignment: .leading) {
+                Text("Choose any folder available in Files, including iCloud Drive and supported third-party providers.")
+                if selectedDescriptor?.supports(.multiConnectionTransfers) == false {
+                    Text("URLSession manages connections internally and uses one connection per download.")
+                } else {
+                    Text("New downloads use this many connections when the server supports segmented transfers.")
+                }
             }
         }
 
@@ -97,6 +125,14 @@ struct MobileSettingsFormContent: View {
 
     private var extensionStatusStyle: Color {
         safariExtensionIsEnabled == true ? .green : .secondary
+    }
+
+    private var currentFolderName: String {
+        if defaultDownloadLocation == .appSandbox {
+            DefaultDownloadLocation.appSandbox.title
+        } else {
+            defaultDestinationDirectory.lastPathComponent
+        }
     }
 }
 #endif

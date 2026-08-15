@@ -52,7 +52,7 @@ struct MacSettingsFormContent: View {
 
         Section {
             Picker("Default save location", selection: $defaultDownloadLocation) {
-                ForEach(DefaultDownloadLocation.allCases) { location in
+                ForEach(DefaultDownloadLocation.availableLocations) { location in
                     Text(location.title)
                         .tag(location)
                 }

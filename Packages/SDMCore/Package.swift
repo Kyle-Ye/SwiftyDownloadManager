@@ -34,6 +34,7 @@ let package = Package(
                 .linkedLibrary("sqlite3"),
                 .linkedLibrary("z"),
                 .linkedLibrary("ldap", .when(platforms: [.macOS])),
+                .linkedFramework("Foundation"),
                 .linkedFramework("CoreFoundation"),
                 .linkedFramework("Security"),
                 .linkedFramework("SystemConfiguration"),

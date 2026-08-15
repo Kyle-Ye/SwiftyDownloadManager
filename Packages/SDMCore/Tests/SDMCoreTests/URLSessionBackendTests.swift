@@ -3,6 +3,51 @@ import XCTest
 @testable import SDMCore
 
 final class URLSessionBackendTests: XCTestCase {
+    func testCoordinatedFinalizerRefusesToOverwriteWithoutReplacePolicy() throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appending(path: "source.bin")
+        let destination = root.appending(path: "destination.bin")
+        try Data("new".utf8).write(to: source)
+        try Data("old".utf8).write(to: destination)
+
+        XCTAssertThrowsError(
+            try CoordinatedFileFinalizer.move(
+                from: source,
+                to: destination,
+                replacesExisting: false
+            )
+        )
+        XCTAssertEqual(try Data(contentsOf: source), Data("new".utf8))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("old".utf8))
+    }
+
+    func testCoordinatedFinalizerReplacesCommittedDestination() throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appending(path: "source.bin")
+        let destination = root.appending(path: "destination.bin")
+        try Data("new".utf8).write(to: source)
+        try Data("old".utf8).write(to: destination)
+
+        try CoordinatedFileFinalizer.move(
+            from: source,
+            to: destination,
+            replacesExisting: true
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("new".utf8))
+    }
+
     func testURLSessionDownloadIsByteCorrect() async throws {
         let fixture = try FixtureServer(fileSize: 48 * 1024)
         defer { fixture.stop() }

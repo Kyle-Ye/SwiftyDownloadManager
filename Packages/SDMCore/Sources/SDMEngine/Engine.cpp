@@ -1,5 +1,6 @@
 #include "SDMEngine.h"
 #include "DownloadStore.h"
+#include "SDMFileFinalizer.h"
 
 #include <curl/curl.h>
 
@@ -1407,14 +1408,18 @@ private:
         }
         close_file(task);
 
-        std::error_code error;
-        if (task.request.conflict_policy == 1) {
-            std::filesystem::remove(task.destination_path, error);
-            error.clear();
-        }
-        std::filesystem::rename(task.temporary_path, task.destination_path, error);
-        if (error) {
-            fail_task(task, Result::io_error, "Unable to finalize downloaded file");
+        std::string finalization_error;
+        if (!finalize_file(
+                task.temporary_path,
+                task.destination_path,
+                task.request.conflict_policy == 1,
+                finalization_error
+            )) {
+            fail_task(
+                task,
+                Result::io_error,
+                "Unable to finalize downloaded file: " + finalization_error
+            );
             return;
         }
         task.snapshot.state = DownloadState::completed;
