@@ -1,11 +1,12 @@
 import SDMCore
 
 enum RecentDownloads {
-    static let maximumCount = 8
+    static let defaultMaximumCount = 5
+    static let allowedMaximumCountRange = 1 ... 10
 
     static func select(
         from snapshots: [DownloadSnapshot],
-        limit: Int = maximumCount
+        limit: Int = defaultMaximumCount
     ) -> [DownloadSnapshot] {
         guard limit > 0 else { return [] }
         return Array(snapshots.sorted(by: isOrderedBefore).prefix(limit))

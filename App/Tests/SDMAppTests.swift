@@ -682,7 +682,7 @@ final class SDMAppTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), [lowerID.id, higherID.id, olderCreation.id])
     }
 
-    func testRecentDownloadsLimitResultsToEight() throws {
+    func testRecentDownloadsUseDefaultAndCustomLimits() throws {
         let snapshots = try (0 ..< 10).map { index in
             try makeSnapshot(
                 id: "00000000-0000-0000-0000-00000000000\(index)",
@@ -693,53 +693,38 @@ final class SDMAppTests: XCTestCase {
         }
 
         let result = RecentDownloads.select(from: snapshots)
+        let customizedResult = RecentDownloads.select(from: snapshots, limit: 3)
 
-        XCTAssertEqual(result.count, RecentDownloads.maximumCount)
+        XCTAssertEqual(result.count, RecentDownloads.defaultMaximumCount)
         XCTAssertEqual(
             result.map(\.createdAt),
-            (2 ... 9).reversed().map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            (5 ... 9).reversed().map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        )
+        XCTAssertEqual(
+            customizedResult.map(\.createdAt),
+            (7 ... 9).reversed().map { Date(timeIntervalSince1970: TimeInterval($0)) }
         )
     }
 
     #if os(macOS)
-    func testLockScreenActiveStateClassification() {
-        let activeStates: Set<DownloadState> = [
-            .created,
-            .probing,
-            .queued,
-            .downloading,
-            .pausing,
-            .paused,
-            .retrying,
-            .finalizing,
-        ]
-
-        for state in DownloadState.allCases {
-            XCTAssertEqual(
-                state.appearsOnLockScreen,
-                activeStates.contains(state),
-                "Unexpected Lock Screen classification for \(state)"
-            )
-        }
-    }
-
-    func testLockScreenDownloadsExcludeHistoryAndLimitResults() throws {
+    func testLockScreenDownloadsMatchRecentMenuBarDownloads() throws {
         let snapshots = try (0 ..< 6).map { index in
             try makeSnapshot(
                 id: "00000000-0000-0000-0000-00000000000\(index)",
-                state: index == 5 ? .completed : .downloading,
+                state: index < 2 ? .paused : .completed,
                 createdAt: TimeInterval(index),
                 updatedAt: TimeInterval(index)
             )
         }
 
-        let result = LockScreenDownloads.select(from: snapshots, limit: 3)
+        let result = LockScreenDownloads.select(from: snapshots)
 
         XCTAssertEqual(
-            result.map(\.createdAt),
-            [4.0, 3.0, 2.0].map(Date.init(timeIntervalSince1970:))
+            result.map(\.id),
+            RecentDownloads.select(from: snapshots).map(\.id)
         )
-        XCTAssertTrue(result.allSatisfy { $0.state == .downloading })
+        XCTAssertEqual(result.count, 5)
+        XCTAssertTrue(result.contains { $0.state == .completed })
     }
 
     @MainActor
@@ -788,7 +773,10 @@ final class SDMAppTests: XCTestCase {
     @MainActor
     func testLockScreenEmptyStateContributesIntrinsicSize() {
         let hostingView = NSHostingView(
-            rootView: LockScreenDownloadsView(service: .preview())
+            rootView: LockScreenDownloadsView(
+                service: .preview(),
+                screenSize: CGSize(width: 1_280, height: 720)
+            )
         )
 
         XCTAssertGreaterThan(hostingView.fittingSize.width, 400)
@@ -797,7 +785,11 @@ final class SDMAppTests: XCTestCase {
 
     @MainActor
     func testLockScreenOverlayCentersCardInWindow() throws {
-        let containerView = LockScreenOverlayContentView(service: .preview())
+        let screenSize = CGSize(width: 1_280, height: 720)
+        let containerView = LockScreenOverlayContentView(
+            service: .preview(),
+            screenSize: screenSize
+        )
         containerView.frame = NSRect(x: 0, y: 0, width: 1_280, height: 720)
         containerView.layoutSubtreeIfNeeded()
 
@@ -811,6 +803,28 @@ final class SDMAppTests: XCTestCase {
             hostingView.frame.midY,
             containerView.bounds.midY,
             accuracy: 0.5
+        )
+    }
+
+    func testLockScreenCardLayoutRespectsScreenRatios() {
+        let screenSize = CGSize(width: 1_280, height: 720)
+
+        XCTAssertEqual(
+            LockScreenCardLayout.width(for: screenSize),
+            screenSize.height * LockScreenCardLayout.widthToScreenHeightRatio,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            LockScreenCardLayout.maximumHeight(for: screenSize),
+            screenSize.height * LockScreenCardLayout.maximumHeightRatio,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            LockScreenCardLayout.visibleDownloadLimit(
+                requestedLimit: 10,
+                screenSize: screenSize
+            ),
+            4
         )
     }
     #endif

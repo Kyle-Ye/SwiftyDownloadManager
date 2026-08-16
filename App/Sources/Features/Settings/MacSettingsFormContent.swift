@@ -6,7 +6,9 @@ struct MacSettingsFormContent: View {
     @Binding var defaultConnectionCount: Int
     @Binding var defaultDownloadLocation: DefaultDownloadLocation
     @Binding var showsMenuBarIcon: Bool
+    @Binding var menuBarRecentDownloadLimit: Int
     @Binding var showsLockScreenDownloadStatus: Bool
+    @Binding var lockScreenRecentDownloadLimit: Int
     @Binding var selectedEngine: String
     let engineDescriptors: [DownloadEngineDescriptor]
     let selectedDescriptor: DownloadEngineDescriptor?
@@ -27,6 +29,13 @@ struct MacSettingsFormContent: View {
                     .tag(false)
             }
             .pickerStyle(.menu)
+
+            Stepper(
+                "Menu Bar recent downloads: \(menuBarRecentDownloadLimit)",
+                value: $menuBarRecentDownloadLimit,
+                in: RecentDownloads.allowedMaximumCountRange
+            )
+            .disabled(!showsMenuBarIcon)
 
             Picker("Download engine", selection: $selectedEngine) {
                 ForEach(engineDescriptors) { descriptor in
@@ -93,10 +102,20 @@ struct MacSettingsFormContent: View {
                 "Show download status on the Lock Screen",
                 isOn: $showsLockScreenDownloadStatus
             )
+
+            Stepper(
+                "Lock Screen recent downloads: \(lockScreenRecentDownloadLimit)",
+                value: $lockScreenRecentDownloadLimit,
+                in: RecentDownloads.allowedMaximumCountRange
+            )
+            .disabled(!showsLockScreenDownloadStatus)
         } header: {
             Text("Lock Screen")
         } footer: {
-            Text("Shows active download progress while this Mac is locked. When no downloads are active, SDM shows an empty state.")
+            Text(
+                "Shows recent download progress while this Mac is locked. "
+                    + "When no downloads are available, SDM shows an empty state."
+            )
         }
 
         Section("Browser Extensions") {

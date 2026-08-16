@@ -59,6 +59,7 @@ struct MenuBarDownloadRow: View {
         if let progress = snapshot.progressFraction {
             ProgressView(value: progress)
                 .controlSize(.small)
+                .tint(snapshot.state.tint)
                 .frame(width: 92)
                 .accessibilityHidden(true)
 
@@ -66,6 +67,7 @@ struct MenuBarDownloadRow: View {
         } else if snapshot.state.showsIndeterminateMenuBarProgress {
             ProgressView()
                 .controlSize(.small)
+                .tint(snapshot.state.tint)
                 .accessibilityHidden(true)
 
             Text(transferredDescription)

@@ -23,6 +23,7 @@ struct MobileDownloadRow: View {
 
             if let progress = snapshot.progressFraction {
                 ProgressView(value: progress)
+                    .tint(snapshot.state.tint)
                     .accessibilityLabel("Download progress")
                     .accessibilityValue(progress.formatted(.percent))
             }

@@ -389,12 +389,14 @@ private struct DownloadProgressCell: View {
         VStack(alignment: .leading, spacing: 3) {
             if let progress = snapshot.progressFraction {
                 ProgressView(value: progress)
+                    .tint(snapshot.state.tint)
                 Text(progress, format: .percent.precision(.fractionLength(0)))
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             } else {
                 ProgressView()
+                    .tint(snapshot.state.tint)
                 Text(DownloadFormatting.bytes(snapshot.downloadedBytes))
                     .font(.caption)
                     .monospacedDigit()

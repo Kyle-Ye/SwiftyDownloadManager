@@ -10,8 +10,12 @@ struct SettingsView: View {
     @AppStorage(AppStorageKey.downloadEngine) private var selectedEngine = DownloadEngineKind.libcurl.rawValue
     #if os(macOS)
     @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
+    @AppStorage(AppStorageKey.menuBarRecentDownloadLimit)
+    private var menuBarRecentDownloadLimit = RecentDownloads.defaultMaximumCount
     @AppStorage(AppStorageKey.showsLockScreenDownloadStatus)
     private var showsLockScreenDownloadStatus = false
+    @AppStorage(AppStorageKey.lockScreenRecentDownloadLimit)
+    private var lockScreenRecentDownloadLimit = RecentDownloads.defaultMaximumCount
     #endif
     @State private var defaultDownloadLocation: DefaultDownloadLocation
     @State private var locationBeforeCustomPicker: DefaultDownloadLocation?
@@ -48,7 +52,9 @@ struct SettingsView: View {
                 defaultConnectionCount: $defaultConnectionCount,
                 defaultDownloadLocation: $defaultDownloadLocation,
                 showsMenuBarIcon: $showsMenuBarIcon,
+                menuBarRecentDownloadLimit: $menuBarRecentDownloadLimit,
                 showsLockScreenDownloadStatus: $showsLockScreenDownloadStatus,
+                lockScreenRecentDownloadLimit: $lockScreenRecentDownloadLimit,
                 selectedEngine: $selectedEngine,
                 engineDescriptors: service.engineDescriptors,
                 selectedDescriptor: selectedDescriptor,

@@ -150,7 +150,10 @@ final class LockScreenDownloadCoordinator: NSObject {
             .ignoresCycle,
         ]
         window.level = .init(rawValue: Int(Int32.max - 2))
-        window.contentView = LockScreenOverlayContentView(service: service)
+        window.contentView = LockScreenOverlayContentView(
+            service: service,
+            screenSize: screen.frame.size
+        )
 
         SkyLightOperator.shared.delegateWindow(window)
         window.orderFrontRegardless()

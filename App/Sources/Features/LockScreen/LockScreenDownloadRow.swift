@@ -9,7 +9,7 @@ struct LockScreenDownloadRow: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: snapshot.state.systemImage)
                 .font(.title3)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(snapshot.state.tint)
                 .frame(width: 24)
                 .accessibilityHidden(true)
 
@@ -21,18 +21,20 @@ struct LockScreenDownloadRow: View {
                     Spacer(minLength: 8)
 
                     Text(snapshot.state.title)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(snapshot.state.tint)
                         .lineLimit(1)
                 }
 
                 if let progress = snapshot.progressFraction {
-                    ProgressView(value: progress)
-                        .tint(.secondary)
+                    LockScreenProgressBar(
+                        progress: progress,
+                        tint: snapshot.state.tint
+                    )
                         .accessibilityHidden(true)
                 } else if snapshot.state.showsIndeterminateMenuBarProgress {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(.secondary)
+                        .tint(snapshot.state.tint)
                         .accessibilityHidden(true)
                 }
 

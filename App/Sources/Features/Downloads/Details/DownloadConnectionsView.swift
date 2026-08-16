@@ -52,6 +52,7 @@ struct DownloadConnectionsView: View {
                                 Text(progress, format: .percent.precision(.fractionLength(0)))
                                     .monospacedDigit()
                             }
+                            .tint(snapshot.state.tint)
                         }
                     }
                     .width(min: 150, ideal: 200)

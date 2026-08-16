@@ -3,11 +3,14 @@ import SwiftUI
 
 @MainActor
 final class LockScreenOverlayContentView: NSView {
-    init(service: DownloadService) {
+    init(service: DownloadService, screenSize: CGSize) {
         super.init(frame: .zero)
 
         let hostingView = NSHostingView(
-            rootView: LockScreenDownloadsView(service: service)
+            rootView: LockScreenDownloadsView(
+                service: service,
+                screenSize: screenSize
+            )
         )
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hostingView)

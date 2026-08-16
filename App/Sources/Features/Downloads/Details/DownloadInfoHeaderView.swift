@@ -34,8 +34,10 @@ struct DownloadInfoHeaderView: View {
                     Text(progress, format: .percent.precision(.fractionLength(0)))
                         .monospacedDigit()
                 }
+                .tint(snapshot.state.tint)
             } else if snapshot.state == .probing || snapshot.state == .downloading {
                 ProgressView()
+                    .tint(snapshot.state.tint)
             }
         }
         .padding()

@@ -2,32 +2,38 @@
 import SwiftUI
 
 struct LockScreenDownloadsView: View {
+    @AppStorage(AppStorageKey.lockScreenRecentDownloadLimit)
+    private var recentDownloadLimit = RecentDownloads.defaultMaximumCount
     @Bindable var service: DownloadService
+    let screenSize: CGSize
 
     var body: some View {
-        let snapshots = LockScreenDownloads.select(from: service.snapshots)
-        let activeCount = service.snapshots.count {
-            $0.state.appearsOnLockScreen
-        }
+        let visibleDownloadLimit = LockScreenCardLayout.visibleDownloadLimit(
+            requestedLimit: recentDownloadLimit,
+            screenSize: screenSize
+        )
+        let snapshots = LockScreenDownloads.select(
+            from: service.snapshots,
+            limit: visibleDownloadLimit
+        )
 
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Swifty Download Manager")
                         .bold()
-                    Text("^[\(activeCount) active download](inflect: true)")
+                    Text("^[\(snapshots.count) recent download](inflect: true)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 16)
 
-                Image("SDMLockScreenLogo")
+                Image("SDMLockScreenColorLogo")
                     .resizable()
-                    .renderingMode(.template)
+                    .renderingMode(.original)
                     .scaledToFit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 36, height: 36)
                     .accessibilityHidden(true)
             }
 
@@ -49,38 +55,39 @@ struct LockScreenDownloadsView: View {
                     .frame(maxWidth: .infinity, minHeight: 90)
             } else if snapshots.isEmpty {
                 ContentUnavailableView(
-                    "No Active Downloads",
+                    "No Downloads",
                     systemImage: "tray",
-                    description: Text("New downloads will appear here while your Mac is locked.")
+                    description: Text(
+                        "Recent downloads will appear here while your Mac is locked."
+                    )
                 )
                 .frame(maxWidth: .infinity, minHeight: 110)
             } else {
-                ForEach(snapshots) { snapshot in
-                    LockScreenDownloadRow(snapshot: snapshot)
+                VStack(spacing: 0) {
+                    ForEach(
+                        Array(snapshots.enumerated()),
+                        id: \.element.id
+                    ) { index, snapshot in
+                        LockScreenDownloadRow(snapshot: snapshot)
+                            .padding(.vertical, 8)
 
-                    if snapshot.id != snapshots.last?.id {
-                        Divider()
+                        if index < snapshots.count - 1 {
+                            Divider()
+                        }
                     }
-                }
-
-                let hiddenCount = activeCount - snapshots.count
-                if hiddenCount > 0 {
-                    Text("^[\(hiddenCount) more active download](inflect: true)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
         }
-        .tint(.secondary)
         .padding(18)
-        .frame(width: 440)
-        .background(.ultraThinMaterial, in: .rect(cornerRadius: 18))
+        .frame(width: LockScreenCardLayout.width(for: screenSize))
+        .frame(maxHeight: LockScreenCardLayout.maximumHeight(for: screenSize))
+        .background(.regularMaterial, in: .rect(cornerRadius: 18))
+        .clipShape(.rect(cornerRadius: 18))
         .overlay {
             RoundedRectangle(cornerRadius: 18)
-                .stroke(.white.opacity(0.12))
+                .stroke(.white.opacity(0.16))
         }
-        .shadow(color: .black.opacity(0.16), radius: 20, y: 8)
+        .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
         .padding(40)
         .allowsHitTesting(false)
     }
@@ -89,7 +96,8 @@ struct LockScreenDownloadsView: View {
 #if DEBUG
 #Preview("Lock Screen Downloads") {
     LockScreenDownloadsView(
-        service: .preview(snapshots: DownloadPreviewFixtures.snapshots)
+        service: .preview(snapshots: DownloadPreviewFixtures.snapshots),
+        screenSize: CGSize(width: 1_280, height: 720)
     )
     .frame(width: 1_280, height: 720)
     .background(
@@ -102,15 +110,18 @@ struct LockScreenDownloadsView: View {
 }
 
 #Preview("Lock Screen Empty State") {
-    LockScreenDownloadsView(service: .preview())
-        .frame(width: 1_280, height: 720)
-        .background(
-            LinearGradient(
-                colors: [.blue, .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+    LockScreenDownloadsView(
+        service: .preview(),
+        screenSize: CGSize(width: 1_280, height: 720)
+    )
+    .frame(width: 1_280, height: 720)
+    .background(
+        LinearGradient(
+            colors: [.blue, .black],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
         )
+    )
 }
 #endif
 #endif

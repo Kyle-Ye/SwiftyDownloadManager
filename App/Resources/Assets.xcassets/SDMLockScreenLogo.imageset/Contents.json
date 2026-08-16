@@ -4,6 +4,10 @@
       "filename" : "SDMLockScreenLogo.png",
       "idiom" : "mac",
       "scale" : "1x"
+    },
+    {
+      "idiom" : "mac",
+      "scale" : "2x"
     }
   ],
   "info" : {
@@ -11,7 +15,6 @@
     "version" : 1
   },
   "properties" : {
-    "preserves-vector-representation" : false,
     "template-rendering-intent" : "template"
   }
 }
