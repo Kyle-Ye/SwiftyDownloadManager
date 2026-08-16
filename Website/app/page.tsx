@@ -267,11 +267,11 @@ export default function Home() {
           </div>
           <div className="lock-screen-copy">
             <p className="lang-en" lang="en">
-              See active downloads, progress, transfer speed, time remaining,
-              and paused tasks without unlocking your Mac.
+              See recent downloads, live progress, transfer speed, time
+              remaining, and task status without unlocking your Mac.
             </p>
             <p className="lang-zh" lang="zh-Hans">
-              无需解锁 Mac，即可查看进行中的下载、传输进度、速度、剩余时间与暂停任务。
+              无需解锁 Mac，即可查看最近下载、实时进度、传输速度、剩余时间与任务状态。
             </p>
             <div className="lock-screen-setting">
               <span className="setting-switch" aria-hidden="true"><i /></span>
@@ -286,10 +286,20 @@ export default function Home() {
         </div>
         <figure className="lock-screen-visual">
           <img
-            src="/lock-screen-status.jpg"
-            alt="A Mac Lock Screen with Swifty Download Manager status centered on the display"
-            width="1672"
-            height="941"
+            className="lang-en"
+            src="/lock-screen-status-en.jpg"
+            alt="A Mac Lock Screen showing five recent downloads in Swifty Download Manager"
+            width="1555"
+            height="1011"
+            loading="lazy"
+            decoding="async"
+          />
+          <img
+            className="lang-zh"
+            src="/lock-screen-status-zh.jpg"
+            alt="Mac 锁屏界面上显示 Swifty Download Manager 最近五条下载任务"
+            width="1555"
+            height="1011"
             loading="lazy"
             decoding="async"
           />

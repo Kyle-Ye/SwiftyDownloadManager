@@ -65,7 +65,8 @@ test("server-renders the SDM landing page", async () => {
   assert.match(html, /Off by default/);
   assert.match(html, /下载状态，/);
   assert.match(html, /抬眼可见。/);
-  assert.match(html, /src=["']\/lock-screen-status\.jpg["']/);
+  assert.match(html, /src=["']\/lock-screen-status-en\.jpg["']/);
+  assert.match(html, /src=["']\/lock-screen-status-zh\.jpg["']/);
   assert.match(html, /Public repository/);
   assert.match(html, /MIT in 2 years/);
   assert.match(html, /Safari \+ Chrome/);
@@ -155,7 +156,8 @@ test("ships site-specific metadata, distribution config, and local brand assets"
     access(new URL("../public/sdm-icon.png", import.meta.url)),
     access(new URL("../public/favicon.svg", import.meta.url)),
     access(new URL("../public/og.png", import.meta.url)),
-    access(new URL("../public/lock-screen-status.jpg", import.meta.url)),
+    access(new URL("../public/lock-screen-status-en.jpg", import.meta.url)),
+    access(new URL("../public/lock-screen-status-zh.jpg", import.meta.url)),
     access(new URL("../public/language.js", import.meta.url)),
     access(new URL("../public/theme.js", import.meta.url)),
   ]);
