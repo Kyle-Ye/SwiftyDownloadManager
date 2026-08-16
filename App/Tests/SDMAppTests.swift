@@ -164,6 +164,19 @@ final class SDMAppTests: XCTestCase {
         restoredStore.stopAllAccess()
     }
 
+    func testDefaultDownloadLocationsExcludeRemovedSDMSubfolder() {
+        XCTAssertNil(DefaultDownloadLocation(rawValue: "downloadsSDM"))
+        XCTAssertEqual(DefaultDownloadLocation.downloads.title, "Downloads Folder")
+        #if os(macOS)
+        XCTAssertEqual(
+            DefaultDownloadLocation.availableLocations,
+            [.appSandbox, .downloads, .custom]
+        )
+        #else
+        XCTAssertEqual(DefaultDownloadLocation.availableLocations, [.appSandbox, .custom])
+        #endif
+    }
+
     #if os(macOS)
     @MainActor
     func testDefaultDownloadDestinationSelectionPersistsAndCreatesFolders() async throws {
@@ -208,11 +221,6 @@ final class SDMAppTests: XCTestCase {
         XCTAssertEqual(service.defaultDestinationDirectory, appSandbox.standardizedFileURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: appSandbox.path))
 
-        try service.selectDefaultDestination(.downloadsSDM)
-        let downloadsSDM = try XCTUnwrap(directories.downloadsSDM)
-        XCTAssertEqual(service.defaultDestinationDirectory, downloadsSDM)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsSDM.path))
-
         try service.selectDefaultDestination(.custom, customDirectory: custom)
         XCTAssertEqual(service.defaultDownloadLocation, .custom)
         XCTAssertEqual(service.defaultDestinationDirectory, custom.standardizedFileURL)
@@ -236,7 +244,6 @@ final class SDMAppTests: XCTestCase {
 
         XCTAssertEqual(directories.directory(for: .appSandbox), directories.appSandbox)
         XCTAssertEqual(directories.directory(for: .downloads), directories.downloads)
-        XCTAssertEqual(directories.directory(for: .downloadsSDM), directories.downloadsSDM)
         XCTAssertNil(directories.directory(for: .custom))
     }
 
@@ -279,10 +286,6 @@ final class SDMAppTests: XCTestCase {
 
         XCTAssertEqual(directories.appSandbox, sandboxDownloads.standardizedFileURL)
         XCTAssertEqual(directories.downloads, actualDownloads.standardizedFileURL)
-        XCTAssertEqual(
-            directories.downloadsSDM,
-            actualDownloads.appending(path: "SDM", directoryHint: .isDirectory)
-        )
     }
     #endif
 
@@ -328,7 +331,6 @@ final class SDMAppTests: XCTestCase {
         XCTAssertEqual(service.defaultDownloadLocation, .appSandbox)
         XCTAssertEqual(service.defaultDestinationDirectory, documents.standardizedFileURL)
         XCTAssertNil(directories.directory(for: .downloads))
-        XCTAssertNil(directories.directory(for: .downloadsSDM))
 
         await service.shutdown()
     }

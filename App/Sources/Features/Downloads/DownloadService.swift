@@ -476,6 +476,10 @@ final class DownloadService {
             forKey: AppStorageKey.defaultDownloadLocation
         ).flatMap(DefaultDownloadLocation.init(rawValue:)),
             DefaultDownloadLocation.availableLocations.contains(location) else {
+            userDefaults.set(
+                DefaultDownloadLocation.fallback.rawValue,
+                forKey: AppStorageKey.defaultDownloadLocation
+            )
             return .fallback
         }
         return location

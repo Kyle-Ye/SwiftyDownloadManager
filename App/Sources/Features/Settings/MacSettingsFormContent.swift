@@ -127,12 +127,7 @@ struct MacSettingsFormContent: View {
     }
 
     private var defaultDestinationPath: String {
-        switch defaultDownloadLocation {
-        case .downloads, .downloadsSDM:
-            defaultDownloadLocation.title
-        case .appSandbox, .custom:
-            defaultDestinationDirectory.path(percentEncoded: false)
-        }
+        defaultDestinationDirectory.path(percentEncoded: false)
     }
 
     private var extensionStatusTitle: String {

@@ -3,7 +3,6 @@ import Foundation
 enum DefaultDownloadLocation: String, CaseIterable, Identifiable {
     case appSandbox
     case downloads
-    case downloadsSDM
     case custom
 
     var id: Self { self }
@@ -33,9 +32,7 @@ enum DefaultDownloadLocation: String, CaseIterable, Identifiable {
             "SDM Documents"
             #endif
         case .downloads:
-            "~/Downloads"
-        case .downloadsSDM:
-            "~/Downloads/SDM"
+            "Downloads Folder"
         case .custom:
             #if os(macOS)
             "Custom Folder…"
@@ -55,18 +52,12 @@ struct DefaultDownloadDestinationDirectories: Sendable, Equatable {
         self.downloads = downloads?.resolvingSymlinksInPath().standardizedFileURL
     }
 
-    var downloadsSDM: URL? {
-        downloads?.appending(path: "SDM", directoryHint: .isDirectory)
-    }
-
     func directory(for location: DefaultDownloadLocation) -> URL? {
         switch location {
         case .appSandbox:
             appSandbox
         case .downloads:
             downloads
-        case .downloadsSDM:
-            downloadsSDM
         case .custom:
             nil
         }
