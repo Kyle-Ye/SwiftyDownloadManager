@@ -129,6 +129,7 @@ export default function Home() {
         </a>
         <nav aria-label="Main navigation">
           <a href="#features">Features</a>
+          <a href="#lock-screen">Lock Screen</a>
           <a href="#engines">Engines</a>
           <a href="/privacy/">Privacy</a>
         </nav>
@@ -247,6 +248,56 @@ export default function Home() {
             </article>
           ))}
         </div>
+      </section>
+
+      <section className="lock-screen-section" id="lock-screen">
+        <div className="lock-screen-intro">
+          <div>
+            <p className="eyebrow">macOS Lock Screen</p>
+            <h2 className="lang-en" lang="en">
+              Keep an eye on every download.
+              <br />
+              <em>Even while your Mac is locked.</em>
+            </h2>
+            <h2 className="lang-zh" lang="zh-Hans">
+              下载状态，<br className="lock-screen-mobile-break" />抬眼可见。
+              <br />
+              <em>锁屏时也一样。</em>
+            </h2>
+          </div>
+          <div className="lock-screen-copy">
+            <p className="lang-en" lang="en">
+              See active downloads, progress, transfer speed, time remaining,
+              and paused tasks without unlocking your Mac.
+            </p>
+            <p className="lang-zh" lang="zh-Hans">
+              无需解锁 Mac，即可查看进行中的下载、传输进度、速度、剩余时间与暂停任务。
+            </p>
+            <div className="lock-screen-setting">
+              <span className="setting-switch" aria-hidden="true"><i /></span>
+              <span>
+                <strong className="lang-en" lang="en">Enable it in Settings</strong>
+                <strong className="lang-zh" lang="zh-Hans">可在设置中开启</strong>
+                <small className="lang-en" lang="en">Off by default</small>
+                <small className="lang-zh" lang="zh-Hans">默认关闭</small>
+              </span>
+            </div>
+          </div>
+        </div>
+        <figure className="lock-screen-visual">
+          <img
+            src="/lock-screen-status.jpg"
+            alt="A Mac Lock Screen with Swifty Download Manager status centered on the display"
+            width="1672"
+            height="941"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption>
+            <span className="lang-en" lang="en">Product visualization based on SDM&apos;s actual Lock Screen interface.</span>
+            <span className="lang-zh" lang="zh-Hans">产品示意图，界面基于 SDM 实际锁屏状态视图。</span>
+          </figcaption>
+        </figure>
       </section>
 
       <section className="engine-section" id="engines">

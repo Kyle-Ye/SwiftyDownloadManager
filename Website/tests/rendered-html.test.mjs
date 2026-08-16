@@ -59,6 +59,13 @@ test("server-renders the SDM landing page", async () => {
   assert.match(html, /Rebalanced live/);
   assert.match(html, /Checkpoint saved/);
   assert.match(html, /Resume from 68%/);
+  assert.match(html, /Keep an eye on every download\./);
+  assert.match(html, /Even while your Mac is locked\./);
+  assert.match(html, /Enable it in Settings/);
+  assert.match(html, /Off by default/);
+  assert.match(html, /下载状态，/);
+  assert.match(html, /抬眼可见。/);
+  assert.match(html, /src=["']\/lock-screen-status\.jpg["']/);
   assert.match(html, /Public repository/);
   assert.match(html, /MIT in 2 years/);
   assert.match(html, /Safari \+ Chrome/);
@@ -130,6 +137,7 @@ test("ships site-specific metadata, distribution config, and local brand assets"
   assert.match(languageScript, /document\.documentElement\.dataset\.language/);
   assert.match(languageScript, /更快下载。/);
   assert.match(languageScript, /随时续传。/);
+  assert.match(languageScript, /锁屏状态/);
   assert.doesNotMatch(languageScript, /你的文件，你做主/);
   assert.match(layout, /src="\/theme\.js"/);
   assert.match(layout, /data-sdm-static/);
@@ -147,6 +155,7 @@ test("ships site-specific metadata, distribution config, and local brand assets"
     access(new URL("../public/sdm-icon.png", import.meta.url)),
     access(new URL("../public/favicon.svg", import.meta.url)),
     access(new URL("../public/og.png", import.meta.url)),
+    access(new URL("../public/lock-screen-status.jpg", import.meta.url)),
     access(new URL("../public/language.js", import.meta.url)),
     access(new URL("../public/theme.js", import.meta.url)),
   ]);

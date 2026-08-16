@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     template: "%s · Swifty Download Manager",
   },
   description:
-    "A private, Apple-native download manager with dynamic HTTP Range segmentation, multi-connection transfers, and persistent resume.",
+    "A private, Apple-native download manager with parallel transfers, persistent resume, and optional download status on the macOS Lock Screen.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     type: "website",
     title: "Swifty Download Manager — Download faster. Resume anytime.",
     description:
-      "Dynamic HTTP Range segmentation, parallel connections, and persistent resume for Apple platforms.",
+      "Parallel transfers, persistent resume, and optional download status on the macOS Lock Screen.",
     images: [
       {
         url: "/og.png",
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Swifty Download Manager — Download faster. Resume anytime.",
     description:
-      "Dynamic HTTP Range segmentation, parallel connections, and persistent resume for Apple platforms.",
+      "Parallel transfers, persistent resume, and optional download status on the macOS Lock Screen.",
     images: ["/og.png"],
   },
 };

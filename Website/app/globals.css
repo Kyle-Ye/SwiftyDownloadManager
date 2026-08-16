@@ -71,6 +71,7 @@ html[data-language="zh"] body {
 html[data-language="zh"] .hero h1,
 html[data-language="zh"] .privacy-hero h1,
 html[data-language="zh"] .section-heading h2,
+html[data-language="zh"] .lock-screen-intro h2,
 html[data-language="zh"] .engine-intro h2,
 html[data-language="zh"] .safari-copy h2,
 html[data-language="zh"] .privacy-banner h2,
@@ -750,6 +751,7 @@ html[data-theme="dark"] .theme-moon { display: none; }
 }
 
 .section-heading h2,
+.lock-screen-intro h2,
 .engine-intro h2,
 .source-banner h2,
 .safari-copy h2,
@@ -1130,6 +1132,115 @@ html[data-theme="dark"] .theme-moon { display: none; }
 
 .license-chip span { color: var(--mint); }
 .license-chip strong { font-size: 13px; }
+
+.lock-screen-section {
+  width: min(1240px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 20px 0 130px;
+}
+
+.lock-screen-intro {
+  margin-bottom: 44px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  align-items: end;
+  gap: 48px 80px;
+}
+
+.lock-screen-intro h2 {
+  max-width: 830px;
+}
+
+.lock-screen-mobile-break {
+  display: none;
+}
+
+.lock-screen-intro h2 em {
+  color: var(--coral);
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+}
+
+.lock-screen-copy > p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.lock-screen-setting {
+  width: max-content;
+  max-width: 100%;
+  margin-top: 26px;
+  padding: 10px 16px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--glass);
+}
+
+.lock-screen-setting > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lock-screen-setting strong {
+  font-size: 12px;
+}
+
+.lock-screen-setting small {
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.setting-switch {
+  width: 42px;
+  height: 26px;
+  padding: 3px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--coral);
+  box-shadow: inset 0 0 0 1px rgba(23, 33, 29, 0.08);
+}
+
+.setting-switch i {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 4px rgba(23, 33, 29, 0.24);
+}
+
+.lock-screen-visual {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 36px;
+  overflow: hidden;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.lock-screen-visual img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 25px;
+}
+
+.lock-screen-visual figcaption {
+  padding: 12px 8px 2px;
+  color: var(--ink-soft);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 9px;
+  line-height: 1.5;
+  text-align: right;
+}
 
 .engine-section {
   padding: 130px max(24px, calc((100% - 1240px) / 2));
@@ -1746,6 +1857,8 @@ html[data-theme="dark"] .hero-stage {
   .feature-card { grid-template-columns: 1fr; gap: 24px; }
   .feature-card:nth-child(even) .feature-copy,
   .feature-card:nth-child(even) .feature-visual { order: initial; }
+  .lock-screen-intro { grid-template-columns: 1fr; gap: 28px; }
+  .lock-screen-copy { max-width: 650px; }
   .engine-section { grid-template-columns: 1fr; }
   .engine-intro { max-width: 620px; }
   .source-banner { grid-template-columns: 100px 1fr; }
@@ -1783,6 +1896,13 @@ html[data-theme="dark"] .hero-stage {
   .feature-card.has-feature-visual { min-height: 0; }
   .feature-copy h3 { margin-top: 22px; font-size: 30px; }
   .feature-visual { min-height: 180px; padding: 20px; border-radius: 18px; }
+  .lock-screen-section { width: min(100% - 32px, 1240px); padding: 10px 0 90px; }
+  .lock-screen-intro { margin-bottom: 30px; }
+  .lock-screen-intro h2 { font-size: 45px; }
+  .lock-screen-mobile-break { display: block; }
+  .lock-screen-visual { padding: 7px; border-radius: 23px; }
+  .lock-screen-visual img { border-radius: 17px; }
+  .lock-screen-visual figcaption { padding: 9px 5px 1px; font-size: 8px; text-align: left; }
   .engine-section { padding: 95px 18px 125px; }
   .engine-cards { grid-template-columns: 1fr; }
   .engine-card { min-height: 430px; }

@@ -2,6 +2,7 @@
   const storageKey = "sdm-language";
   const translations = {
     "Features": "功能",
+    "Lock Screen": "锁屏状态",
     "Engines": "下载引擎",
     "Privacy": "隐私",
     "View on GitHub ↗": "在 GitHub 查看 ↗",
@@ -28,6 +29,7 @@
     "Resume with confidence": "可靠断点续传",
     "Checkpoint saved": "检查点已保存",
     "Resume from 68%": "从 68% 继续",
+    "macOS Lock Screen": "macOS 锁屏状态",
     "Source available": "源代码可获取",
     "Public repository": "公开代码仓库",
     "MIT in 2 years": "两年后转 MIT",
