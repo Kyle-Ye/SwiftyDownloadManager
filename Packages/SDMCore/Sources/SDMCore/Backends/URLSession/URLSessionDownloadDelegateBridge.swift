@@ -5,6 +5,7 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
     weak var backend: URLSessionDownloadBackend?
 
     private let stagingDirectory: URL
+    private let terminalTasks = URLSessionDelegateTaskTracker()
 
     init(stagingDirectory: URL) {
         self.stagingDirectory = stagingDirectory
@@ -44,7 +45,7 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
             }
             try FileManager.default.moveItem(at: location, to: stagedURL)
             let response = downloadTask.response as? HTTPURLResponse
-            Task { [weak backend] in
+            terminalTasks.start { [weak backend] in
                 await backend?.didFinish(
                     downloadID: id,
                     stagedURL: stagedURL,
@@ -55,7 +56,7 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
                 )
             }
         } catch {
-            Task { [weak backend] in
+            terminalTasks.start { [weak backend] in
                 await backend?.didFail(
                     downloadID: id,
                     code: .inputOutput,
@@ -74,7 +75,7 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
         guard let error, let id = downloadID(for: task) else { return }
         let nsError = error as NSError
         let resumeData = nsError.userInfo[NSURLSessionDownloadTaskResumeData] as? Data
-        Task { [weak backend] in
+        terminalTasks.start { [weak backend] in
             await backend?.didFail(
                 downloadID: id,
                 code: nsError.code == NSURLErrorCancelled ? .invalidState : .network,
@@ -86,7 +87,8 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         guard let identifier = session.configuration.identifier else { return }
-        Task { [weak backend] in
+        Task { [weak backend, terminalTasks] in
+            await terminalTasks.waitForTrackedTasks()
             await backend?.didFinishBackgroundEvents(identifier: identifier)
         }
     }

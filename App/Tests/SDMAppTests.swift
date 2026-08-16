@@ -104,7 +104,63 @@ final class SDMAppTests: XCTestCase {
         try firstStore.release(owner: "test")
         firstStore.stopAllAccess()
 
+        let releasedRecords = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: storeURL),
+                format: nil
+            ) as? [[String: Any]]
+        )
+        XCTAssertTrue(releasedRecords.isEmpty)
+
         let restoredStore = try DestinationBookmarkStore(storeURL: storeURL)
+        restoredStore.stopAllAccess()
+    }
+
+    @MainActor
+    func testDestinationBookmarkStoreRetainsSavedDefaultWithoutAnOwner() throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        let destination = root.appending(path: "Destination", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeURL = root.appending(path: "destination-bookmarks.plist")
+
+        let firstStore = try DestinationBookmarkStore(storeURL: storeURL)
+        _ = try firstStore.authorize(
+            destination,
+            owner: "default",
+            retainBookmarkWhenUnowned: true
+        )
+        try firstStore.release(
+            owner: "default",
+            retainBookmarkWhenUnowned: true
+        )
+        firstStore.stopAllAccess()
+
+        let releasedRecords = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: storeURL),
+                format: nil
+            ) as? [[String: Any]]
+        )
+        XCTAssertEqual(releasedRecords.count, 1)
+        XCTAssertEqual(releasedRecords.first?["owners"] as? [String], [])
+        XCTAssertEqual(
+            releasedRecords.first?["retainsBookmarkWhenUnowned"] as? Bool,
+            true
+        )
+
+        let restoredStore = try DestinationBookmarkStore(storeURL: storeURL)
+        XCTAssertEqual(
+            try restoredStore.authorize(
+                destination,
+                owner: "default",
+                retainBookmarkWhenUnowned: true
+            ),
+            destination.standardizedFileURL
+        )
         restoredStore.stopAllAccess()
     }
 
@@ -217,10 +273,11 @@ final class SDMAppTests: XCTestCase {
         )
 
         let directories = DefaultDownloadDestinationDirectories(
-            appSandbox: root.appending(path: "AppData", directoryHint: .isDirectory),
+            appSandbox: sandboxDownloads,
             downloads: sandboxDownloads
         )
 
+        XCTAssertEqual(directories.appSandbox, sandboxDownloads.standardizedFileURL)
         XCTAssertEqual(directories.downloads, actualDownloads.standardizedFileURL)
         XCTAssertEqual(
             directories.downloadsSDM,
@@ -383,6 +440,7 @@ final class SDMAppTests: XCTestCase {
         XCTAssertTrue(DownloadState.paused.allows(.resume))
         XCTAssertTrue(DownloadState.paused.allows(.remove))
         XCTAssertTrue(DownloadState.failed.allows(.retry))
+        XCTAssertFalse(DownloadState.finalizing.allows(.cancel))
         XCTAssertFalse(DownloadState.completed.allows(.cancel))
     }
 

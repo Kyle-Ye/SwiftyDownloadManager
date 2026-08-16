@@ -3,6 +3,23 @@ import XCTest
 @testable import SDMCore
 
 final class URLSessionBackendTests: XCTestCase {
+    func testURLSessionDelegateTaskTrackerWaitsForTerminalOperations() async {
+        let tracker = URLSessionDelegateTaskTracker()
+        let recorder = URLSessionDelegateEventRecorder()
+
+        tracker.start {
+            try? await Task.sleep(for: .milliseconds(50))
+            await recorder.append(1)
+        }
+        tracker.start {
+            await recorder.append(2)
+        }
+        await tracker.waitForTrackedTasks()
+
+        let values = await recorder.values
+        XCTAssertEqual(Set(values), [1, 2])
+    }
+
     func testCoordinatedFinalizerRefusesToOverwriteWithoutReplacePolicy() throws {
         let root = FileManager.default.temporaryDirectory.appending(
             path: UUID().uuidString,
@@ -307,5 +324,13 @@ final class URLSessionBackendTests: XCTestCase {
             XCTAssertEqual(error.code, .invalidArgument)
         }
         await manager.shutdown()
+    }
+}
+
+private actor URLSessionDelegateEventRecorder {
+    private(set) var values: [Int] = []
+
+    func append(_ value: Int) {
+        values.append(value)
     }
 }

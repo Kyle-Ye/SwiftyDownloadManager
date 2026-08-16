@@ -52,7 +52,7 @@ extension DownloadState {
         case .resume:
             self == .paused
         case .cancel:
-            self != .completed && self != .cancelled
+            self != .completed && self != .cancelled && self != .finalizing
         case .retry:
             self == .failed || self == .cancelled
         case .remove:

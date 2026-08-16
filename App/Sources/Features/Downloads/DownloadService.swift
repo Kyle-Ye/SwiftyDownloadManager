@@ -102,10 +102,7 @@ final class DownloadService {
                 )
             }
             let defaultDestinationDirectories = DefaultDownloadDestinationDirectories(
-                appSandbox: storagePaths.rootDirectory.appending(
-                    path: "Downloads",
-                    directoryHint: .isDirectory
-                ),
+                appSandbox: downloadsDirectory,
                 downloads: downloadsDirectory
             )
             #else
@@ -151,7 +148,8 @@ final class DownloadService {
                     fileManager: fileManager
                 )
                 try? destinationBookmarks?.release(
-                    owner: defaultDestinationBookmarkOwner
+                    owner: defaultDestinationBookmarkOwner,
+                    retainBookmarkWhenUnowned: true
                 )
                 userDefaults.set(
                     defaultDownloadLocation.rawValue,
@@ -238,7 +236,8 @@ final class DownloadService {
             )
         } else {
             try destinationBookmarks?.release(
-                owner: Self.defaultDestinationBookmarkOwner
+                owner: Self.defaultDestinationBookmarkOwner,
+                retainBookmarkWhenUnowned: true
             )
         }
         userDefaults.set(location.rawValue, forKey: AppStorageKey.defaultDownloadLocation)
@@ -525,14 +524,18 @@ final class DownloadService {
         }
         let authorizedDirectory = try destinationBookmarks.authorize(
             customDirectory,
-            owner: bookmarkOwner
+            owner: bookmarkOwner,
+            retainBookmarkWhenUnowned: true
         )
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(
             atPath: authorizedDirectory.path,
             isDirectory: &isDirectory
         ), isDirectory.boolValue else {
-            try? destinationBookmarks.release(owner: bookmarkOwner)
+            try? destinationBookmarks.release(
+                owner: bookmarkOwner,
+                retainBookmarkWhenUnowned: true
+            )
             throw ServiceError.unavailable(
                 "The selected custom download folder is no longer available."
             )

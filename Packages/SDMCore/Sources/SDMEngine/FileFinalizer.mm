@@ -2,8 +2,11 @@
 
 #include "SDMFileFinalizer.h"
 
+#include <cerrno>
 #include <cstdio>
+#include <fcntl.h>
 #include <string>
+#include <sys/stdio.h>
 
 namespace {
 
@@ -21,6 +24,28 @@ NSError *file_exists_error(NSURL *destination) {
     return [NSError errorWithDomain:NSCocoaErrorDomain
                                code:NSFileWriteFileExistsError
                            userInfo:@{NSFilePathErrorKey: destination.path}];
+}
+
+bool exclusive_rename(NSURL *source, NSURL *destination, NSError **error) {
+    if (::renameatx_np(
+            AT_FDCWD,
+            source.fileSystemRepresentation,
+            AT_FDCWD,
+            destination.fileSystemRepresentation,
+            RENAME_EXCL
+        ) == 0) {
+        return true;
+    }
+
+    const auto error_code = errno;
+    if (error != nullptr) {
+        *error = error_code == EEXIST
+            ? file_exists_error(destination)
+            : [NSError errorWithDomain:NSPOSIXErrorDomain
+                                   code:error_code
+                               userInfo:@{NSFilePathErrorKey: destination.path}];
+    }
+    return false;
 }
 
 bool synchronize_file(NSURL *url, NSError **error) {
@@ -93,12 +118,27 @@ bool finalize_file(
                         return;
                     }
 
-                    if (::rename(
-                            coordinated_source.fileSystemRepresentation,
-                            coordinated_destination.fileSystemRepresentation
-                        ) == 0) {
-                        completed = true;
-                        return;
+                    if (replaces_existing) {
+                        if (::rename(
+                                coordinated_source.fileSystemRepresentation,
+                                coordinated_destination.fileSystemRepresentation
+                            ) == 0) {
+                            completed = true;
+                            return;
+                        }
+                    } else {
+                        if (exclusive_rename(
+                                coordinated_source,
+                                coordinated_destination,
+                                &operation_error
+                            )) {
+                            completed = true;
+                            return;
+                        }
+                        if ([operation_error.domain isEqualToString:NSCocoaErrorDomain] &&
+                            operation_error.code == NSFileWriteFileExistsError) {
+                            return;
+                        }
                     }
 
                     NSURL *destination_directory = coordinated_destination
@@ -122,30 +162,36 @@ bool finalize_file(
                         return;
                     }
 
-                    const auto coordinated_destination_exists = [file_manager
-                        fileExistsAtPath:coordinated_destination.path];
-                    if (coordinated_destination_exists) {
-                        if (!replaces_existing) {
-                            operation_error = file_exists_error(coordinated_destination);
+                    if (!replaces_existing) {
+                        if (!exclusive_rename(
+                                staging_url,
+                                coordinated_destination,
+                                &operation_error
+                            )) {
                             [file_manager removeItemAtURL:staging_url error:nil];
                             return;
                         }
-                        if (![file_manager
-                                replaceItemAtURL:coordinated_destination
-                                withItemAtURL:staging_url
-                                backupItemName:nil
-                                options:0
-                                resultingItemURL:nil
-                                error:&operation_error]) {
+                    } else {
+                        const auto coordinated_destination_exists = [file_manager
+                            fileExistsAtPath:coordinated_destination.path];
+                        if (coordinated_destination_exists) {
+                            if (![file_manager
+                                    replaceItemAtURL:coordinated_destination
+                                    withItemAtURL:staging_url
+                                    backupItemName:nil
+                                    options:0
+                                    resultingItemURL:nil
+                                    error:&operation_error]) {
+                                [file_manager removeItemAtURL:staging_url error:nil];
+                                return;
+                            }
+                        } else if (![file_manager
+                                       moveItemAtURL:staging_url
+                                       toURL:coordinated_destination
+                                       error:&operation_error]) {
                             [file_manager removeItemAtURL:staging_url error:nil];
                             return;
                         }
-                    } else if (![file_manager
-                                   moveItemAtURL:staging_url
-                                   toURL:coordinated_destination
-                                   error:&operation_error]) {
-                        [file_manager removeItemAtURL:staging_url error:nil];
-                        return;
                     }
 
                     // The destination is committed at this point, so a sandbox

@@ -6,16 +6,21 @@ final class DestinationBookmarkStore {
         let path: String
         let bookmark: Data
         let owners: [String]?
+        let retainsBookmarkWhenUnowned: Bool?
     }
 
     private struct Entry {
         var bookmark: Data
         var owners: Set<String>
         var isLegacy: Bool
+        var retainsBookmarkWhenUnowned: Bool
 
-        func mergingOwners(from existing: Self?) -> Self {
+        func merging(from existing: Self?) -> Self {
             var merged = self
             merged.owners.formUnion(existing?.owners ?? [])
+            merged.retainsBookmarkWhenUnowned =
+                retainsBookmarkWhenUnowned ||
+                (existing?.retainsBookmarkWhenUnowned ?? false)
             return merged
         }
     }
@@ -36,7 +41,9 @@ final class DestinationBookmarkStore {
                         Entry(
                             bookmark: record.bookmark,
                             owners: Set(record.owners ?? []),
-                            isLegacy: record.owners == nil
+                            isLegacy: record.owners == nil,
+                            retainsBookmarkWhenUnowned:
+                                record.retainsBookmarkWhenUnowned ?? false
                         )
                     )
                 }
@@ -44,11 +51,20 @@ final class DestinationBookmarkStore {
         } else {
             entriesByPath = [:]
         }
+        let storedEntryCount = entriesByPath.count
+        pruneUnownedEntries()
+        if entriesByPath.count != storedEntryCount {
+            try persist()
+        }
         restoreAccess()
     }
 
     @discardableResult
-    func authorize(_ directory: URL, owner: String) throws -> URL {
+    func authorize(
+        _ directory: URL,
+        owner: String,
+        retainBookmarkWhenUnowned: Bool = false
+    ) throws -> URL {
         let requestedURL = directory.standardizedFileURL
         let requestedPath = requestedURL.path(percentEncoded: false)
         let path = if entriesByPath[requestedPath] != nil {
@@ -113,12 +129,14 @@ final class DestinationBookmarkStore {
             }
         }
 
-        removeOwner(owner)
+        relocateOwner(owner)
+        pruneUnownedEntries()
         entriesByPath[path] = Entry(
             bookmark: bookmark,
             owners: [owner],
-            isLegacy: false
-        ).mergingOwners(from: entriesByPath[path])
+            isLegacy: false,
+            retainsBookmarkWhenUnowned: retainBookmarkWhenUnowned
+        ).merging(from: entriesByPath[path])
         if didStartAccess {
             activeURLsByPath[path] = authorizedURL
         }
@@ -137,9 +155,16 @@ final class DestinationBookmarkStore {
         }
     }
 
-    func release(owner: String) throws {
+    func release(
+        owner: String,
+        retainBookmarkWhenUnowned: Bool = false
+    ) throws {
         let previousEntries = entriesByPath
-        removeOwner(owner)
+        removeOwner(
+            owner,
+            retainBookmarkWhenUnowned: retainBookmarkWhenUnowned
+        )
+        pruneUnownedEntries()
         do {
             try persist()
             stopUnownedAccess()
@@ -156,9 +181,32 @@ final class DestinationBookmarkStore {
         activeURLsByPath.removeAll()
     }
 
-    private func removeOwner(_ owner: String) {
-        for path in entriesByPath.keys {
+    private func relocateOwner(_ owner: String) {
+        for path in entriesByPath.keys
+            where entriesByPath[path]?.owners.contains(owner) == true {
             entriesByPath[path]?.owners.remove(owner)
+            entriesByPath[path]?.retainsBookmarkWhenUnowned = false
+        }
+    }
+
+    private func removeOwner(
+        _ owner: String,
+        retainBookmarkWhenUnowned: Bool
+    ) {
+        for path in entriesByPath.keys
+            where entriesByPath[path]?.owners.contains(owner) == true {
+            entriesByPath[path]?.owners.remove(owner)
+            if retainBookmarkWhenUnowned {
+                entriesByPath[path]?.retainsBookmarkWhenUnowned = true
+            }
+        }
+    }
+
+    private func pruneUnownedEntries() {
+        entriesByPath = entriesByPath.filter { _, entry in
+            entry.isLegacy ||
+                !entry.owners.isEmpty ||
+                entry.retainsBookmarkWhenUnowned
         }
     }
 
@@ -212,7 +260,9 @@ final class DestinationBookmarkStore {
                 Record(
                     path: path,
                     bookmark: entry.bookmark,
-                    owners: entry.isLegacy ? nil : entry.owners.sorted()
+                    owners: entry.isLegacy ? nil : entry.owners.sorted(),
+                    retainsBookmarkWhenUnowned:
+                        entry.retainsBookmarkWhenUnowned ? true : nil
                 )
             }
             .sorted { $0.path < $1.path }

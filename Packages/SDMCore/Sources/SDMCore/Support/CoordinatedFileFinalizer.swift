@@ -2,6 +2,33 @@ import Foundation
 import SDMEngineBridge
 
 enum CoordinatedFileFinalizer {
+    static func moveOffActor(
+        from source: URL,
+        to destination: URL,
+        replacesExisting: Bool
+    ) async throws {
+        let failure = await Task.detached(priority: .utility) {
+            do {
+                try move(
+                    from: source,
+                    to: destination,
+                    replacesExisting: replacesExisting
+                )
+                return nil as DownloadError?
+            } catch let error as DownloadError {
+                return error
+            } catch {
+                return DownloadError(
+                    code: .inputOutput,
+                    message: error.localizedDescription
+                )
+            }
+        }.value
+        if let failure {
+            throw failure
+        }
+    }
+
     static func move(
         from source: URL,
         to destination: URL,
