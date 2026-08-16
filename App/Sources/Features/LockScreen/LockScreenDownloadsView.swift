@@ -11,12 +11,7 @@ struct LockScreenDownloadsView: View {
         }
 
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-
+            HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Swifty Download Manager")
                         .bold()
@@ -24,6 +19,16 @@ struct LockScreenDownloadsView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+
+                Spacer(minLength: 16)
+
+                Image("SDMLockScreenLogo")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, height: 34)
+                    .accessibilityHidden(true)
             }
 
             Divider()
@@ -67,14 +72,15 @@ struct LockScreenDownloadsView: View {
                 }
             }
         }
+        .tint(.secondary)
         .padding(18)
         .frame(width: 440)
-        .background(.regularMaterial, in: .rect(cornerRadius: 18))
+        .background(.ultraThinMaterial, in: .rect(cornerRadius: 18))
         .overlay {
             RoundedRectangle(cornerRadius: 18)
-                .stroke(.white.opacity(0.16))
+                .stroke(.white.opacity(0.12))
         }
-        .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
+        .shadow(color: .black.opacity(0.16), radius: 20, y: 8)
         .padding(40)
         .allowsHitTesting(false)
     }
