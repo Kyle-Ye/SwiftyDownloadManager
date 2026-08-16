@@ -702,6 +702,63 @@ final class SDMAppTests: XCTestCase {
     }
 
     #if os(macOS)
+    func testLockScreenActiveStateClassification() {
+        let activeStates: Set<DownloadState> = [
+            .created,
+            .probing,
+            .queued,
+            .downloading,
+            .pausing,
+            .paused,
+            .retrying,
+            .finalizing,
+        ]
+
+        for state in DownloadState.allCases {
+            XCTAssertEqual(
+                state.appearsOnLockScreen,
+                activeStates.contains(state),
+                "Unexpected Lock Screen classification for \(state)"
+            )
+        }
+    }
+
+    func testLockScreenDownloadsExcludeHistoryAndLimitResults() throws {
+        let snapshots = try (0 ..< 6).map { index in
+            try makeSnapshot(
+                id: "00000000-0000-0000-0000-00000000000\(index)",
+                state: index == 5 ? .completed : .downloading,
+                createdAt: TimeInterval(index),
+                updatedAt: TimeInterval(index)
+            )
+        }
+
+        let result = LockScreenDownloads.select(from: snapshots, limit: 3)
+
+        XCTAssertEqual(
+            result.map(\.createdAt),
+            [4.0, 3.0, 2.0].map(Date.init(timeIntervalSince1970:))
+        )
+        XCTAssertTrue(result.allSatisfy { $0.state == .downloading })
+    }
+
+    @MainActor
+    func testLockScreenDefaultsNotificationCanArriveOffMainActor() async {
+        let coordinator = LockScreenDownloadCoordinator(
+            service: DownloadService.preview()
+        )
+
+        await Task.detached {
+            NotificationCenter.default.post(
+                name: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard
+            )
+        }.value
+        await Task.yield()
+
+        withExtendedLifetime(coordinator) {}
+    }
+
     @MainActor
     func testClosingLastWindowKeepsMenuBarApplicationRunning() {
         let delegate = SDMApplicationDelegate()
@@ -726,6 +783,35 @@ final class SDMAppTests: XCTestCase {
         )
 
         XCTAssertGreaterThan(hostingView.fittingSize.height, 70)
+    }
+
+    @MainActor
+    func testLockScreenEmptyStateContributesIntrinsicSize() {
+        let hostingView = NSHostingView(
+            rootView: LockScreenDownloadsView(service: .preview())
+        )
+
+        XCTAssertGreaterThan(hostingView.fittingSize.width, 400)
+        XCTAssertGreaterThan(hostingView.fittingSize.height, 100)
+    }
+
+    @MainActor
+    func testLockScreenOverlayCentersCardInWindow() throws {
+        let containerView = LockScreenOverlayContentView(service: .preview())
+        containerView.frame = NSRect(x: 0, y: 0, width: 1_280, height: 720)
+        containerView.layoutSubtreeIfNeeded()
+
+        let hostingView = try XCTUnwrap(containerView.subviews.first)
+        XCTAssertEqual(
+            hostingView.frame.midX,
+            containerView.bounds.midX,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            hostingView.frame.midY,
+            containerView.bounds.midY,
+            accuracy: 0.5
+        )
     }
     #endif
 

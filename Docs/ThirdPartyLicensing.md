@@ -25,6 +25,16 @@ redistribution terms are followed. The repository and app bundle retain all
 four license texts. OpenSSL 3.6.0 has no upstream `NOTICE` file; its complete
 Apache 2.0 license is included.
 
+## SkyLightWindow
+
+The optional macOS Lock Screen download-status feature links
+[`SkyLightWindow` 1.0.0](https://github.com/Lakr233/SkyLightWindow), which is
+licensed under the MIT License. Its complete license is bundled as
+`App/Resources/Legal/SkyLightWindow-LICENSE.txt` and is listed in the app's
+third-party notices. SkyLightWindow uses private macOS SkyLight APIs, so every
+macOS release should revalidate the feature against supported system versions
+and review current App Store requirements.
+
 ## Development-only LookInside server
 
 Debug builds link the pinned

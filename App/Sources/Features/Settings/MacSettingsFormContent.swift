@@ -6,6 +6,7 @@ struct MacSettingsFormContent: View {
     @Binding var defaultConnectionCount: Int
     @Binding var defaultDownloadLocation: DefaultDownloadLocation
     @Binding var showsMenuBarIcon: Bool
+    @Binding var showsLockScreenDownloadStatus: Bool
     @Binding var selectedEngine: String
     let engineDescriptors: [DownloadEngineDescriptor]
     let selectedDescriptor: DownloadEngineDescriptor?
@@ -85,6 +86,17 @@ struct MacSettingsFormContent: View {
                     Text("URLSession manages connections internally and uses one connection per download.")
                 }
             }
+        }
+
+        Section {
+            Toggle(
+                "Show download status on the Lock Screen",
+                isOn: $showsLockScreenDownloadStatus
+            )
+        } header: {
+            Text("Lock Screen")
+        } footer: {
+            Text("Shows active download progress while this Mac is locked. When no downloads are active, SDM shows an empty state.")
         }
 
         Section("Browser Extensions") {

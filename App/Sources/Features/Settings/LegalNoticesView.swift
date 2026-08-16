@@ -38,6 +38,7 @@ private enum LegalDocument: String, CaseIterable, Identifiable {
     case curlApple = "CurlApple-LICENSE"
     case openSSL = "OpenSSL-LICENSE"
     case mozilla = "Mozilla-LICENSE"
+    case skyLightWindow = "SkyLightWindow-LICENSE"
 
     var id: Self { self }
 
@@ -48,6 +49,7 @@ private enum LegalDocument: String, CaseIterable, Identifiable {
         case .curlApple: "curl-apple"
         case .openSSL: "OpenSSL"
         case .mozilla: "Mozilla CA Store"
+        case .skyLightWindow: "SkyLightWindow"
         }
     }
 
