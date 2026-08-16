@@ -4,6 +4,11 @@
       "filename" : "SDMLockScreenColorLogo.png",
       "idiom" : "mac",
       "scale" : "1x"
+    },
+    {
+      "filename" : "SDMLockScreenColorLogo@2x.png",
+      "idiom" : "mac",
+      "scale" : "2x"
     }
   ],
   "info" : {
