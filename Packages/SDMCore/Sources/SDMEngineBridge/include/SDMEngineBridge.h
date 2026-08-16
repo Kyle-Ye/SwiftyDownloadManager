@@ -133,6 +133,14 @@ uint32_t sdm_engine_abi_version(void);
 const char *sdm_engine_version(void);
 const char *sdm_curl_version(void);
 
+sdm_result_t sdm_finalize_file(
+    sdm_string_view_t source_path,
+    sdm_string_view_t destination_path,
+    uint8_t replaces_existing,
+    char *error_message,
+    size_t error_message_capacity
+);
+
 sdm_result_t sdm_engine_create(
     const sdm_engine_config_t *config,
     sdm_engine_t **out_engine

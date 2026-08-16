@@ -71,6 +71,16 @@ must keep destination access active for the lifetime of the transfer. Core
 persists paths and transfer metadata, but never persists credentials, cookies,
 or request headers.
 
+Both backends finalize through coordinated file access. Core first attempts an
+atomic move, then falls back to copying into a sibling staging file, syncing it,
+and committing it at the destination. This supports destinations in iCloud
+Drive and third-party File Provider domains without exposing a partially copied
+file or removing an existing file before the replacement is ready. Non-replacing
+commits use an exclusive rename so a concurrently created destination is never
+overwritten. The libcurl engine performs potentially slow cross-volume copies on
+a dedicated finalization worker, while URLSession sequences background-event
+completion after coordinated finalization and persistence.
+
 Recovery changes in-flight tasks to `paused`. Resume uses persisted Range
 offsets and `If-Range` validators; an incompatible response fails before new
 bytes can be written into the partial representation.

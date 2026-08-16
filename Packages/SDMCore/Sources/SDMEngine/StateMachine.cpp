@@ -71,7 +71,8 @@ Result validate_command(DownloadState state, CommandKind command) noexcept {
             : Result::invalid_state;
     case CommandKind::cancel:
         return state != DownloadState::completed &&
-                state != DownloadState::cancelled
+                state != DownloadState::cancelled &&
+                state != DownloadState::finalizing
             ? Result::ok
             : Result::invalid_state;
     case CommandKind::retry:

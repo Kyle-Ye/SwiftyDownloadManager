@@ -96,12 +96,243 @@ final class SDMAppTests: XCTestCase {
         let storeURL = root.appending(path: "destination-bookmarks.plist")
 
         let firstStore = try DestinationBookmarkStore(storeURL: storeURL)
-        XCTAssertEqual(try firstStore.authorize(destination), destination.standardizedFileURL)
+        XCTAssertEqual(
+            try firstStore.authorize(destination, owner: "test"),
+            destination.standardizedFileURL
+        )
         XCTAssertTrue(FileManager.default.fileExists(atPath: storeURL.path))
+        try firstStore.release(owner: "test")
         firstStore.stopAllAccess()
+
+        let releasedRecords = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: storeURL),
+                format: nil
+            ) as? [[String: Any]]
+        )
+        XCTAssertTrue(releasedRecords.isEmpty)
 
         let restoredStore = try DestinationBookmarkStore(storeURL: storeURL)
         restoredStore.stopAllAccess()
+    }
+
+    @MainActor
+    func testDestinationBookmarkStoreRetainsSavedDefaultWithoutAnOwner() throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        let destination = root.appending(path: "Destination", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeURL = root.appending(path: "destination-bookmarks.plist")
+
+        let firstStore = try DestinationBookmarkStore(storeURL: storeURL)
+        _ = try firstStore.authorize(
+            destination,
+            owner: "default",
+            retainBookmarkWhenUnowned: true
+        )
+        try firstStore.release(
+            owner: "default",
+            retainBookmarkWhenUnowned: true
+        )
+        firstStore.stopAllAccess()
+
+        let releasedRecords = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: storeURL),
+                format: nil
+            ) as? [[String: Any]]
+        )
+        XCTAssertEqual(releasedRecords.count, 1)
+        XCTAssertEqual(releasedRecords.first?["owners"] as? [String], [])
+        XCTAssertEqual(
+            releasedRecords.first?["retainsBookmarkWhenUnowned"] as? Bool,
+            true
+        )
+
+        let restoredStore = try DestinationBookmarkStore(storeURL: storeURL)
+        XCTAssertEqual(
+            try restoredStore.authorize(
+                destination,
+                owner: "default",
+                retainBookmarkWhenUnowned: true
+            ),
+            destination.standardizedFileURL
+        )
+        restoredStore.stopAllAccess()
+    }
+
+    func testDefaultDownloadLocationsExcludeRemovedSDMSubfolder() {
+        XCTAssertNil(DefaultDownloadLocation(rawValue: "downloadsSDM"))
+        XCTAssertEqual(DefaultDownloadLocation.downloads.title, "Downloads Folder")
+        #if os(macOS)
+        XCTAssertEqual(
+            DefaultDownloadLocation.availableLocations,
+            [.appSandbox, .downloads, .custom]
+        )
+        #else
+        XCTAssertEqual(DefaultDownloadLocation.availableLocations, [.appSandbox, .custom])
+        #endif
+    }
+
+    #if os(macOS)
+    @MainActor
+    func testDefaultDownloadDestinationSelectionPersistsAndCreatesFolders() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        let downloads = root.appending(path: "Downloads", directoryHint: .isDirectory)
+        let appSandbox = root.appending(path: "AppData", directoryHint: .isDirectory)
+        let custom = root.appending(path: "Custom", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "SDMAppTests.\(UUID().uuidString)"
+        let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let bookmarks = try DestinationBookmarkStore(
+            storeURL: root.appending(path: "destination-bookmarks.plist")
+        )
+        let directories = DefaultDownloadDestinationDirectories(
+            appSandbox: appSandbox,
+            downloads: downloads
+        )
+        let service = try DownloadService(
+            configuration: DownloadManagerConfiguration(
+                databaseURL: root.appending(path: "downloads.sqlite3"),
+                temporaryDirectory: root.appending(
+                    path: "PartialDownloads",
+                    directoryHint: .isDirectory
+                )
+            ),
+            destinationDirectory: downloads,
+            destinationBookmarks: bookmarks,
+            defaultDownloadLocation: .downloads,
+            defaultDestinationDirectories: directories,
+            userDefaults: userDefaults
+        )
+
+        try service.selectDefaultDestination(.appSandbox)
+        XCTAssertEqual(service.defaultDownloadLocation, .appSandbox)
+        XCTAssertEqual(service.defaultDestinationDirectory, appSandbox.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appSandbox.path))
+
+        try service.selectDefaultDestination(.custom, customDirectory: custom)
+        XCTAssertEqual(service.defaultDownloadLocation, .custom)
+        XCTAssertEqual(service.defaultDestinationDirectory, custom.standardizedFileURL)
+        XCTAssertEqual(
+            userDefaults.string(forKey: AppStorageKey.defaultDownloadLocation),
+            DefaultDownloadLocation.custom.rawValue
+        )
+        XCTAssertEqual(
+            userDefaults.string(forKey: AppStorageKey.customDefaultDownloadDirectory),
+            custom.path(percentEncoded: false)
+        )
+
+        await service.shutdown()
+    }
+
+    func testDefaultDownloadDestinationDirectoryMapping() {
+        let directories = DefaultDownloadDestinationDirectories(
+            appSandbox: URL(filePath: "/AppData/Downloads", directoryHint: .isDirectory),
+            downloads: URL(filePath: "/Users/example/Downloads", directoryHint: .isDirectory)
+        )
+
+        XCTAssertEqual(directories.directory(for: .appSandbox), directories.appSandbox)
+        XCTAssertEqual(directories.directory(for: .downloads), directories.downloads)
+        XCTAssertNil(directories.directory(for: .custom))
+    }
+
+    func testDefaultDownloadDestinationResolvesSandboxDownloadsSymlink() throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        let containerData = root.appending(
+            path: "ContainerData",
+            directoryHint: .isDirectory
+        )
+        let actualDownloads = root.appending(
+            path: "UserDownloads",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: containerData,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: actualDownloads,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sandboxDownloads = containerData.appending(
+            path: "Downloads",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createSymbolicLink(
+            at: sandboxDownloads,
+            withDestinationURL: actualDownloads
+        )
+
+        let directories = DefaultDownloadDestinationDirectories(
+            appSandbox: sandboxDownloads,
+            downloads: sandboxDownloads
+        )
+
+        XCTAssertEqual(directories.appSandbox, sandboxDownloads.standardizedFileURL)
+        XCTAssertEqual(directories.downloads, actualDownloads.standardizedFileURL)
+    }
+    #endif
+
+    @MainActor
+    func testDocumentsAndExternalDefaultDestinationsRemainSelectable() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        let documents = root.appending(path: "Documents", directoryHint: .isDirectory)
+        let external = root.appending(path: "External", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: external, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let suiteName = "SDMAppTests.\(UUID().uuidString)"
+        let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let bookmarks = try DestinationBookmarkStore(
+            storeURL: root.appending(path: "destination-bookmarks.plist")
+        )
+        let directories = DefaultDownloadDestinationDirectories(appSandbox: documents)
+        let service = try DownloadService(
+            configuration: DownloadManagerConfiguration(
+                databaseURL: root.appending(path: "downloads.sqlite3"),
+                temporaryDirectory: root.appending(
+                    path: "PartialDownloads",
+                    directoryHint: .isDirectory
+                )
+            ),
+            destinationDirectory: documents,
+            destinationBookmarks: bookmarks,
+            defaultDownloadLocation: .appSandbox,
+            defaultDestinationDirectories: directories,
+            userDefaults: userDefaults
+        )
+
+        try service.selectDefaultDestination(.custom, customDirectory: external)
+        XCTAssertEqual(service.defaultDownloadLocation, .custom)
+        XCTAssertEqual(service.defaultDestinationDirectory, external.standardizedFileURL)
+
+        try service.selectDefaultDestination(.appSandbox)
+        XCTAssertEqual(service.defaultDownloadLocation, .appSandbox)
+        XCTAssertEqual(service.defaultDestinationDirectory, documents.standardizedFileURL)
+        XCTAssertNil(directories.directory(for: .downloads))
+
+        await service.shutdown()
     }
 
     func testAppStoragePathsStayUnderInjectedApplicationSupportDirectory() throws {
@@ -211,6 +442,7 @@ final class SDMAppTests: XCTestCase {
         XCTAssertTrue(DownloadState.paused.allows(.resume))
         XCTAssertTrue(DownloadState.paused.allows(.remove))
         XCTAssertTrue(DownloadState.failed.allows(.retry))
+        XCTAssertFalse(DownloadState.finalizing.allows(.cancel))
         XCTAssertFalse(DownloadState.completed.allows(.cancel))
     }
 

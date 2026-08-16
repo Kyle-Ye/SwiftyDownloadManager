@@ -1,6 +1,7 @@
 #include "SDMEngineBridge.h"
 
 #include "SDMEngine.h"
+#include "SDMFileFinalizer.h"
 
 #include <curl/curl.h>
 
@@ -101,6 +102,19 @@ void copy_segment(const sdm::Segment &source, sdm_segment_snapshot_t &destinatio
     destination.next = source.next;
 }
 
+void copy_error_message(
+    char *destination,
+    std::size_t capacity,
+    const std::string &source
+) {
+    if (destination == nullptr || capacity == 0) {
+        return;
+    }
+    const auto count = std::min(source.size(), capacity - 1);
+    std::memcpy(destination, source.data(), count);
+    destination[count] = '\0';
+}
+
 } // namespace
 
 uint32_t sdm_engine_abi_version(void) {
@@ -113,6 +127,39 @@ const char *sdm_engine_version(void) {
 
 const char *sdm_curl_version(void) {
     return curl_version();
+}
+
+sdm_result_t sdm_finalize_file(
+    sdm_string_view_t source_path,
+    sdm_string_view_t destination_path,
+    uint8_t replaces_existing,
+    char *error_message,
+    size_t error_message_capacity
+) {
+    if (source_path.length == 0 || destination_path.length == 0 ||
+        error_message == nullptr || error_message_capacity == 0) {
+        return SDM_RESULT_INVALID_ARGUMENT;
+    }
+    try {
+        std::string message;
+        const auto finalized = sdm::finalize_file(
+            copy_string(source_path),
+            copy_string(destination_path),
+            replaces_existing != 0,
+            message
+        );
+        copy_error_message(error_message, error_message_capacity, message);
+        return finalized ? SDM_RESULT_OK : SDM_RESULT_IO_ERROR;
+    } catch (const std::invalid_argument &) {
+        return SDM_RESULT_INVALID_ARGUMENT;
+    } catch (...) {
+        copy_error_message(
+            error_message,
+            error_message_capacity,
+            "File finalization failed."
+        );
+        return SDM_RESULT_INTERNAL_ERROR;
+    }
 }
 
 sdm_result_t sdm_engine_create(

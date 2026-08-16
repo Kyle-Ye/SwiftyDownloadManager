@@ -13,6 +13,7 @@ struct MobileContentView: View {
     @State private var showsNewDownload = false
     @State private var showsSettings = false
     @State private var presentedError: PresentedDownloadError?
+    @State private var didPresentDestinationRecovery = false
 
     private var selectedFilter: DownloadFilter {
         selection ?? .all
@@ -179,6 +180,9 @@ struct MobileContentView: View {
             selectedDownloadIDs.formIntersection(availableIDs)
         }
         .onOpenURL(perform: handleExternalURL)
+        .task {
+            presentDestinationRecoveryIfNeeded()
+        }
     }
 
     private var emptyTitle: String {
@@ -193,6 +197,16 @@ struct MobileContentView: View {
 
     private func presentNewDownload() {
         showsNewDownload = true
+    }
+
+    private func presentDestinationRecoveryIfNeeded() {
+        guard !didPresentDestinationRecovery,
+              let message = service.defaultDestinationRecoveryMessage else { return }
+        didPresentDestinationRecovery = true
+        presentedError = PresentedDownloadError(
+            title: "External Folder Unavailable",
+            message: message
+        )
     }
 
     private func perform(_ command: DownloadCommand, on id: DownloadID) {

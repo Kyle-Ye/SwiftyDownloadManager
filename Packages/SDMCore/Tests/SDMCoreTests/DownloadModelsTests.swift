@@ -65,6 +65,7 @@ final class DownloadModelsTests: XCTestCase {
 
         XCTAssertEqual(sdm_test_validate_command(3, 1), 0)
         XCTAssertEqual(sdm_test_validate_command(8, 1), 3)
+        XCTAssertEqual(sdm_test_validate_command(7, 1), 3)
         XCTAssertEqual(sdm_test_validate_command(5, 2), 0)
     }
 

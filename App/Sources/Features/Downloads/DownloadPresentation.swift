@@ -52,7 +52,7 @@ extension DownloadState {
         case .resume:
             self == .paused
         case .cancel:
-            self != .completed && self != .cancelled
+            self != .completed && self != .cancelled && self != .finalizing
         case .retry:
             self == .failed || self == .cancelled
         case .remove:
@@ -158,5 +158,10 @@ struct PresentedDownloadError: Identifiable {
     init(title: String, error: Error) {
         self.title = title
         message = DownloadService.message(for: error)
+    }
+
+    init(title: String, message: String) {
+        self.title = title
+        self.message = message
     }
 }

@@ -295,7 +295,7 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         suggestedFilename: String?,
         statusCode: Int?,
         expectedContentLength: Int64
-    ) {
+    ) async {
         guard var record = records[downloadID],
               record.snapshot.state != .cancelled else {
             try? FileManager.default.removeItem(at: stagedURL)
@@ -332,7 +332,31 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
                 at: record.request.destinationDirectory,
                 withIntermediateDirectories: true
             )
-            try FileManager.default.moveItem(at: stagedURL, to: destinationURL)
+            let finalizingAt = Date.now
+            let expectedLength = expectedContentLength > 0
+                ? UInt64(expectedContentLength)
+                : record.snapshot.contentLength
+            record.snapshot = record.snapshot.replacing(
+                finalURL: .some(finalURL),
+                destinationURL: .some(destinationURL),
+                filename: destinationURL.lastPathComponent,
+                state: .finalizing,
+                contentLength: .some(expectedLength),
+                downloadedBytes: expectedLength ?? record.snapshot.downloadedBytes,
+                bytesPerSecond: 0,
+                estimatedTimeRemaining: .some(nil),
+                error: .some(nil),
+                updatedAt: finalizingAt
+            )
+            records[downloadID] = record
+            try persist()
+            broadcast()
+
+            try await CoordinatedFileFinalizer.moveOffActor(
+                from: stagedURL,
+                to: destinationURL,
+                replacesExisting: record.request.conflictPolicy == .replace
+            )
             let now = Date.now
             let fileSize = try? destinationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
             let contentLength = fileSize.map(UInt64.init)
@@ -592,7 +616,6 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         guard FileManager.default.fileExists(atPath: original.path) else { return original }
         switch policy {
         case .replace:
-            try FileManager.default.removeItem(at: original)
             return original
         case .fail:
             throw DownloadError(

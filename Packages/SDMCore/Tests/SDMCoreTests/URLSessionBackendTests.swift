@@ -3,6 +3,68 @@ import XCTest
 @testable import SDMCore
 
 final class URLSessionBackendTests: XCTestCase {
+    func testURLSessionDelegateTaskTrackerWaitsForTerminalOperations() async {
+        let tracker = URLSessionDelegateTaskTracker()
+        let recorder = URLSessionDelegateEventRecorder()
+
+        tracker.start {
+            try? await Task.sleep(for: .milliseconds(50))
+            await recorder.append(1)
+        }
+        tracker.start {
+            await recorder.append(2)
+        }
+        await tracker.waitForTrackedTasks()
+
+        let values = await recorder.values
+        XCTAssertEqual(Set(values), [1, 2])
+    }
+
+    func testCoordinatedFinalizerRefusesToOverwriteWithoutReplacePolicy() throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appending(path: "source.bin")
+        let destination = root.appending(path: "destination.bin")
+        try Data("new".utf8).write(to: source)
+        try Data("old".utf8).write(to: destination)
+
+        XCTAssertThrowsError(
+            try CoordinatedFileFinalizer.move(
+                from: source,
+                to: destination,
+                replacesExisting: false
+            )
+        )
+        XCTAssertEqual(try Data(contentsOf: source), Data("new".utf8))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("old".utf8))
+    }
+
+    func testCoordinatedFinalizerReplacesCommittedDestination() throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appending(path: "source.bin")
+        let destination = root.appending(path: "destination.bin")
+        try Data("new".utf8).write(to: source)
+        try Data("old".utf8).write(to: destination)
+
+        try CoordinatedFileFinalizer.move(
+            from: source,
+            to: destination,
+            replacesExisting: true
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("new".utf8))
+    }
+
     func testURLSessionDownloadIsByteCorrect() async throws {
         let fixture = try FixtureServer(fileSize: 48 * 1024)
         defer { fixture.stop() }
@@ -262,5 +324,13 @@ final class URLSessionBackendTests: XCTestCase {
             XCTAssertEqual(error.code, .invalidArgument)
         }
         await manager.shutdown()
+    }
+}
+
+private actor URLSessionDelegateEventRecorder {
+    private(set) var values: [Int] = []
+
+    func append(_ value: Int) {
+        values.append(value)
     }
 }

@@ -1,5 +1,6 @@
 #include "SDMEngine.h"
 #include "DownloadStore.h"
+#include "SDMFileFinalizer.h"
 
 #include <curl/curl.h>
 
@@ -224,6 +225,9 @@ public:
             multi = nullptr;
             throw PersistenceError(error.what());
         }
+        finalization_worker = std::jthread([this](std::stop_token stop_token) {
+            run_finalization_worker(stop_token);
+        });
         worker = std::jthread([this](std::stop_token stop_token) {
             run(stop_token);
         });
@@ -293,6 +297,19 @@ public:
         bool response_validated = false;
         bool protocol_failed = false;
         bool write_failed = false;
+    };
+
+    struct FinalizationJob final {
+        std::string id;
+        std::filesystem::path source;
+        std::filesystem::path destination;
+        bool replaces_existing = false;
+    };
+
+    struct FinalizationResult final {
+        std::string id;
+        bool completed = false;
+        std::string error_message;
     };
 
     Result enqueue(DownloadRequest request, std::uint64_t &command_id) {
@@ -409,6 +426,11 @@ public:
         wake();
         if (worker.joinable()) {
             worker.join();
+        }
+        finalization_worker.request_stop();
+        finalization_condition.notify_all();
+        if (finalization_worker.joinable()) {
+            finalization_worker.join();
         }
     }
 
@@ -528,7 +550,22 @@ private:
                 .result = Result::ok,
             });
         }
-        while (!stop_token.stop_requested()) {
+        bool stopped_transfers = false;
+        while (true) {
+            process_finalization_results();
+            if (stop_token.stop_requested()) {
+                if (!stopped_transfers) {
+                    stop_all_transfers();
+                    stopped_transfers = true;
+                }
+                if (!has_outstanding_finalizations()) {
+                    break;
+                }
+                std::unique_lock lock(mutex);
+                condition.wait_for(lock, std::chrono::milliseconds(25));
+                continue;
+            }
+
             process_commands();
             schedule_queued_tasks();
 
@@ -543,21 +580,18 @@ private:
             process_completed_transfers();
             publish_progress();
 
-            if (stop_token.stop_requested()) {
-                break;
-            }
             if (running_handles > 0) {
                 int descriptor_count = 0;
                 (void)curl_multi_poll(multi, nullptr, 0, 25, &descriptor_count);
             } else {
                 std::unique_lock lock(mutex);
-                condition.wait_for(lock, std::chrono::milliseconds(25), [this] {
-                    return !commands.empty() || stopping;
-                });
+                condition.wait_for(lock, std::chrono::milliseconds(25));
             }
         }
 
-        stop_all_transfers();
+        if (!stopped_transfers) {
+            stop_all_transfers();
+        }
         for (auto &[id, task] : tasks) {
             (void)id;
             update_snapshot_segments(*task);
@@ -1407,23 +1441,97 @@ private:
         }
         close_file(task);
 
-        std::error_code error;
-        if (task.request.conflict_policy == 1) {
-            std::filesystem::remove(task.destination_path, error);
-            error.clear();
+        {
+            std::lock_guard lock(finalization_mutex);
+            finalization_jobs.push_back(FinalizationJob{
+                .id = task.request.id,
+                .source = task.temporary_path,
+                .destination = task.destination_path,
+                .replaces_existing = task.request.conflict_policy == 1,
+            });
+            ++outstanding_finalizations;
         }
-        std::filesystem::rename(task.temporary_path, task.destination_path, error);
-        if (error) {
-            fail_task(task, Result::io_error, "Unable to finalize downloaded file");
-            return;
+        finalization_condition.notify_one();
+    }
+
+    void run_finalization_worker(std::stop_token stop_token) noexcept {
+        while (true) {
+            FinalizationJob job;
+            {
+                std::unique_lock lock(finalization_mutex);
+                finalization_condition.wait(lock, stop_token, [this] {
+                    return !finalization_jobs.empty();
+                });
+                if (finalization_jobs.empty()) {
+                    if (stop_token.stop_requested()) {
+                        return;
+                    }
+                    continue;
+                }
+                job = std::move(finalization_jobs.front());
+                finalization_jobs.pop_front();
+            }
+
+            std::string error_message;
+            const auto completed = finalize_file(
+                job.source,
+                job.destination,
+                job.replaces_existing,
+                error_message
+            );
+            {
+                std::lock_guard lock(finalization_mutex);
+                finalization_results.push_back(FinalizationResult{
+                    .id = std::move(job.id),
+                    .completed = completed,
+                    .error_message = std::move(error_message),
+                });
+            }
+            wake();
         }
-        task.snapshot.state = DownloadState::completed;
-        task.snapshot.completed_milliseconds = current_milliseconds();
-        task.retry_attempt = 0;
-        task.retry_at.reset();
-        task.snapshot.bytes_per_second = 0;
-        task.snapshot.estimated_seconds_remaining = 0;
-        publish_snapshot(task);
+    }
+
+    void process_finalization_results() {
+        std::deque<FinalizationResult> results;
+        {
+            std::lock_guard lock(finalization_mutex);
+            results.swap(finalization_results);
+        }
+
+        for (auto &result : results) {
+            const auto iterator = tasks.find(result.id);
+            if (iterator != tasks.end()) {
+                auto &task = *iterator->second;
+                if (result.completed) {
+                    task.snapshot.state = DownloadState::completed;
+                    task.snapshot.completed_milliseconds = current_milliseconds();
+                    task.retry_attempt = 0;
+                    task.retry_at.reset();
+                    task.snapshot.bytes_per_second = 0;
+                    task.snapshot.estimated_seconds_remaining = 0;
+                    publish_snapshot(task);
+                } else {
+                    fail_task(
+                        task,
+                        Result::io_error,
+                        "Unable to finalize downloaded file: " + result.error_message
+                    );
+                }
+            }
+
+            {
+                std::lock_guard lock(finalization_mutex);
+                if (outstanding_finalizations > 0) {
+                    --outstanding_finalizations;
+                }
+            }
+            finalization_condition.notify_all();
+        }
+    }
+
+    bool has_outstanding_finalizations() {
+        std::lock_guard lock(finalization_mutex);
+        return outstanding_finalizations > 0;
     }
 
     void publish_progress() {
@@ -1740,9 +1848,15 @@ private:
     std::unordered_map<std::string, std::unique_ptr<Task>> tasks;
     std::vector<std::string> task_order;
     std::unordered_map<CURL *, std::unique_ptr<Transfer>> transfers;
+    std::mutex finalization_mutex;
+    std::condition_variable_any finalization_condition;
+    std::deque<FinalizationJob> finalization_jobs;
+    std::deque<FinalizationResult> finalization_results;
+    std::size_t outstanding_finalizations = 0;
     std::uint64_t next_command_id = 1;
     std::uint64_t next_event_sequence = 1;
     bool stopping = false;
+    std::jthread finalization_worker;
     std::jthread worker;
 };
 
