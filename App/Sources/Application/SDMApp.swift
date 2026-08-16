@@ -14,6 +14,9 @@ struct SDMApp: App {
     @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
     @State private var downloadService: DownloadService
     private let preparesStoreScreenshots: Bool
+    #if os(macOS)
+    private let lockScreenDownloadCoordinator: LockScreenDownloadCoordinator
+    #endif
 
     init() {
         #if DEBUG
@@ -27,16 +30,26 @@ struct SDMApp: App {
 
         #if DEBUG
         if preparesStoreScreenshots {
-            _downloadService = State(
-                initialValue: .preview(
-                    snapshots: DownloadPreviewFixtures.snapshots,
-                    destinationDirectory: URL(filePath: "/Downloads")
-                )
+            let service = DownloadService.preview(
+                snapshots: DownloadPreviewFixtures.snapshots,
+                destinationDirectory: URL(filePath: "/Downloads")
             )
+            _downloadService = State(initialValue: service)
+            #if os(macOS)
+            lockScreenDownloadCoordinator = LockScreenDownloadCoordinator(
+                service: service
+            )
+            #endif
             return
         }
         #endif
-        _downloadService = State(initialValue: .live())
+        let service = DownloadService.live()
+        _downloadService = State(initialValue: service)
+        #if os(macOS)
+        lockScreenDownloadCoordinator = LockScreenDownloadCoordinator(
+            service: service
+        )
+        #endif
     }
 
     var body: some Scene {

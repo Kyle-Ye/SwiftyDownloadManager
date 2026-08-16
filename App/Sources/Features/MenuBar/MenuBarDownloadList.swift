@@ -4,10 +4,15 @@ import SwiftUI
 
 struct MenuBarDownloadList: View {
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(AppStorageKey.menuBarRecentDownloadLimit)
+    private var recentDownloadLimit = RecentDownloads.defaultMaximumCount
     @Bindable var service: DownloadService
 
     var body: some View {
-        let snapshots = RecentDownloads.select(from: service.snapshots)
+        let snapshots = RecentDownloads.select(
+            from: service.snapshots,
+            limit: recentDownloadLimit
+        )
 
         VStack(spacing: 0) {
             HStack {

@@ -36,12 +36,17 @@ extension DownloadState {
 
     var tint: Color {
         switch self {
+        case .created: .blue
+        case .probing: .cyan
+        case .queued: .indigo
+        case .downloading: .accentColor
+        case .pausing: .yellow
+        case .paused: .orange.opacity(0.82)
+        case .retrying: .purple
+        case .finalizing: .mint
         case .completed: .green
         case .failed: .red
-        case .cancelled: .secondary
-        case .paused, .pausing: .orange
-        case .downloading, .probing, .retrying, .finalizing: .accentColor
-        case .created, .queued: .secondary
+        case .cancelled: .gray
         }
     }
 

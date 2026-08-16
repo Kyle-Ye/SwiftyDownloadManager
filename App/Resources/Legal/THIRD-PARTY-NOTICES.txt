@@ -32,6 +32,11 @@ Complete license texts are distributed next to this notice:
 - OpenSSL-LICENSE.txt
 - Mozilla-LICENSE.txt
 
+Swifty Download Manager's optional macOS Lock Screen status feature uses
+SkyLightWindow 1.0.0, Copyright (c) 2025 Lakr Aream, under the MIT License.
+Source: https://github.com/Lakr233/SkyLightWindow
+The complete license text is distributed as SkyLightWindow-LICENSE.txt.
+
 Open-source license compliance does not replace Apple export-compliance review.
 Because this artifact statically includes OpenSSL, release owners should
 confirm the applicable encryption declaration and documentation for each

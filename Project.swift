@@ -65,6 +65,10 @@ let project = Project(
                 .target(name: "SDMSafariExtension"),
                 .external(name: "SDMCore"),
                 .external(name: "LookInsideServer"),
+                .external(
+                    name: "SkyLightWindow",
+                    condition: .when([.macos])
+                ),
             ],
             settings: .settings(base: [
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",

@@ -24,6 +24,10 @@ let package = Package(
             url: "https://github.com/LookInsideApp/LookInside-Release.git",
             exact: "0.2.7"
         ),
+        .package(
+            url: "https://github.com/Lakr233/SkyLightWindow.git",
+            exact: "1.0.0"
+        ),
         .package(path: "Packages/SDMCore"),
     ]
 )

@@ -1,17 +1,13 @@
 {
   "images" : [
     {
-      "filename" : "SDMMenuBarIcon.svg",
-      "idiom" : "universal",
+      "filename" : "SDMLockScreenLogo.png",
+      "idiom" : "mac",
       "scale" : "1x"
     },
     {
-      "idiom" : "universal",
+      "idiom" : "mac",
       "scale" : "2x"
-    },
-    {
-      "idiom" : "universal",
-      "scale" : "3x"
     }
   ],
   "info" : {
@@ -19,7 +15,6 @@
     "version" : 1
   },
   "properties" : {
-    "preserves-vector-representation" : true,
     "template-rendering-intent" : "template"
   }
 }

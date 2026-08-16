@@ -1,31 +1,45 @@
+#if os(macOS)
 import SDMCore
 import SwiftUI
 
-struct MenuBarDownloadRow: View {
+struct LockScreenDownloadRow: View {
     let snapshot: DownloadSnapshot
-    @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: snapshot.state.systemImage)
+                .font(.title3)
                 .foregroundStyle(snapshot.state.tint)
-                .frame(width: 18)
+                .frame(width: 24)
+                .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(snapshot.displayFilename)
                         .lineLimit(1)
 
                     Spacer(minLength: 8)
 
                     Text(snapshot.state.title)
-                        .font(.subheadline)
                         .foregroundStyle(snapshot.state.tint)
                         .lineLimit(1)
                 }
 
-                HStack(spacing: 6) {
-                    progressContent
+                if let progress = snapshot.progressFraction {
+                    LockScreenProgressBar(
+                        progress: progress,
+                        tint: snapshot.state.tint
+                    )
+                        .accessibilityHidden(true)
+                } else if snapshot.state.showsIndeterminateMenuBarProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(snapshot.state.tint)
+                        .accessibilityHidden(true)
+                }
+
+                HStack(spacing: 8) {
+                    Text(transferredDescription)
 
                     Spacer(minLength: 8)
 
@@ -39,41 +53,9 @@ struct MenuBarDownloadRow: View {
                 .monospacedDigit()
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .contentShape(.rect)
-        .background(
-            Color.primary.opacity(isHovered ? 0.07 : 0),
-            in: .rect(cornerRadius: 6)
-        )
-        .padding(.horizontal, 6)
-        .onHover { isHovered = $0 }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(snapshot.displayFilename)
         .accessibilityValue(accessibilityValue)
-        .accessibilityHint("Opens download information")
-    }
-
-    @ViewBuilder
-    private var progressContent: some View {
-        if let progress = snapshot.progressFraction {
-            ProgressView(value: progress)
-                .controlSize(.small)
-                .tint(snapshot.state.tint)
-                .frame(width: 92)
-                .accessibilityHidden(true)
-
-            Text(progress.formatted(.percent.precision(.fractionLength(0))))
-        } else if snapshot.state.showsIndeterminateMenuBarProgress {
-            ProgressView()
-                .controlSize(.small)
-                .tint(snapshot.state.tint)
-                .accessibilityHidden(true)
-
-            Text(transferredDescription)
-        } else {
-            Text(transferredDescription)
-        }
     }
 
     private var transferredDescription: String {
@@ -96,15 +78,9 @@ struct MenuBarDownloadRow: View {
     }
 
     private var accessibilityValue: String {
-        let progress: String
-        if let fraction = snapshot.progressFraction {
-            progress = fraction.formatted(
-                .percent.precision(.fractionLength(0))
-            )
-        } else {
-            progress = transferredDescription
-        }
-
+        let progress = snapshot.progressFraction?.formatted(
+            .percent.precision(.fractionLength(0))
+        ) ?? transferredDescription
         return [
             snapshot.state.title,
             progress,
@@ -115,13 +91,10 @@ struct MenuBarDownloadRow: View {
 }
 
 #if DEBUG
-#Preview("Menu Bar Download Rows") {
-    VStack(spacing: 0) {
-        ForEach(DownloadPreviewFixtures.snapshots) { snapshot in
-            MenuBarDownloadRow(snapshot: snapshot)
-        }
-    }
-    .frame(width: 360)
-    .padding(.vertical, 6)
+#Preview("Lock Screen Download") {
+    LockScreenDownloadRow(snapshot: DownloadPreviewFixtures.snapshots[1])
+        .frame(width: 400)
+        .padding()
 }
+#endif
 #endif
