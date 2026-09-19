@@ -2,8 +2,9 @@
 
 Investigated on 2026-09-20, against SDM commit `92bf03d`, on branch
 `investigate/authenticated-browser-downloads`. The reported task was handed off
-by the Chrome extension. This document records findings; download behavior has
-not been changed.
+by the Chrome extension. This document records the pre-fix findings. The
+implemented Chrome/Safari handoff and its limitations are described in
+[ChromeExtension.md](ChromeExtension.md).
 
 ## Findings
 
@@ -61,7 +62,7 @@ the filename or from an HTTP 401/403 response.
 
 ## Where SDM loses the browser context
 
-| Layer | Current behavior | Relevant source |
+| Layer | Behavior before the fix | Relevant source |
 | --- | --- | --- |
 | Chrome permissions | Has host access, `contextMenus`, and `webNavigation`; no `cookies`, `webRequest`, or `downloads` permission | [Chrome manifest](../ChromeExtension/Resources/manifest.json) |
 | Ordinary link click | Rewrites the anchor to the app callback directly; this path does not ask the background worker to assemble a request | [content.js](../BrowserExtension/Shared/content.js), click handler |
@@ -198,7 +199,7 @@ expiring between them. Legitimate HTML downloads must remain supported:
 already verifies that behavior. Rejecting all HTML or merely adding
 `CURLOPT_FAILONERROR` would not solve this HTTP 200 case correctly.
 
-## Validation scope
+## Investigation validation scope
 
 - Pinned tools were already installed (`mise install`).
 - Existing Chrome and Safari JavaScript tests: 13 passed.
@@ -208,3 +209,30 @@ already verifies that behavior. Rejecting all HTML or merely adding
 - No production code, extension permissions, or public API changed. The full
   application build and complete repository test suite were not run for this
   documentation-only investigation.
+
+## Implemented fix and validation
+
+Chrome and Safari now collect scoped cookies (including HttpOnly cookies),
+browser User-Agent and source origin through the shared background controller.
+Chrome uses an encrypted loopback handoff; Safari uses native messaging and
+encrypted App Group staging. Both engines apply cookie scope on redirects,
+reject unexpected HTML for known binary filenames, and keep request context
+out of download history. A late URLSession cancellation callback can no longer
+fail a replacement task after pause/resume.
+
+Local validation on 2026-09-20:
+
+- 19 browser JavaScript tests, 23 Fixture tests, 45 SDMCore tests and 4 native
+  handoff tests passed. The native tests include a real loopback WebSocket
+  round trip and encrypted Safari staging. The new Fixture scenarios are
+  documented in [Fixture/README.md](../Fixture/README.md#cookie-authenticated-downloads).
+- Tuist dependency installation and workspace generation succeeded.
+- macOS arm64 and iOS Simulator app builds succeeded with signing disabled.
+- Chrome's unpacked extension was assembled in `Derived/ChromeExtension`.
+
+Signed extension installation and an actual authenticated Apple download have
+not been verified. This machine's Xcode has no signed-in developer account or
+matching development profiles for the app and Safari extension. Safari's new
+App Group needs provisioning before installation. Browser sessions are
+transient: after restarting SDM, resend the task from the signed-in browser;
+URLSession browser tasks require SDM to remain running.

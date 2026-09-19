@@ -61,7 +61,7 @@ history is available through:
 let events = try await manager.diagnosticEvents(for: id)
 ```
 
-The engine migrates schema v1 databases to v2 transactionally. It refuses a
+The engine migrates older databases to schema v4 transactionally. It refuses a
 newer unsupported schema with a typed persistence error rather than replacing
 the user's history. SQLite uses foreign keys and WAL mode; graceful shutdown
 checkpoints the WAL after the final task checkpoint.
@@ -70,6 +70,27 @@ On macOS App Sandbox, the application layer owns security-scoped bookmarks and
 must keep destination access active for the lifetime of the transfer. Core
 persists paths and transfer metadata, but never persists credentials, cookies,
 or request headers.
+
+
+`DownloadRequest.requestContext` accepts a transient `DownloadRequestContext`
+with scoped `DownloadCookie` values, an optional User-Agent, and a source
+referrer (sent as an origin only). It is deliberately excluded from the
+request's Codable representation. Persistence stores only the
+`requiresRequestContext` and `rejectsHTML` flags. Restored tasks requiring a
+browser session refuse to run anonymously and explain that the download must
+be sent from the browser again. C ABI v4 carries transient context into libcurl.
+
+libcurl shares an in-memory cookie jar across a task's probes, Range requests,
+redirects and retries, including response cookie updates. URLSession isolates
+browser tasks in an ephemeral foreground session with a per-task cookie jar;
+its background session remains available for public downloads. URLSession
+browser tasks restart with a fresh scoped request after pause/failure, and do
+not persist opaque resume data that could contain credentials.
+
+Known binary filename extensions default to rejecting HTML/XHTML responses;
+callers can override this using `rejectsHTML`. The check also covers the body
+response when a session expires after a successful HEAD. Ordinary HTML and
+unknown-length webpage downloads remain supported.
 
 Both backends finalize through coordinated file access. Core first attempts an
 atomic move, then falls back to copying into a sibling staging file, syncing it,

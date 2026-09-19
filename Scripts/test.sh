@@ -9,3 +9,5 @@ node --test SafariExtension/Tests/DownloadInterceptionTests.js
 node --test ChromeExtension/Tests/ChromeExtensionTests.js
 python3 -m unittest discover -s Fixture/tests -v
 swift test --package-path Packages/SDMCore
+
+swift test --package-path BrowserExtension

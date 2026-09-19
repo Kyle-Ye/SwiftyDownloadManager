@@ -59,6 +59,8 @@ let project = Project(
             ]),
             buildableFolders: [
                 "App/Sources",
+                "BrowserExtension/ChromeNative",
+                "BrowserExtension/Native",
                 "App/Resources",
             ],
             dependencies: [
@@ -74,8 +76,9 @@ let project = Project(
                 "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                 "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
                 "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": "App/Support/SDMApp.entitlements",
-                "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": "App/Support/SDMApp-iOS.entitlements",
+                "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": "App/Support/SDMApp-iOS.entitlements",
                 "DEVELOPMENT_TEAM": "VB7MJ8R223",
+                "REGISTER_APP_GROUPS": "YES",
                 "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": "YES",
                 "EXECUTABLE_NAME": "SDMApp",
                 "PRODUCT_MODULE_NAME": "SDMApp",
@@ -125,13 +128,15 @@ let project = Project(
             ],
             buildableFolders: [
                 "SafariExtension/Sources",
+                "BrowserExtension/Native",
                 "SafariExtension/Resources",
             ],
             settings: .settings(base: [
                 "APPLICATION_EXTENSION_API_ONLY": "YES",
                 "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": "SafariExtension/Support/SDMSafariExtension.entitlements",
-                "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": "SafariExtension/Support/SDMSafariExtension-iOS.entitlements",
+                "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": "SafariExtension/Support/SDMSafariExtension-iOS.entitlements",
                 "DEVELOPMENT_TEAM": "VB7MJ8R223",
+                "REGISTER_APP_GROUPS": "YES",
                 "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": "YES",
                 "PRODUCT_NAME": "Swifty Download Manager Extension",
                 "SKIP_INSTALL": "YES",

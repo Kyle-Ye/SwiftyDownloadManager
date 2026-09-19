@@ -3,7 +3,7 @@ import XCTest
 
 final class SDMCoreInfoTests: XCTestCase {
     func testEngineBridgeExposesVersion() {
-        XCTAssertEqual(SDMCoreInfo.engineABIVersion, 3)
+        XCTAssertEqual(SDMCoreInfo.engineABIVersion, 4)
         XCTAssertEqual(SDMCoreInfo.engineVersion, "0.5.0")
         XCTAssertTrue(SDMCoreInfo.libcurlVersion.contains("libcurl/8.21.0"))
     }

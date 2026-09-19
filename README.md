@@ -18,9 +18,11 @@ Chrome.
   macOS.
 - No account, advertising, analytics, or telemetry.
 
-SDM is designed for direct file URLs. Downloads that require browser-only
-cookies, authenticated sessions, request bodies, or custom request headers are
-not currently supported.
+SDM supports direct file URLs and cookie-authenticated GET downloads sent from
+its Chrome and Safari extensions. Keep SDM running for browser-session downloads;
+after restarting the app, send those downloads again from the signed-in browser.
+POST downloads and arbitrary Authorization/custom request headers are not
+currently supported.
 
 ## Download engines
 

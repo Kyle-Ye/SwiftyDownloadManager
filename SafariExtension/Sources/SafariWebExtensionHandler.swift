@@ -46,15 +46,13 @@ final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling, @un
             return
         }
 
-        var queryItems = [URLQueryItem(name: "url", value: downloadURL.absoluteString)]
-        if let filename = nonEmptyString(message["filename"]) {
-            queryItems.append(URLQueryItem(name: "filename", value: filename))
+        do {
+            let data = try JSONSerialization.data(withJSONObject: message)
+            let ticket = try SafariHandoffStore().stage(data)
+            openCallbackURL(ticket.callbackURL, context: context)
+        } catch {
+            reply(to: context, accepted: false, error: "The browser session could not be handed to SDM.")
         }
-        if let sourcePage = nonEmptyString(message["sourcePage"]) {
-            queryItems.append(URLQueryItem(name: "source", value: sourcePage))
-        }
-
-        openCallback(host: "download", queryItems: queryItems, context: context)
     }
 
     private func openCallback(
@@ -72,6 +70,10 @@ final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling, @un
             return
         }
 
+        openCallbackURL(callbackURL, context: context)
+    }
+
+    private func openCallbackURL(_ callbackURL: URL, context: NSExtensionContext) {
         #if os(macOS)
         if !NSRunningApplication.runningApplications(
             withBundleIdentifier: Self.containingApplicationIdentifier
@@ -90,6 +92,9 @@ final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling, @un
         let contextBox = ExtensionContextBox(context)
         context.open(callbackURL) { [weak self, contextBox] accepted in
             guard let self else { return }
+            if !accepted, let ticket = BrowserHandoffTicket(callbackURL: callbackURL) {
+                try? SafariHandoffStore().discard(ticket)
+            }
             self.reply(
                 to: contextBox.value,
                 accepted: accepted,
@@ -113,9 +118,4 @@ final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling, @un
         context.completeRequest(returningItems: [response])
     }
 
-    private func nonEmptyString(_ value: Any?) -> String? {
-        guard let value = value as? String else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 }

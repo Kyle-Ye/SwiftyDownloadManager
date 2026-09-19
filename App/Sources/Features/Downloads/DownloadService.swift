@@ -10,6 +10,7 @@ final class DownloadService {
     private static let defaultDestinationBookmarkOwner = "default-destination"
 
     private(set) var snapshots: [DownloadSnapshot]
+    private(set) var browserDownloadErrorMessage: String?
     private(set) var isLoadingHistory: Bool
     private(set) var commandInFlightIDs: Set<DownloadID> = []
     private(set) var logsByDownloadID: [DownloadID: [DownloadDiagnosticEvent]] = [:]
@@ -22,12 +23,14 @@ final class DownloadService {
     let initializationError: String?
     let defaultDestinationRecoveryMessage: String?
 
+    @ObservationIgnored private var browserHandoffs: [UUID: Date] = [:]
     private let manager: DownloadManager?
     private let destinationBookmarks: DestinationBookmarkStore?
     private let defaultDestinationDirectories: DefaultDownloadDestinationDirectories?
     private let userDefaults: UserDefaults
     @ObservationIgnored
     nonisolated(unsafe) private var observationTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var browserCallbackObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var previousSnapshots: [DownloadID: DownloadSnapshot] = [:]
 
     init(
@@ -249,11 +252,13 @@ final class DownloadService {
         url: URL,
         destinationDirectory: URL? = nil,
         suggestedFilename: String? = nil,
-        connectionCount: Int
+        connectionCount: Int,
+        requestContext: DownloadRequestContext? = nil,
+        id: DownloadID = DownloadID()
     ) async throws -> DownloadID {
         let manager = try requiredManager()
         let requestedDestination = destinationDirectory ?? defaultDestinationDirectory
-        let requestID = DownloadID()
+        let requestID = id
         let bookmarkOwner = Self.downloadBookmarkOwner(for: requestID)
         let usesDefaultDestination = requestedDestination.standardizedFileURL ==
             defaultDestinationDirectory.standardizedFileURL
@@ -277,7 +282,8 @@ final class DownloadService {
             url: url,
             destinationDirectory: authorizedDestination,
             filename: suggestedFilename,
-            connectionLimit: connectionCount
+            connectionLimit: connectionCount,
+            requestContext: requestContext
         )
         do {
             return try await manager.enqueue(request)
@@ -286,6 +292,41 @@ final class DownloadService {
                 try? destinationBookmarks?.release(owner: bookmarkOwner)
             }
             throw error
+        }
+    }
+
+    func receiveBrowserDownload(_ callbackURL: URL, connectionCount: Int) async throws {
+        if let ticket = BrowserHandoffTicket(callbackURL: callbackURL) {
+            browserHandoffs = browserHandoffs.filter { Date.now.timeIntervalSince($0.value) < 120 }
+            guard browserHandoffs[ticket.id] == nil else { return }
+            browserHandoffs[ticket.id] = .now
+            do {
+                let data: Data
+                if ticket.browser == "safari" {
+                    data = try SafariHandoffStore().consume(ticket)
+                } else {
+                    #if os(macOS)
+                    data = try await ChromeHandoffServer.shared.receive(ticket)
+                    #else
+                    throw BrowserHandoffError.unavailable
+                    #endif
+                }
+                let request = try BrowserDownloadRequest(payload: data)
+                _ = try await enqueue(url: request.url, suggestedFilename: request.suggestedFilename,
+                    connectionCount: connectionCount, requestContext: request.requestContext,
+                    id: DownloadID(rawValue: ticket.id))
+                #if os(macOS)
+                if ticket.browser == "chrome" { await ChromeHandoffServer.shared.complete(ticket, accepted: true) }
+                #endif
+            } catch {
+                #if os(macOS)
+                if ticket.browser == "chrome" { await ChromeHandoffServer.shared.complete(ticket, accepted: false) }
+                #endif
+                throw error
+            }
+        } else if let request = BrowserDownloadRequest(callbackURL: callbackURL) {
+            _ = try await enqueue(url: request.url, suggestedFilename: request.suggestedFilename,
+                connectionCount: connectionCount)
         }
     }
 
@@ -394,10 +435,27 @@ final class DownloadService {
 
     deinit {
         observationTask?.cancel()
+        if let browserCallbackObserver { NotificationCenter.default.removeObserver(browserCallbackObserver) }
     }
 
     private func startObserving() {
         guard let manager else { return }
+        // Safari can hand off while the main window is closed. The service,
+        // rather than a view subscription, owns delivery for the app lifetime.
+        browserCallbackObserver = NotificationCenter.default.addObserver(
+            forName: .browserDownloadCallback, object: nil, queue: nil
+        ) { [weak self] notification in
+            guard let url = notification.object as? URL else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    let configured = self.userDefaults.integer(forKey: AppStorageKey.defaultConnectionCount)
+                    let connections = self.selectedEngineDescriptor.supports(.multiConnectionTransfers)
+                        ? max(1, configured == 0 ? 8 : configured) : 1
+                    try await self.receiveBrowserDownload(url, connectionCount: connections)
+                } catch { self.browserDownloadErrorMessage = Self.message(for: error) }
+            }
+        }
         observationTask = Task { [weak self, manager] in
             for await update in await manager.updates() {
                 guard !Task.isCancelled else { return }

@@ -42,6 +42,7 @@ actor CurlDownloadBackend: DownloadEngineBackend {
     }
 
     func enqueue(_ request: DownloadRequest) async throws -> DownloadID {
+        try request.validateContext()
         try validate(request)
         startPollingIfNeeded()
         let commandID = try bridge.enqueue(request)

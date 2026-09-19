@@ -59,6 +59,12 @@ struct SafariExtensionCard: View {
                     systemImage: "hand.raised.circle.fill"
                 )
             }
+            Label(
+                "Includes your browser cookies for downloads that require sign-in. Keep SDM running while these downloads finish.",
+                systemImage: "info.circle"
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(BrowserExtensionDesign.cardPadding)

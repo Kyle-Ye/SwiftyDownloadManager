@@ -11,6 +11,8 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
     private var continuations: [UUID: AsyncStream<DownloadUpdate>.Continuation] = [:]
     private var progressSamples: [DownloadID: (bytes: UInt64, date: Date)] = [:]
     private var sessionStorage: URLSession?
+    private var browserSession: URLSession?
+    private var learnedCookies: [DownloadID: [String: DownloadCookie]] = [:]
     private var sequence: UInt64 = 0
     private var isShutDown = false
     private var didRestoreSession = false
@@ -71,6 +73,7 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
     }
 
     func enqueue(_ request: DownloadRequest) async throws -> DownloadID {
+        try request.validateContext()
         try validate(request)
         guard records[request.id] == nil else {
             throw DownloadError(code: .invalidArgument, message: "Download ID already exists")
@@ -123,7 +126,7 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         let resumeData = await cancelProducingResumeData(activeTasks[id])
         activeTasks[id] = nil
         record = try requiredRecord(id)
-        record.resumeData = resumeData
+        record.resumeData = record.request.requiresRequestContext ? nil : resumeData
         record.snapshot = record.snapshot.replacing(
             state: .paused,
             bytesPerSecond: 0,
@@ -138,6 +141,7 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
 
     func resume(_ id: DownloadID) async throws {
         var record = try requiredRecord(id)
+        try record.request.validateContext()
         guard record.snapshot.state == .paused else {
             throw invalidState("resume", id: id)
         }
@@ -178,6 +182,7 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
 
     func retry(_ id: DownloadID) async throws {
         var record = try requiredRecord(id)
+        try record.request.validateContext()
         guard [.failed, .cancelled].contains(record.snapshot.state) else {
             throw invalidState("retry", id: id)
         }
@@ -242,6 +247,9 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         try? persist()
         sessionStorage?.finishTasksAndInvalidate()
         sessionStorage = nil
+        browserSession?.invalidateAndCancel()
+        browserSession = nil
+        learnedCookies.removeAll()
         activeTasks.removeAll()
         for continuation in continuations.values {
             continuation.finish()
@@ -252,8 +260,10 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
     func didWrite(
         downloadID: DownloadID,
         totalBytesWritten: Int64,
-        totalBytesExpected: Int64
+        totalBytesExpected: Int64,
+        sourceTaskIdentifier: Int? = nil
     ) {
+        guard sourceTaskIdentifier == nil || activeTasks[downloadID]?.taskIdentifier == sourceTaskIdentifier else { return }
         guard var record = records[downloadID],
               record.snapshot.state == .downloading else { return }
         let now = Date.now
@@ -294,19 +304,28 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         finalURL: URL?,
         suggestedFilename: String?,
         statusCode: Int?,
-        expectedContentLength: Int64
+        expectedContentLength: Int64,
+        mimeType: String? = nil,
+        sourceTaskIdentifier: Int? = nil
     ) async {
-        guard var record = records[downloadID],
-              record.snapshot.state != .cancelled else {
+        guard sourceTaskIdentifier == nil || activeTasks[downloadID]?.taskIdentifier == sourceTaskIdentifier else {
             try? FileManager.default.removeItem(at: stagedURL)
             return
         }
-        guard let statusCode, (200 ... 299).contains(statusCode) else {
+        guard var record = records[downloadID],
+              record.snapshot.state == .downloading else {
+            try? FileManager.default.removeItem(at: stagedURL)
+            return
+        }
+        let unexpectedHTML = record.request.rejectsHTML &&
+            ["text/html", "application/xhtml+xml"].contains(mimeType?.lowercased() ?? "")
+        guard let statusCode, (200 ... 299).contains(statusCode), !unexpectedHTML else {
             try? FileManager.default.removeItem(at: stagedURL)
             fail(
                 record: &record,
                 code: .protocolViolation,
-                message: "Server returned HTTP \(statusCode ?? 0)."
+                message: unexpectedHTML ? DownloadRequest.unexpectedHTMLMessage
+                    : "Server returned HTTP \(statusCode ?? 0)."
             )
             activeTasks[downloadID] = nil
             progressSamples[downloadID] = nil
@@ -391,13 +410,17 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         downloadID: DownloadID,
         code: DownloadErrorCode,
         message: String,
-        resumeData: Data?
+        resumeData: Data?,
+        sourceTaskIdentifier: Int? = nil
     ) {
+        // Cancel completions can arrive after pause returns or a replacement
+        // request starts. An old task must never fail its replacement.
+        guard sourceTaskIdentifier == nil || activeTasks[downloadID]?.taskIdentifier == sourceTaskIdentifier else { return }
         guard var record = records[downloadID] else { return }
         if record.snapshot.state == .pausing || record.snapshot.state == .cancelled {
             return
         }
-        record.resumeData = resumeData ?? record.resumeData
+        record.resumeData = record.request.requiresRequestContext ? nil : (resumeData ?? record.resumeData)
         fail(record: &record, code: code, message: message)
         activeTasks[downloadID] = nil
         progressSamples[downloadID] = nil
@@ -415,6 +438,10 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
     private func makeSessionIfNeeded() {
         guard sessionStorage == nil, !isShutDown else { return }
         delegate.backend = self
+        let browserConfiguration = URLSessionConfiguration.ephemeral
+        browserConfiguration.httpCookieStorage = nil
+        browserConfiguration.urlCache = nil
+        browserSession = URLSession(configuration: browserConfiguration, delegate: delegate, delegateQueue: nil)
         let sessionConfiguration: URLSessionConfiguration
         if let identifier = configuration.urlSessionIdentifier {
             sessionConfiguration = .background(withIdentifier: identifier)
@@ -491,14 +518,23 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
             .map(\.snapshot.id)
         for id in queuedIDs {
             guard var record = records[id] else { continue }
+            if record.request.requiresRequestContext && record.request.requestContext == nil {
+                fail(record: &record, code: .invalidState, message: DownloadRequest.missingContextMessage)
+                records[id] = record
+                continue
+            }
+            let session = record.request.requiresRequestContext ? (browserSession ?? sessionStorage) : sessionStorage
             let task: URLSessionDownloadTask
             if let resumeData = record.resumeData {
-                task = sessionStorage.downloadTask(withResumeData: resumeData)
+                task = session.downloadTask(withResumeData: resumeData)
             } else {
                 var request = URLRequest(url: record.request.url)
                 request.httpMethod = "GET"
                 request.setValue("SwiftyDownloadManager/0.3 URLSession", forHTTPHeaderField: "User-Agent")
-                task = sessionStorage.downloadTask(with: request)
+                if record.request.requestContext != nil {
+                    request = browserRequest(request, for: id)
+                }
+                task = session.downloadTask(with: request)
             }
             task.taskDescription = id.description
             activeTasks[id] = task
@@ -517,6 +553,49 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         }
         try? persist()
         broadcast()
+    }
+
+    func redirectedRequest(
+        downloadID: DownloadID, response: HTTPURLResponse, request: URLRequest
+    ) -> URLRequest? {
+        guard let record = records[downloadID] else { return nil }
+        guard record.request.requestContext != nil else { return request }
+        guard let url = request.url,
+              !(record.request.url.scheme?.lowercased() == "https" && url.scheme?.lowercased() != "https") else { return nil }
+        if let responseURL = response.url {
+            let headers = response.allHeaderFields.reduce(into: [String: String]()) { result, item in
+                if let key = item.key as? String, let value = item.value as? String { result[key] = value }
+            }
+            for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: responseURL) {
+                let value = DownloadCookie(name: cookie.name, value: cookie.value, domain: cookie.domain,
+                    path: cookie.path, secure: cookie.isSecure, hostOnly: !cookie.domain.hasPrefix("."),
+                    expirationDate: cookie.expiresDate?.timeIntervalSince1970)
+                let host = responseURL.host?.lowercased() ?? ""
+                let domain = value.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                guard host == domain || host.hasSuffix("." + domain) else { continue }
+                learnedCookies[downloadID, default: [:]][cookieKey(value)] = value
+            }
+        }
+        return browserRequest(request, for: downloadID)
+    }
+
+    private func cookieKey(_ cookie: DownloadCookie) -> String {
+        [cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased(),
+         cookie.path, cookie.name].joined(separator: "\t")
+    }
+
+    private func browserRequest(_ original: URLRequest, for id: DownloadID) -> URLRequest {
+        guard let context = records[id]?.request.requestContext, let url = original.url else { return original }
+        var request = original
+        request.httpShouldHandleCookies = false
+        var cookies: [String: DownloadCookie] = [:]
+        for cookie in context.cookies { cookies[cookieKey(cookie)] = cookie }
+        cookies.merge(learnedCookies[id] ?? [:]) { _, learned in learned }
+        let current = DownloadRequestContext(cookies: Array(cookies.values))
+        request.setValue(current.cookieHeader(for: url), forHTTPHeaderField: "Cookie")
+        if let userAgent = context.userAgent { request.setValue(userAgent, forHTTPHeaderField: "User-Agent") }
+        request.setValue(context.referrerHeader(for: url), forHTTPHeaderField: "Referer")
+        return request
     }
 
     private func validate(_ request: DownloadRequest) throws {
@@ -592,7 +671,11 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
 
     private func persist() throws {
         try store.save(
-            records.values.sorted { $0.snapshot.updatedAt > $1.snapshot.updatedAt }
+            records.values.map { record in
+                var persisted = record
+                if record.request.requiresRequestContext { persisted.resumeData = nil }
+                return persisted
+            }.sorted { $0.snapshot.updatedAt > $1.snapshot.updatedAt }
         )
     }
 

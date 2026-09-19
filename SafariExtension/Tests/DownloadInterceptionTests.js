@@ -72,6 +72,10 @@ function safariBackgroundHarness() {
   const tabUpdates = [];
   const runtimeOnMessage = eventHook();
   const browser = {
+    cookies: {
+      async getAll() { return [{name: "session", value: "safari-secret", domain: "cdn.example.com", path: "/", secure: true, hostOnly: true}]; },
+      async getAllCookieStores() { return [{id: "safari-profile", tabIds: [9]}]; },
+    },
     browserAction: { onClicked: eventHook() },
     contextMenus: {
       create() {},
@@ -180,6 +184,7 @@ function dispatchEligibleClick(document) {
     button: 0,
     ctrlKey: false,
     isTrusted: true,
+    composedPath: () => [],
     metaKey: false,
     shiftKey: false,
   });
@@ -304,6 +309,7 @@ function contentBridgeHarness() {
   vm.runInContext(contentSource, context);
 
   return {
+    document, HTMLAnchorElement,
     postedMessages,
     runtimeMessages,
     window,
@@ -312,6 +318,7 @@ function contentBridgeHarness() {
 
 test("content bridge forwards a page download request to the extension", async () => {
   const harness = contentBridgeHarness();
+  dispatchEligibleClick(harness.document);
   assert.equal(harness.postedMessages[0].message.type, "bridgeInitialize");
   harness.postedMessages.length = 0;
 
@@ -383,5 +390,29 @@ test("Safari background keeps runtime downloads on native messaging", async () =
     "top.kyleye.swifty-download-manager-app"
   );
   assert.equal(harness.nativeMessages[0].message.type, "download");
+  assert.equal(harness.nativeMessages[0].message.requestContext.cookies[0].value, "safari-secret");
   assert.equal(harness.tabUpdates.length, 0);
+});
+
+test("ordinary anchor clicks use the background collector without modifying the page URL", async () => {
+  const harness = contentBridgeHarness();
+  const link = new harness.HTMLAnchorElement();
+  link.href = "https://cdn.example.com/file.xip";
+  link.hasAttribute = () => false;
+  let prevented = false;
+  harness.document.dispatch("click", {isTrusted:true, defaultPrevented:false, button:0,
+    composedPath:() => [link], preventDefault() {prevented=true;}, stopImmediatePropagation() {}});
+  await Promise.resolve();
+  assert(prevented);
+  assert.equal(harness.runtimeMessages[0].url, link.href);
+  assert.equal(harness.runtimeMessages[0].type, "captureDownload");
+  assert.equal(link.href, "https://cdn.example.com/file.xip");
+});
+
+test("a page cannot start credential collection without a trusted click", () => {
+  const harness = contentBridgeHarness();
+  harness.window.dispatch("message", {source:harness.window, origin:pageOrigin, data:{source:bridgeSource,
+    token:"test-token", type:"downloadRequest", id:"forged", url:"https://cdn.example.com/file.xip"}});
+  assert.equal(harness.runtimeMessages.length, 0);
+  assert.equal(harness.postedMessages.at(-1).message.accepted, false);
 });

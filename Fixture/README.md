@@ -66,6 +66,41 @@ bounds without creating or allocating a matching file on disk. The pattern
 makes misplaced, overlapping, or missing segment writes visible in
 byte-for-byte tests.
 
+## Cookie-authenticated downloads
+
+Open [the cookie fixture](http://127.0.0.1:8080/auth/) in Chrome or Safari and
+click **Sign in**. It sets a synthetic `sdm_session=valid` HttpOnly cookie scoped
+to `/auth/`. Then click a protected XIP link or use **Download with SDM**. The
+file uses the same deterministic bytes, size, rate and Range support as
+`/empty.bin`; it is a test payload, not a real XIP archive.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `/auth/file.xip` | Requires the cookie for HEAD and every GET/Range request |
+| `/auth/redirect.xip` | Redirects to the protected file |
+| `/auth/rotate.xip` | Sets a refreshed cookie while redirecting to `/auth/renewed.xip` |
+| `/auth/expired.xip` | Rejects even a syntactically valid session cookie |
+| `/auth/head-expires.xip` | Accepts HEAD, then returns the unauthorized page for GET |
+| `/auth/flaky.xip` | Returns one GET 503 to test authenticated retries |
+| `/auth/headers.xip` | Also requires `SDM-Fixture-Browser` User-Agent and the fixture origin as Referer; intended for automated tests |
+| `/auth/cross-host.xip` | Redirects from `127.0.0.1` to `localhost`; the target rejects leaked cookies |
+| `/auth/cross-path.xip` | Redirects outside `/auth/`; the target rejects leaked cookies |
+| `/auth/unauthorized/` | Returns HTTP 200 HTML without Content-Length, matching the Apple error-page behavior |
+| `/auth/login`, `/auth/logout` | Set/clear the synthetic cookie, then return to the test page |
+
+Signing out and repeating a protected download must fail with an explanation,
+not save the HTML page as an XIP. Test both normal clicks and the context menu.
+The local cookie is intentionally not Secure because the fixture uses loopback
+HTTP; native unit tests separately verify that Secure cookies cannot be sent
+through HTTP. Logs never print cookie values.
+
+```bash
+curl --head --cookie 'sdm_session=valid' http://127.0.0.1:8080/auth/file.xip
+curl --head --location http://127.0.0.1:8080/auth/file.xip
+swift test --package-path Packages/SDMCore --filter AuthenticatedDownloadTests
+swift test --package-path BrowserExtension
+```
+
 ## Transfer and Range limits
 
 `max_concurrent_transfers` is a server-side capacity limit. Clients can open
