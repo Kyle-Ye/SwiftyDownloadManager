@@ -178,5 +178,43 @@ let project = Project(
                 "tag:layer:tests",
             ])
         ),
+    ],
+    schemes: [
+        .scheme(
+            name: "SDMApp Screenshots Light",
+            buildAction: .buildAction(targets: ["SDMApp"]),
+            runAction: .runAction(
+                configuration: .debug,
+                executable: .executable("SDMApp"),
+                arguments: .arguments(
+                    environmentVariables: [
+                        "SDM_STORE_SCREENSHOT_APPEARANCE": "light",
+                    ],
+                    launchArguments: [
+                        .launchArgument(name: "-StoreScreenshots", isEnabled: true),
+                        .launchArgument(name: "-ApplePersistenceIgnoreState", isEnabled: true),
+                        .launchArgument(name: "YES", isEnabled: true),
+                    ]
+                )
+            )
+        ),
+        .scheme(
+            name: "SDMApp Screenshots Dark",
+            buildAction: .buildAction(targets: ["SDMApp"]),
+            runAction: .runAction(
+                configuration: .debug,
+                executable: .executable("SDMApp"),
+                arguments: .arguments(
+                    environmentVariables: [
+                        "SDM_STORE_SCREENSHOT_APPEARANCE": "dark",
+                    ],
+                    launchArguments: [
+                        .launchArgument(name: "-StoreScreenshots", isEnabled: true),
+                        .launchArgument(name: "-ApplePersistenceIgnoreState", isEnabled: true),
+                        .launchArgument(name: "YES", isEnabled: true),
+                    ]
+                )
+            )
+        ),
     ]
 )

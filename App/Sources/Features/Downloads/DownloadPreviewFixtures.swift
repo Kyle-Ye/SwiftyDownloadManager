@@ -89,6 +89,71 @@ enum DownloadPreviewFixtures {
 
     static let snapshots = [downloading, paused, completed, failed]
 
+    static let storeScreenshotSnapshots = [
+        DownloadSnapshot(
+            id: id("10000000-0000-0000-0000-000000000001"),
+            sourceURL: url("https://downloads.example/Design-assets.zip"),
+            filename: "Design-assets.zip",
+            state: .downloading,
+            contentLength: 536_870_912,
+            downloadedBytes: 338_228_674,
+            bytesPerSecond: 26_004_685,
+            estimatedTimeRemaining: .seconds(8),
+            createdAt: referenceDate.addingTimeInterval(-600),
+            startedAt: referenceDate.addingTimeInterval(-120),
+            lastAttemptAt: referenceDate,
+            updatedAt: referenceDate
+        ),
+        DownloadSnapshot(
+            id: id("10000000-0000-0000-0000-000000000002"),
+            sourceURL: url("https://releases.example/Studio-build.dmg"),
+            filename: "Studio-build.dmg",
+            state: .paused,
+            contentLength: 161_061_274,
+            downloadedBytes: 109_521_666,
+            createdAt: referenceDate.addingTimeInterval(-1_200),
+            startedAt: referenceDate.addingTimeInterval(-900),
+            lastAttemptAt: referenceDate.addingTimeInterval(-60),
+            updatedAt: referenceDate.addingTimeInterval(-60)
+        ),
+        DownloadSnapshot(
+            id: id("10000000-0000-0000-0000-000000000003"),
+            sourceURL: url("https://data.example/Research-data.csv"),
+            filename: "Research-data.csv",
+            state: .queued,
+            contentLength: 987_842_478,
+            createdAt: referenceDate.addingTimeInterval(-1_800),
+            lastAttemptAt: referenceDate.addingTimeInterval(-120),
+            updatedAt: referenceDate.addingTimeInterval(-120)
+        ),
+        DownloadSnapshot(
+            id: id("10000000-0000-0000-0000-000000000004"),
+            sourceURL: url("https://files.example/Field-notes.pdf"),
+            destinationURL: URL(filePath: "/Downloads/Field-notes.pdf"),
+            filename: "Field-notes.pdf",
+            state: .completed,
+            contentLength: 25_165_824,
+            downloadedBytes: 25_165_824,
+            createdAt: referenceDate.addingTimeInterval(-2_400),
+            startedAt: referenceDate.addingTimeInterval(-2_300),
+            lastAttemptAt: referenceDate.addingTimeInterval(-180),
+            completedAt: referenceDate.addingTimeInterval(-180),
+            updatedAt: referenceDate.addingTimeInterval(-180)
+        ),
+        DownloadSnapshot(
+            id: id("10000000-0000-0000-0000-000000000005"),
+            sourceURL: url("https://media.example/Product-demo.mp4"),
+            filename: "Product-demo.mp4",
+            state: .failed,
+            contentLength: 1_288_490_188,
+            downloadedBytes: 154_618_822,
+            createdAt: referenceDate.addingTimeInterval(-3_000),
+            startedAt: referenceDate.addingTimeInterval(-2_900),
+            lastAttemptAt: referenceDate.addingTimeInterval(-240),
+            updatedAt: referenceDate.addingTimeInterval(-240)
+        ),
+    ]
+
     static let diagnosticEvents = [
         DownloadDiagnosticEvent(
             id: 1,

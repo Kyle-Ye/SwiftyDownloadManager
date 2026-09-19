@@ -14,24 +14,31 @@ struct SDMApp: App {
     @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
     @State private var downloadService: DownloadService
     private let preparesStoreScreenshots: Bool
+    private let storeScreenshotColorScheme: ColorScheme?
+    private let storeScreenshotWindowSize: CGSize?
     #if os(macOS)
     private let lockScreenDownloadCoordinator: LockScreenDownloadCoordinator
     #endif
 
     init() {
-        #if DEBUG
-        let preparesStoreScreenshots = ProcessInfo.processInfo.arguments.contains(
-            "-StoreScreenshots"
-        )
+        #if DEBUG && os(macOS)
+        let storeScreenshotConfiguration = StoreScreenshotConfiguration()
+        let preparesStoreScreenshots = storeScreenshotConfiguration.isEnabled
+        let storeScreenshotColorScheme = storeScreenshotConfiguration.colorScheme
+        let storeScreenshotWindowSize = storeScreenshotConfiguration.windowSize
         #else
         let preparesStoreScreenshots = false
+        let storeScreenshotColorScheme: ColorScheme? = nil
+        let storeScreenshotWindowSize: CGSize? = nil
         #endif
         self.preparesStoreScreenshots = preparesStoreScreenshots
+        self.storeScreenshotColorScheme = storeScreenshotColorScheme
+        self.storeScreenshotWindowSize = storeScreenshotWindowSize
 
         #if DEBUG
         if preparesStoreScreenshots {
             let service = DownloadService.preview(
-                snapshots: DownloadPreviewFixtures.snapshots,
+                snapshots: DownloadPreviewFixtures.storeScreenshotSnapshots,
                 destinationDirectory: URL(filePath: "/Downloads")
             )
             _downloadService = State(initialValue: service)
@@ -56,10 +63,18 @@ struct SDMApp: App {
         #if os(macOS)
         Window("Swifty Download Manager", id: AppWindowID.main) {
             ContentView(service: downloadService)
+                .preferredColorScheme(storeScreenshotColorScheme)
+                .frame(
+                    width: storeScreenshotWindowSize?.width,
+                    height: storeScreenshotWindowSize?.height
+                )
         }
         .defaultSize(
-            width: preparesStoreScreenshots ? 1_280 : 1_080,
-            height: preparesStoreScreenshots ? 748 : 680
+            width: storeScreenshotWindowSize?.width ?? 1_080,
+            height: storeScreenshotWindowSize?.height ?? 680
+        )
+        .windowResizability(
+            preparesStoreScreenshots ? .contentSize : .automatic
         )
         .commands {
             DownloadCommands()

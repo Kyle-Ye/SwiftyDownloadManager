@@ -127,7 +127,7 @@ struct ContentView: View {
                         DownloadNameCell(snapshot: snapshot)
                     }
                 }
-                .width(min: 180, ideal: 260)
+                .width(min: 160, ideal: 220)
 
                 TableColumn("Size") { item in
                     if let snapshot = snapshotsByID[item.id] {

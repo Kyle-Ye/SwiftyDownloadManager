@@ -5,6 +5,50 @@ import XCTest
 @testable import SDMApp
 
 final class SDMAppTests: XCTestCase {
+    #if os(macOS)
+    func testStoreScreenshotConfigurationIsOptInAndDeterministic() {
+        let disabled = StoreScreenshotConfiguration(
+            arguments: [],
+            environment: [StoreScreenshotConfiguration.appearanceEnvironmentKey: "dark"]
+        )
+        XCTAssertFalse(disabled.isEnabled)
+        XCTAssertNil(disabled.colorScheme)
+        XCTAssertNil(disabled.windowSize)
+
+        let light = StoreScreenshotConfiguration(
+            arguments: [StoreScreenshotConfiguration.modeArgument],
+            environment: [:]
+        )
+        XCTAssertTrue(light.isEnabled)
+        XCTAssertEqual(light.colorScheme, .light)
+        XCTAssertEqual(light.windowSize, StoreScreenshotConfiguration.windowSize)
+
+        let dark = StoreScreenshotConfiguration(
+            arguments: [StoreScreenshotConfiguration.modeArgument],
+            environment: [StoreScreenshotConfiguration.appearanceEnvironmentKey: "dark"]
+        )
+        XCTAssertTrue(dark.isEnabled)
+        XCTAssertEqual(dark.colorScheme, .dark)
+        XCTAssertEqual(dark.windowSize, StoreScreenshotConfiguration.windowSize)
+    }
+
+    func testStoreScreenshotFixturesStayGenericAndCoverKeyStates() {
+        let snapshots = DownloadPreviewFixtures.storeScreenshotSnapshots
+
+        XCTAssertEqual(snapshots.count, 5)
+        XCTAssertEqual(
+            Set(snapshots.map(\.state)),
+            [.downloading, .paused, .queued, .completed, .failed]
+        )
+        XCTAssertFalse(
+            snapshots.contains {
+                $0.displayFilename.localizedStandardContains("ChatWise")
+                    || $0.displayFilename.localizedStandardContains("LookInside")
+            }
+        )
+    }
+    #endif
+
     @MainActor
     func testSafariExtensionStateLookupReturnsAcrossTheXPCBoundary() async {
         _ = await SafariExtensionSupport.isEnabled()
