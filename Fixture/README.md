@@ -78,6 +78,7 @@ file uses the same deterministic bytes, size, rate and Range support as
 | --- | --- |
 | `/auth/file.xip` | Requires the cookie for HEAD and every GET/Range request |
 | `/auth/redirect.xip` | Redirects to the protected file |
+| `/auth/download?path=/Developer_Tools/Xcode_27.1_beta/Xcode_27.1_beta.xip` | Redirects to a named XIP without Content-Disposition, reproducing Apple's service endpoint; `?encoded=1` tests spaces and `?disposition=1` tests a header filename override |
 | `/auth/rotate.xip` | Sets a refreshed cookie while redirecting to `/auth/renewed.xip` |
 | `/auth/expired.xip` | Rejects even a syntactically valid session cookie |
 | `/auth/head-expires.xip` | Accepts HEAD, then returns the unauthorized page for GET |
@@ -98,6 +99,7 @@ through HTTP. Logs never print cookie values.
 curl --head --cookie 'sdm_session=valid' http://127.0.0.1:8080/auth/file.xip
 curl --head --location http://127.0.0.1:8080/auth/file.xip
 swift test --package-path Packages/SDMCore --filter AuthenticatedDownloadTests
+swift test --package-path Packages/SDMCore --filter DownloadFilenameTests
 swift test --package-path BrowserExtension
 ```
 

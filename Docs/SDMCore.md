@@ -92,6 +92,12 @@ callers can override this using `rejectsHTML`. The check also covers the body
 response when a session expires after a successful HEAD. Ordinary HTML and
 unknown-length webpage downloads remain supported.
 
+Filename resolution prefers an explicit request filename, then the response's
+Content-Disposition filename, then the final URL's decoded last path component.
+The original URL remains a fallback. libcurl resolves this before preparing the
+destination; URLSession publishes response metadata during body progress, so
+active and paused downloads display the resolved name before completion.
+
 Both backends finalize through coordinated file access. Core first attempts an
 atomic move, then falls back to copying into a sibling staging file, syncing it,
 and committing it at the destination. This supports destinations in iCloud

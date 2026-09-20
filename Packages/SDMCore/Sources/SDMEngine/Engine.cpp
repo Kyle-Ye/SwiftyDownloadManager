@@ -96,18 +96,37 @@ std::string sanitize_filename(std::string value) {
     return value;
 }
 
+std::string filename_from_url(const std::string &url) {
+    const auto parsed = std::unique_ptr<CURLU, decltype(&curl_url_cleanup)>(
+        curl_url(), curl_url_cleanup
+    );
+    if (!parsed || curl_url_set(parsed.get(), CURLUPART_URL, url.c_str(), 0) != CURLUE_OK) {
+        return {};
+    }
+    char *raw_path = nullptr;
+    if (curl_url_get(parsed.get(), CURLUPART_PATH, &raw_path, 0) != CURLUE_OK) {
+        return {};
+    }
+    const auto owned_path = std::unique_ptr<char, decltype(&curl_free)>(raw_path, curl_free);
+    const std::string path(raw_path);
+    const auto slash = path.find_last_of('/');
+    if (slash == std::string::npos || slash + 1 == path.size()) {
+        return {};
+    }
+    const auto component = path.substr(slash + 1);
+    int length = 0;
+    const auto decoded = std::unique_ptr<char, decltype(&curl_free)>(
+        curl_easy_unescape(nullptr, component.c_str(), 0, &length), curl_free
+    );
+    return sanitize_filename(decoded ? std::string(decoded.get(), length) : component);
+}
+
 std::string inferred_filename(const sdm::DownloadRequest &request) {
     if (!request.filename.empty()) {
         return sanitize_filename(request.filename);
     }
-
-    const auto query = request.url.find_first_of("?#");
-    const auto path = request.url.substr(0, query);
-    const auto slash = path.find_last_of('/');
-    if (slash != std::string::npos && slash + 1 < path.size()) {
-        return sanitize_filename(path.substr(slash + 1));
-    }
-    return "download.bin";
+    auto name = filename_from_url(request.url);
+    return name.empty() ? "download.bin" : name;
 }
 
 std::optional<std::uint64_t> parse_unsigned(std::string_view text) {
@@ -1401,6 +1420,12 @@ private:
             }
         }
         if (task.request.filename.empty() && !response_supplied_filename) {
+            // Service endpoints such as /download?path=... only identify the
+            // resource after redirection. Resolve its name before reserving
+            // the destination path; Content-Disposition remains authoritative.
+            if (auto name = filename_from_url(task.snapshot.final_url); !name.empty()) {
+                task.snapshot.filename = std::move(name);
+            }
             if (const auto iterator = transfer.headers.find("content-type");
                 iterator != transfer.headers.end()) {
                 task.snapshot.filename = infer_filename_extension(

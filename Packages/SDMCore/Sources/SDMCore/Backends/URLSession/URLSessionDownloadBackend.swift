@@ -261,6 +261,7 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         downloadID: DownloadID,
         totalBytesWritten: Int64,
         totalBytesExpected: Int64,
+        response: HTTPURLResponse? = nil,
         sourceTaskIdentifier: Int? = nil
     ) {
         guard sourceTaskIdentifier == nil || activeTasks[downloadID]?.taskIdentifier == sourceTaskIdentifier else { return }
@@ -287,7 +288,17 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         } else {
             remaining = nil
         }
+        // A download task exposes its final response as soon as body progress
+        // arrives. Publish the resolved name now, including for paused tasks.
+        let filename = response.flatMap { response in
+            (200 ... 299).contains(response.statusCode)
+                ? resolvedFilename(for: record.request, finalURL: response.url,
+                                   suggestedFilename: response.suggestedFilename)
+                : nil
+        }
         record.snapshot = record.snapshot.replacing(
+            finalURL: filename != nil ? .some(response?.url) : nil,
+            filename: filename,
             contentLength: .some(contentLength),
             downloadedBytes: bytes,
             bytesPerSecond: speed,
@@ -337,11 +348,8 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         }
 
         do {
-            let filename = record.request.filename?.nonEmptyLastPathComponent
-                ?? suggestedFilename?.nonEmptyLastPathComponent
-                ?? finalURL?.lastPathComponent.nonEmptyValue
-                ?? record.request.url.lastPathComponent.nonEmptyValue
-                ?? "download"
+            let filename = resolvedFilename(for: record.request, finalURL: finalURL,
+                                            suggestedFilename: suggestedFilename)
             let destinationURL = try resolvedDestinationURL(
                 directory: record.request.destinationDirectory,
                 filename: filename,
@@ -596,6 +604,16 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
         if let userAgent = context.userAgent { request.setValue(userAgent, forHTTPHeaderField: "User-Agent") }
         request.setValue(context.referrerHeader(for: url), forHTTPHeaderField: "Referer")
         return request
+    }
+
+    private func resolvedFilename(
+        for request: DownloadRequest, finalURL: URL?, suggestedFilename: String?
+    ) -> String {
+        request.filename?.nonEmptyLastPathComponent
+            ?? suggestedFilename?.nonEmptyLastPathComponent
+            ?? finalURL?.lastPathComponent.nonEmptyValue
+            ?? request.url.lastPathComponent.nonEmptyValue
+            ?? "download"
     }
 
     private func validate(_ request: DownloadRequest) throws {

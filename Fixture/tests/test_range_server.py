@@ -89,6 +89,29 @@ class RangeServerTests(unittest.TestCase):
                     start, end = map(int, byte_range.removeprefix("bytes=").split("-"))
                     self.assertEqual(response.read(), pattern_bytes(start, end - start + 1) if method == "GET" else b"")
 
+    def test_cookie_download_endpoint_resolves_filename_without_disposition(self) -> None:
+        for method in ["HEAD", "GET"]:
+            # urllib follows a 302 HEAD as GET; follow explicitly to check both methods.
+            connection = HTTPConnection(*self.server.server_address, timeout=5)
+            headers = {"Cookie": "sdm_session=valid", "Range": "bytes=0-127"}
+            try:
+                connection.request(method, "/auth/download?path=/Developer_Tools/Xcode_27.1_beta/Xcode_27.1_beta.xip", headers=headers)
+                redirect = connection.getresponse()
+                self.assertEqual(redirect.status, 302)
+                location = redirect.headers["Location"]
+                self.assertEqual(location, "/auth/files/Xcode_27.1_beta.xip")
+                redirect.read()
+                connection.request(method, location, headers=headers)
+                response = connection.getresponse()
+                self.assertEqual(response.status, 206)
+                self.assertIsNone(response.headers["Content-Disposition"])
+                self.assertEqual(response.read(), pattern_bytes(0, 128) if method == "GET" else b"")
+            finally:
+                connection.close()
+        request = Request(self.base_url + "/auth/download?disposition=1", headers={"Cookie": "sdm_session=valid"})
+        with urlopen(request, timeout=5) as response:
+            self.assertEqual(response.headers["Content-Disposition"], 'attachment; filename="Xcode-from-header.xip"')
+
     def test_cookie_fixture_can_sign_in_and_rotate_httponly_cookie(self) -> None:
         from http.cookiejar import CookieJar
         from urllib.request import HTTPCookieProcessor, build_opener

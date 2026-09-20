@@ -19,11 +19,13 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
         totalBytesExpectedToWrite: Int64
     ) {
         guard let id = downloadID(for: downloadTask) else { return }
+        let response = downloadTask.response as? HTTPURLResponse
         Task { [weak backend] in
             await backend?.didWrite(
                 downloadID: id,
                 totalBytesWritten: totalBytesWritten,
                 totalBytesExpected: totalBytesExpectedToWrite,
+                response: response,
                 sourceTaskIdentifier: downloadTask.taskIdentifier
             )
         }

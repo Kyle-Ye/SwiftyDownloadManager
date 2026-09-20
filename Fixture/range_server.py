@@ -15,7 +15,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Iterator, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.json")
 DEFAULT_HOST = "127.0.0.1"
@@ -120,6 +120,7 @@ class VirtualResource:
     bytes_per_second: int
     chunk_size: int
     supports_ranges: bool = True
+    sends_content_disposition: bool = True
     fail_after_bytes: int | None = None
 
     @property
@@ -378,6 +379,7 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                         '<a href="/auth/logout">Sign out</a></p><ul>'
                         '<li><a href="/auth/file.xip">Cookie-protected XIP</a></li>'
                         '<li><a href="/auth/redirect.xip">Redirect to protected XIP</a></li>'
+                        '<li><a download href="/auth/download?path=/Developer_Tools/Xcode_27.1_beta/Xcode_27.1_beta.xip">Apple-style download endpoint (filename from redirect)</a></li>'
                         '<li><a href="/auth/rotate.xip">Refresh cookie during redirect</a></li>'
                         '<li><a href="/auth/expired.xip">Expired server session (must fail)</a></li>'
                         '<li><a href="/auth/head-expires.xip">Session expires after HEAD (must fail)</a></li>'
@@ -406,6 +408,19 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
                 return
             if path == "/auth/redirect.xip":
                 self._auth_redirect("/auth/file.xip")
+                return
+            if path == "/auth/download":
+                query = parse_qs(urlsplit(self.path).query)
+                filename = "Xcode%2027.1%20beta.xip" if "encoded" in query else "Xcode_27.1_beta.xip"
+                suffix = "?disposition=1" if "disposition" in query else ""
+                self._auth_redirect(f"/auth/files/{filename}{suffix}")
+                return
+            if path in {"/auth/files/Xcode_27.1_beta.xip", "/auth/files/Xcode%2027.1%20beta.xip"}:
+                resource = self.fixture_server.resource_for_path(EMPTY_FILE_PATH)
+                assert resource is not None
+                disposition = "disposition" in parse_qs(urlsplit(self.path).query)
+                self._serve_virtual_file(replace(resource, path=path, name="Xcode-from-header.xip",
+                                                sends_content_disposition=disposition), include_body=include_body)
                 return
             if path == "/auth/rotate.xip":
                 self._auth_redirect("/auth/renewed.xip", "sdm_session=renewed; Path=/auth/; HttpOnly; SameSite=Lax")
@@ -632,7 +647,8 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(content_length))
-        self.send_header("Content-Disposition", f'attachment; filename="{resource.name}"')
+        if resource.sends_content_disposition:
+            self.send_header("Content-Disposition", f'attachment; filename="{resource.name}"')
         self.send_header("ETag", resource.etag)
         self.send_header("Last-Modified", EMPTY_FILE_LAST_MODIFIED)
         self.send_header("Cache-Control", "no-store")
