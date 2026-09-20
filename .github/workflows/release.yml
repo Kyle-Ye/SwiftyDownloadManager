@@ -59,7 +59,9 @@ jobs:
           path: release-source
 
       - name: Test the publishing tools
-        run: ruby ../release-tools/Scripts/tests/xcode_cloud_release_test.rb
+        run: |
+          ruby ../release-tools/Scripts/tests/xcode_cloud_release_test.rb
+          python3 -m unittest discover -s ../release-tools/Scripts/tests -p '*_test.py' -v
 
       - name: Validate the release tag, branch, and source versions
         run: |
@@ -168,6 +170,8 @@ jobs:
           codesign --verify --deep --strict --verbose=4 "$app_path"
           xcrun stapler validate "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
+          python3 ../release-tools/Scripts/verify-app-group-profiles.py \
+            "$app_path" "$extension_path"
 
           app_version="$(plutil -extract CFBundleShortVersionString raw -o - "$app_path/Contents/Info.plist")"
           extension_version="$(plutil -extract CFBundleShortVersionString raw -o - "$extension_path/Contents/Info.plist")"

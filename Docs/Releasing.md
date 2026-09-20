@@ -41,6 +41,12 @@ embedded extension each include the matching profile, including in the
 Developer ID export used for GitHub releases. See Apple's
 [App Group provisioning guidance](https://developer.apple.com/documentation/xcode/accessing-app-group-containers).
 
+Both macOS entitlement files explicitly include
+`com.apple.application-identifier`, so the Developer ID export associates each
+bundle with its profile even though injected base entitlements are disabled.
+The GitHub workflow verifies registered App Group authorization in both bundles
+before publishing; notarization alone does not check this requirement.
+
 No Developer ID certificate, private key, certificate password, or
 notarization credential belongs in the repository, GitHub Actions, or a local
 release script.
