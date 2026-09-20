@@ -162,7 +162,7 @@ recreated:
 
 SDM uses one version across the App, Safari Extension, Safari Web Extension,
 Chrome Extension, and Engine on both release tags and `main`. For a planned
-version such as `0.5.0`, all of these values must be `0.5.0`:
+version such as `0.5.1`, all of these values must be `0.5.1`:
 
 - App marketing version in `Project.swift`.
 - Safari Extension marketing version in `Project.swift`.
@@ -194,8 +194,8 @@ number.
 Set the release values and branch name explicitly:
 
 ```bash
-SDM_VERSION=0.5.0
-SDM_BUILD_NUMBER=6
+SDM_VERSION=0.5.1
+SDM_BUILD_NUMBER=7
 SDM_RELEASE_BRANCH="release/${SDM_VERSION%.*}"
 ```
 
@@ -381,7 +381,7 @@ gh run watch RUN_ID \
 
 ## Release notes
 
-Release titles use `SDM MAJOR.MINOR.PATCH` (for example, `SDM 0.5.0`), both
+Release titles use `SDM MAJOR.MINOR.PATCH` (for example, `SDM 0.5.1`), both
 when creating a release and when updating an existing release.
 
 The workflow always requests GitHub-generated release notes using
