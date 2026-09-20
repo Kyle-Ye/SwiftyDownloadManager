@@ -32,13 +32,15 @@ after 60 seconds. Keys and payloads never enter page DOM or extension storage.
 The Release app needs `com.apple.security.network.server` for this listener.
 
 Safari collects the same request context and uses native messaging to stage an
-encrypted, short-lived file in the shared App Group
+encrypted, short-lived file in a shared App Group: macOS uses
+`VB7MJ8R223.top.kyleye.swifty-download-manager`, and iOS uses
 `group.top.kyleye.swifty-download-manager`. Its key and UUID travel separately
 through OS app activation; the app consumes and deletes the ciphertext. Expired
 files are rejected and pruned on subsequent use. iOS also protects staging files
-with complete file protection. Both the app and Safari extension must be signed
-with provisioning profiles authorizing this App Group. `REGISTER_APP_GROUPS`
-is enabled in the project for automatic signing. See Apple's
+with complete file protection. On macOS both targets must be signed by team
+`VB7MJ8R223`; macOS authorizes the team-prefixed group through that signature
+without a provisioning profile. On iOS both targets need profiles authorizing
+the registered group. `REGISTER_APP_GROUPS` is enabled for automatic signing. See Apple's
 [App Group provisioning guidance](https://developer.apple.com/documentation/xcode/accessing-app-group-containers).
 
 Both download engines use the context only in memory. Cookie domain, host-only,

@@ -230,9 +230,14 @@ Local validation on 2026-09-20:
 - macOS arm64 and iOS Simulator app builds succeeded with signing disabled.
 - Chrome's unpacked extension was assembled in `Derived/ChromeExtension`.
 
-Signed extension installation and an actual authenticated Apple download have
-not been verified. This machine's Xcode has no signed-in developer account or
-matching development profiles for the app and Safari extension. Safari's new
-App Group needs provisioning before installation. Browser sessions are
-transient: after restarting SDM, resend the task from the signed-in browser;
-URLSession browser tasks require SDM to remain running.
+The macOS installation follow-up uses a team-prefixed App Group, authorized
+through the existing development certificate. The Release app and embedded
+Safari extension passed signature verification, and a sandboxed, signed probe
+successfully staged and consumed an encrypted handoff in the actual App Group.
+The four native handoff tests also passed after this platform configuration
+change. iOS still requires registered App Group provisioning.
+
+An actual authenticated Apple download and Safari browser-to-app interaction
+remain for manual testing. Browser sessions are transient: after restarting
+SDM, resend the task from the signed-in browser; URLSession browser tasks
+require SDM to remain running.

@@ -3,7 +3,13 @@ import Foundation
 /// Only encrypted, short-lived handoff data is staged in the App Group.
 /// The decryption key travels separately through the app callback.
 struct SafariHandoffStore {
+    #if os(macOS)
+    // macOS authorizes this group using the signing team's identity, including
+    // local development builds without a provisioned iOS-style App Group.
+    static let groupIdentifier = "VB7MJ8R223.top.kyleye.swifty-download-manager"
+    #else
     static let groupIdentifier = "group.top.kyleye.swifty-download-manager"
+    #endif
     let directory: URL
 
     init() throws {
