@@ -1,6 +1,6 @@
 # Release process
 
-SDM uses two Xcode Cloud workflows. Changes to `main` run the `Main` workflow
+SDM uses two regular Xcode Cloud workflows. Changes to `main` run the `Main` workflow
 to build and test the iOS and macOS apps without producing distributable
 archives. Changes to a `release/MAJOR.MINOR` branch run the `Release` workflow
 to archive both apps, distribute release candidates through internal
@@ -346,6 +346,26 @@ before any artifact can be published. The configured Release workflow owns
 archiving, signing, notarization, and its TestFlight post-actions. The original
 tag is not moved. A failed build, signature, notarization, version, or package
 check stops publication.
+
+Historical tags such as `0.4.0` have a `ci_pre_xcodebuild.sh` hook that rejects
+tag builds when the workflow is named `Release`. Use the separate
+`Release Backfill` workflow for these tags. It is a copy of `Release` with
+only a manual Tags start condition, a universal macOS Archive action
+(Distribution Preparation: None), and the macOS Notarize post-action.
+Keep Restrict Editing enabled. Remove automatic triggers, the iOS Archive,
+and TestFlight post-actions from this copy. Its distinct name leaves the old
+branch-only hook inactive without changing the tagged source; the GitHub job
+still validates the source versions and completed build commit before
+verifying the signed, stapled artifact.
+
+```bash
+gh workflow run "Publish Xcode Cloud Release" \
+  --repo Kyle-Ye/SwiftyDownloadManager --ref main \
+  -f tag=0.4.0 -f rebuild=true -f xcode_workflow="Release Backfill"
+```
+
+To retry publication after that build has already started, use the same tag
+and `xcode_workflow` with `rebuild=false` so the existing build is reused.
 
 Monitor Xcode Cloud in Xcode or App Store Connect, and the publication job with
 GitHub CLI:
