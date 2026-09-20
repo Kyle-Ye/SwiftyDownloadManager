@@ -220,11 +220,13 @@ jobs:
             "${notes_options[@]}" --jq '.body' > "$notes_file"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$RELEASE_ZIP" --clobber
-            gh release edit "$RELEASE_TAG" --notes-file "$notes_file"
+            gh release edit "$RELEASE_TAG" \
+              --title "SDM $RELEASE_TAG" \
+              --notes-file "$notes_file"
           else
             gh release create "$RELEASE_TAG" "$RELEASE_ZIP" \
               --verify-tag \
-              --title "Swifty Download Manager $RELEASE_TAG" \
+              --title "SDM $RELEASE_TAG" \
               --notes-file "$notes_file"
           fi
 

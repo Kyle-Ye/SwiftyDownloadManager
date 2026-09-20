@@ -381,6 +381,9 @@ gh run watch RUN_ID \
 
 ## Release notes
 
+Release titles use `SDM MAJOR.MINOR.PATCH` (for example, `SDM 0.5.0`), both
+when creating a release and when updating an existing release.
+
 The workflow always requests GitHub-generated release notes using
 `.github/release.yml`, including when updating an existing release. It chooses
 the preceding plain semantic-version tag by version order so a backfill does
