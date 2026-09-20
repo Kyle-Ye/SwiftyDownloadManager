@@ -5,15 +5,18 @@ to build and test the iOS and macOS apps without producing distributable
 archives. Changes to a `release/MAJOR.MINOR` branch run the `Release` workflow
 to archive both apps, distribute release candidates through internal
 TestFlight testing, and notarize the macOS app. After that workflow succeeds,
-tag the same commit. When a GitHub Release asset is wanted, manually run the
-`Publish Xcode Cloud Release` workflow for that tag.
+tag the same commit. Pushing a semantic-version tag starts the separate
+`Publish Xcode Cloud Release` GitHub Actions workflow. It can also be run
+manually for an existing tag to retry publication or backfill a release.
 
 Xcode Cloud owns the release binary. It archives the macOS app, signs the
 export with Developer ID, sends it to Apple's notary service, and produces a
-`STAPLED_NOTARIZED_ARCHIVE` artifact. The on-demand GitHub workflow fetches
+`STAPLED_NOTARIZED_ARCHIVE` artifact. The GitHub publication workflow fetches
 that exact artifact through the App Store Connect API, verifies it, and
-publishes one user-facing asset: `SwiftyDownloadManager.app.zip`. Pushing a
-tag alone does not publish a GitHub Release.
+publishes one user-facing asset: `SwiftyDownloadManager.app.zip`. GitHub never
+compiles or signs a replacement binary. The workflow verifies the downloaded
+app before publication and downloads the published ZIP again to check that
+its bytes match the verified package.
 
 The Xcode Cloud archives and logs remain available in App Store Connect for
 Apple's retention period. GitHub Releases only stores the packaged macOS app.
@@ -118,12 +121,12 @@ The `Main` Test actions run the scheme tests on both platforms.
 `ci_scripts/ci_pre_xcodebuild.sh` additionally runs the cross-language test
 suite during the `build-for-testing` phase of each Test action. Archive actions
 do not run repository-specific validation or packaging hooks; release source
-versions are checked during release preparation and optional GitHub
+versions are checked during release preparation and GitHub
 publication instead.
 
-## On-demand GitHub publication secrets
+## GitHub publication secrets
 
-The optional `Publish Xcode Cloud Release` workflow needs read access to Xcode
+The `Publish Xcode Cloud Release` workflow needs read access to Xcode
 Cloud build metadata and artifacts through the App Store Connect API:
 
 | Secret | Value |
@@ -133,7 +136,9 @@ Cloud build metadata and artifacts through the App Store Connect API:
 | `APP_STORE_CONNECT_API_ISSUER_ID` | App Store Connect API issuer UUID |
 
 The API key must be able to read the app's Xcode Cloud products, workflows,
-builds, actions, and artifacts. GitHub Actions writes the key to its temporary
+builds, actions, and artifacts. The optional `rebuild` input also needs access
+to read repository Git references and start a build in the existing Release
+workflow. GitHub Actions writes the key to its temporary
 runner directory, uses short-lived JWTs, and removes the key when the job ends.
 
 Confirm that the required names exist. GitHub does not expose their values:
@@ -270,8 +275,8 @@ branch's current commit.
 ## Publish a release
 
 After the release-branch build succeeds, create and push an annotated tag on
-that same commit. Tagging does not start another build or publish a GitHub
-Release:
+that same commit. This starts GitHub publication using the existing Xcode
+Cloud artifact; it does not start another Xcode Cloud build:
 
 ```bash
 git tag -a "$SDM_VERSION" \
@@ -290,35 +295,55 @@ The complete flow is:
    signing.
 4. The Notarize post-action submits the macOS app, waits for acceptance, and
    staples the ticket.
-5. Push the semantic-version tag for the successfully archived commit. The
-   tag is the release identity but has no automatic publication side effect.
-6. When a GitHub macOS download is wanted, manually dispatch `Publish Xcode
-   Cloud Release` with that tag. It verifies that the tag belongs to the
+5. Push the semantic-version tag for the successfully archived commit.
+6. The separate `Publish Xcode Cloud Release` workflow starts automatically.
+   It verifies that the tag belongs to the
    corresponding `origin/release/MAJOR.MINOR` branch.
-7. The on-demand job matches the Xcode Cloud release-branch build by branch
-   and commit, downloads only its `STAPLED_NOTARIZED_ARCHIVE`, and verifies the
+7. The job matches a build of the release branch or the exact version tag by
+   commit, downloads only its `STAPLED_NOTARIZED_ARCHIVE`, and verifies the
    signature, ticket, Gatekeeper result, versions, architectures, licenses,
    and absence of development-only LookInside code.
 8. The job repackages the verified macOS app and creates or updates the GitHub
-   Release with generated changelog notes. It never downloads or uploads the
-   iOS archive.
+   Release with GitHub-generated changelog notes. It then downloads the public
+   ZIP and verifies it matches. It never downloads or uploads the iOS archive.
 9. Build `Artifacts/SwiftyDownloadManager-Chrome-${SDM_VERSION}.zip` from the
    tagged source and upload it to the existing Chrome Web Store item. For the
    first listing and for any behavior or permission change, review every field
    in `../Resources/ChromeWebStore/Submission.md` and confirm the public privacy page
    still matches the extension before submitting the store draft for review.
 
-Run the optional GitHub publication only when the release should offer a
-direct macOS download:
+To retry or backfill a GitHub Release, run the workflow from `main` with an
+existing tag. Publishing tools come from the workflow commit, while version
+and bundle checks use a separate checkout of the requested tag. This allows
+publishing fixes to work for older tags without changing their source:
 
 ```bash
 gh workflow run "Publish Xcode Cloud Release" \
   --repo Kyle-Ye/SwiftyDownloadManager \
+  --ref main \
   -f tag="$SDM_VERSION"
 ```
 
-Monitor Xcode Cloud in Xcode or App Store Connect. If the optional publication
-job was started, monitor it with GitHub CLI:
+If Xcode Cloud has expired the original artifact, request a new clean build
+of the existing tag through the same workflow:
+
+```bash
+gh workflow run "Publish Xcode Cloud Release" \
+  --repo Kyle-Ye/SwiftyDownloadManager \
+  --ref main \
+  -f tag=0.4.0 \
+  -f rebuild=true
+```
+
+The rebuild uses the tag's Git reference, not the current tip of its release
+branch. Its resolved source commit must still equal the tag's original commit
+before any artifact can be published. The configured Release workflow owns
+archiving, signing, notarization, and its TestFlight post-actions. The original
+tag is not moved. A failed build, signature, notarization, version, or package
+check stops publication.
+
+Monitor Xcode Cloud in Xcode or App Store Connect, and the publication job with
+GitHub CLI:
 
 ```bash
 gh run list \
@@ -331,8 +356,12 @@ gh run watch RUN_ID \
 
 ## Release notes
 
-GitHub generates release notes from merged pull requests using
-`.github/release.yml`. Keep them as a user-facing changelog:
+The workflow always requests GitHub-generated release notes using
+`.github/release.yml`, including when updating an existing release. It chooses
+the preceding plain semantic-version tag by version order so a backfill does
+not accidentally compare against a newer release. No AI-generated prose or
+manual distribution notice is appended. Keep the result as a user-facing
+changelog:
 
 - `Features` for `enhancement` or `feature` labels.
 - `Fixes` for `bug` or `fix` labels.
@@ -340,7 +369,9 @@ GitHub generates release notes from merged pull requests using
 - `skip-changelog` excludes internal-only pull requests.
 
 Do not add certificate names, Team IDs, notarization implementation details,
-App Store Connect artifact URLs, or local build paths to release notes.
+App Store Connect artifact URLs, local build paths, or Important notices
+redirecting users away from GitHub downloads to release notes. Fix PR titles
+and changelog labels before tagging rather than hand-editing generated notes.
 
 ## Verify the published artifact
 

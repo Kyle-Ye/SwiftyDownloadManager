@@ -1,18 +1,26 @@
 name: Publish Xcode Cloud Release
 
 on:
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch:
     inputs:
       tag:
         description: Existing semantic-version tag built from its Xcode Cloud release branch
         required: true
         type: string
+      rebuild:
+        description: Rebuild this exact tag in Xcode Cloud (for expired archives)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ inputs.tag }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -20,16 +28,30 @@ jobs:
     name: Publish notarized Xcode Cloud artifact
     runs-on: macos-26
     timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: release-source
     env:
-      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      REBUILD_ARCHIVE: ${{ inputs.rebuild || false }}
       APP_BUNDLE_ID: top.kyleye.swifty-download-manager-app
       XCODE_CLOUD_WORKFLOW: Release
     steps:
+      - name: Check out the publishing tools
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: release-tools
+
       - name: Check out the release tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           ref: ${{ env.RELEASE_TAG }}
+          path: release-source
+
+      - name: Test the publishing tools
+        run: ruby ../release-tools/Scripts/tests/xcode_cloud_release_test.rb
 
       - name: Validate the release tag, branch, and source versions
         run: |
@@ -73,11 +95,13 @@ jobs:
           api_key_path="$RUNNER_TEMP/AuthKey.p8"
           printf '%s' "$API_KEY_BASE64" | base64 --decode > "$api_key_path"
           chmod 600 "$api_key_path"
-          echo "API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
-          echo "ARTIFACT_METADATA=$RUNNER_TEMP/xcode-cloud-artifact.json" >> "$GITHUB_ENV"
-          echo "ARTIFACT_DOWNLOAD=$RUNNER_TEMP/xcode-cloud-artifact.zip" >> "$GITHUB_ENV"
-          echo "EXTRACT_DIR=$RUNNER_TEMP/xcode-cloud-extract" >> "$GITHUB_ENV"
-          echo "RELEASE_ZIP=$RUNNER_TEMP/SwiftyDownloadManager.app.zip" >> "$GITHUB_ENV"
+          {
+            echo "API_KEY_PATH=$api_key_path"
+            echo "ARTIFACT_METADATA=$RUNNER_TEMP/xcode-cloud-artifact.json"
+            echo "ARTIFACT_DOWNLOAD=$RUNNER_TEMP/xcode-cloud-artifact.zip"
+            echo "EXTRACT_DIR=$RUNNER_TEMP/xcode-cloud-extract"
+            echo "RELEASE_ZIP=$RUNNER_TEMP/SwiftyDownloadManager.app.zip"
+          } >> "$GITHUB_ENV"
 
       - name: Wait for Xcode Cloud notarization
         env:
@@ -87,15 +111,21 @@ jobs:
           set -euo pipefail
           : "${API_KEY_ID:?Missing APP_STORE_CONNECT_API_KEY_ID secret}"
           : "${API_ISSUER_ID:?Missing APP_STORE_CONNECT_API_ISSUER_ID secret}"
-          ruby Scripts/wait-for-xcode-cloud-artifact.rb \
-            --bundle-id "$APP_BUNDLE_ID" \
-            --workflow "$XCODE_CLOUD_WORKFLOW" \
-            --branch "$RELEASE_BRANCH" \
-            --commit "$RELEASE_COMMIT" \
-            --key-id "$API_KEY_ID" \
-            --issuer-id "$API_ISSUER_ID" \
-            --private-key "$API_KEY_PATH" \
+          artifact_options=(
+            --bundle-id "$APP_BUNDLE_ID"
+            --workflow "$XCODE_CLOUD_WORKFLOW"
+            --branch "$RELEASE_BRANCH"
+            --tag "$RELEASE_TAG"
+            --commit "$RELEASE_COMMIT"
+            --key-id "$API_KEY_ID"
+            --issuer-id "$API_ISSUER_ID"
+            --private-key "$API_KEY_PATH"
             --output "$ARTIFACT_METADATA"
+          )
+          if [[ "$REBUILD_ARCHIVE" == "true" ]]; then
+            artifact_options+=(--rebuild)
+          fi
+          ruby ../release-tools/Scripts/wait-for-xcode-cloud-artifact.rb "${artifact_options[@]}"
 
       - name: Download the notarized artifact
         run: |
@@ -169,17 +199,41 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          previous_tag="$(ruby ../release-tools/Scripts/previous-release-tag.rb "$RELEASE_TAG")"
+          notes_options=(-f "tag_name=$RELEASE_TAG")
+          if [[ -n "$previous_tag" ]]; then
+            notes_options+=(-f "previous_tag_name=$previous_tag")
+          fi
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          gh api --method POST "repos/$GH_REPO/releases/generate-notes" \
+            "${notes_options[@]}" --jq '.body' > "$notes_file"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$RELEASE_ZIP" --clobber
+            gh release edit "$RELEASE_TAG" --notes-file "$notes_file"
           else
             gh release create "$RELEASE_TAG" "$RELEASE_ZIP" \
               --verify-tag \
               --title "Swifty Download Manager $RELEASE_TAG" \
-              --generate-notes \
-              --latest
+              --notes-file "$notes_file"
           fi
+
+      - name: Verify the published download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json assets | \
+            jq -e '.assets | length == 1 and .[0].name == "SwiftyDownloadManager.app.zip"'
+          download_dir="$RUNNER_TEMP/published-release"
+          mkdir "$download_dir"
+          gh release download "$RELEASE_TAG" \
+            --pattern SwiftyDownloadManager.app.zip --dir "$download_dir"
+          cmp "$RELEASE_ZIP" "$download_dir/SwiftyDownloadManager.app.zip"
+          shasum -a 256 "$download_dir/SwiftyDownloadManager.app.zip"
 
       - name: Remove App Store Connect key
         if: always()
