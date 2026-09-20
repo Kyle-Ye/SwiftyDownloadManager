@@ -63,6 +63,9 @@ The release workflow uses these values:
 - Primary repository: `Kyle-Ye/SwiftyDownloadManager`.
 - Project or Workspace: `SDM.xcworkspace`.
 - Start condition: Branch Changes for branches beginning with `release/`.
+- Manual start condition: Tags, all tags (`manualTagStartCondition`). Keep
+  automatic Tag Changes disabled; the manual condition allows exact-tag
+  rebuilds without starting a second build when a release tag is pushed.
 - Archive action: `SDMApp`, macOS, Any Mac, with Distribution Preparation set
   to None.
 - Archive action: `SDMApp`, iOS, with Distribution Preparation set to App
@@ -135,10 +138,12 @@ Cloud build metadata and artifacts through the App Store Connect API:
 | `APP_STORE_CONNECT_API_KEY_ID` | App Store Connect API key ID |
 | `APP_STORE_CONNECT_API_ISSUER_ID` | App Store Connect API issuer UUID |
 
-The API key must be able to read the app's Xcode Cloud products, workflows,
-builds, actions, and artifacts. The optional `rebuild` input also needs access
-to read repository Git references and start a build in the existing Release
-workflow. GitHub Actions writes the key to its temporary
+Use a team API key: the private key, Key ID, and Issuer ID must belong to the
+same team key configuration. This script uses the team-key JWT format, not
+the individual-key format. The Developer role provides read access to Xcode
+Cloud products, workflows, builds, actions, and artifacts. The optional
+`rebuild` input needs App Manager access to start a build, as well as the
+manual tag start condition above. GitHub Actions writes the key to its temporary
 runner directory, uses short-lived JWTs, and removes the key when the job ends.
 
 Confirm that the required names exist. GitHub does not expose their values:

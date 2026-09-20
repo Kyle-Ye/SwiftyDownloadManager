@@ -134,6 +134,23 @@ class XcodeCloudReleaseTest < Minitest::Test
     refute File.exist?(@output)
   end
 
+  def test_waits_for_a_new_build_to_resolve_its_source_commit
+    prepare_rebuild
+    pending = build(commit: "", status: nil)
+    pending["attributes"]["executionProgress"] = "PENDING"
+    respond("/ciBuildRuns/build", "data" => pending)
+    respond("/ciBuildRuns/build", "data" => build)
+    archive_responses
+    assert_equal SHA, run_release.fetch("source_commit")
+  end
+
+  def test_rejects_a_completed_build_without_a_source_commit
+    prepare_rebuild
+    respond("/ciBuildRuns/build", "data" => build(commit: ""))
+    capture_io { assert_raises(SystemExit) { release_main(@arguments) } }
+    refute File.exist?(@output)
+  end
+
   def test_rejects_multiple_notarized_archives
     respond("/ciWorkflows/release/buildRuns", listing)
     respond("/ciBuildRuns/build", "data" => build)

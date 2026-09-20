@@ -198,10 +198,8 @@ def release_main(argv = ARGV)
       }
     ).fetch("data")
     attributes = build_run.fetch("attributes")
-    source_commit = attributes.dig("sourceCommit", "commitSha")
-    if source_commit && source_commit.downcase != options[:commit]
-      abort "Xcode Cloud build commit does not match the release tag"
-    end
+    # A newly created manual build can return unresolved source metadata.
+    # Validate the completed build's commit before requesting any artifacts.
     status = attributes["completionStatus"]
     break if status && TERMINAL_STATUSES.include?(status)
 
