@@ -63,9 +63,13 @@ final class DownloadManagerLifecycleTests: XCTestCase {
 
     func testManagerRejectsInvalidConnectionLimit() async throws {
         let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
         let manager = try DownloadManager(configuration: .init(
-            databaseURL: root.appending(path: "sdm-test.sqlite3"),
-            temporaryDirectory: root,
+            databaseURL: root.appending(path: "downloads.sqlite3"),
+            temporaryDirectory: root.appending(path: "partial", directoryHint: .isDirectory),
             maximumConnectionsPerDownload: 4
         ))
         let request = DownloadRequest(
