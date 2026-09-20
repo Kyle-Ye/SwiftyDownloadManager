@@ -2,7 +2,7 @@
   const downloadSupport = globalThis.SDMDownloadSupport;
   const pageBridgeSource = "swifty-download-manager-page-bridge";
   const userGestureLifetimeMilliseconds = 30_000;
-  const responseTimeoutMilliseconds = 5_000;
+  const responseTimeoutMilliseconds = 40_000;
 
   if (window.__sdmPageBridgeInstalled === true) {
     return;

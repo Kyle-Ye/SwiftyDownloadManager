@@ -17,7 +17,7 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-inline constexpr std::uint32_t engine_abi_version = 3;
+inline constexpr std::uint32_t engine_abi_version = 4;
 
 enum class EventKind : std::uint32_t {
     command_result = 0,
@@ -49,6 +49,12 @@ struct DownloadRequest final {
     std::uint32_t connection_limit = 8;
     std::uint64_t bandwidth_limit = 0;
     std::uint32_t conflict_policy = 0;
+    std::string cookies;
+    std::string user_agent;
+    std::string referrer;
+    bool has_request_context = false;
+    bool requires_request_context = false;
+    bool rejects_html = false;
 };
 
 struct DownloadSnapshot final {

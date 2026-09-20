@@ -53,6 +53,7 @@
     "<all_urls>",
     "contextMenus",
     "nativeMessaging",
-    "webNavigation"
+    "webNavigation",
+    "cookies"
   ]
 }

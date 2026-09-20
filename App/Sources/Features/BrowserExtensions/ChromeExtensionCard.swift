@@ -66,7 +66,7 @@ struct ChromeExtensionCard: View {
             }
 
             Label(
-                "Downloads that depend on browser-only cookies, request bodies, or custom headers are not supported yet.",
+                "Includes your browser cookies for downloads that require sign-in. Keep SDM running while these downloads finish.",
                 systemImage: "info.circle"
             )
             .font(.callout)

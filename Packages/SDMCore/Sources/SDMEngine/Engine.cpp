@@ -2,6 +2,7 @@
 #include "DownloadStore.h"
 #include "SDMFileFinalizer.h"
 
+#include <sstream>
 #include <curl/curl.h>
 
 #include <algorithm>
@@ -95,18 +96,37 @@ std::string sanitize_filename(std::string value) {
     return value;
 }
 
+std::string filename_from_url(const std::string &url) {
+    const auto parsed = std::unique_ptr<CURLU, decltype(&curl_url_cleanup)>(
+        curl_url(), curl_url_cleanup
+    );
+    if (!parsed || curl_url_set(parsed.get(), CURLUPART_URL, url.c_str(), 0) != CURLUE_OK) {
+        return {};
+    }
+    char *raw_path = nullptr;
+    if (curl_url_get(parsed.get(), CURLUPART_PATH, &raw_path, 0) != CURLUE_OK) {
+        return {};
+    }
+    const auto owned_path = std::unique_ptr<char, decltype(&curl_free)>(raw_path, curl_free);
+    const std::string path(raw_path);
+    const auto slash = path.find_last_of('/');
+    if (slash == std::string::npos || slash + 1 == path.size()) {
+        return {};
+    }
+    const auto component = path.substr(slash + 1);
+    int length = 0;
+    const auto decoded = std::unique_ptr<char, decltype(&curl_free)>(
+        curl_easy_unescape(nullptr, component.c_str(), 0, &length), curl_free
+    );
+    return sanitize_filename(decoded ? std::string(decoded.get(), length) : component);
+}
+
 std::string inferred_filename(const sdm::DownloadRequest &request) {
     if (!request.filename.empty()) {
         return sanitize_filename(request.filename);
     }
-
-    const auto query = request.url.find_first_of("?#");
-    const auto path = request.url.substr(0, query);
-    const auto slash = path.find_last_of('/');
-    if (slash != std::string::npos && slash + 1 < path.size()) {
-        return sanitize_filename(path.substr(slash + 1));
-    }
-    return "download.bin";
+    auto name = filename_from_url(request.url);
+    return name.empty() ? "download.bin" : name;
 }
 
 std::optional<std::uint64_t> parse_unsigned(std::string_view text) {
@@ -254,6 +274,8 @@ public:
     };
 
     struct Task final {
+        std::unique_ptr<CURLSH, decltype(&curl_share_cleanup)> cookie_share{nullptr, curl_share_cleanup};
+        bool cookies_initialized = false;
         DownloadRequest request;
         DownloadSnapshot snapshot;
         std::filesystem::path temporary_path;
@@ -293,6 +315,7 @@ public:
         std::optional<std::uint64_t> content_length;
         std::string effective_url;
         long response_status = 0;
+        bool unexpected_html = false;
         bool expects_partial_response = false;
         bool response_validated = false;
         bool protocol_failed = false;
@@ -463,6 +486,17 @@ private:
                 auto name = lowercase(trim(line.substr(0, colon)));
                 auto value = trim(line.substr(colon + 1));
                 transfer.headers.insert_or_assign(std::move(name), std::move(value));
+            }
+            if (trim(line).empty() && transfer.response_status >= 200 &&
+                transfer.response_status < 300 && transfer.task->request.rejects_html) {
+                const auto found = transfer.headers.find("content-type");
+                if (found != transfer.headers.end()) {
+                    auto type = lowercase(trim(found->second.substr(0, found->second.find(';'))));
+                    if (type == "text/html" || type == "application/xhtml+xml") {
+                        transfer.unexpected_html = true;
+                        return 0;
+                    }
+                }
             }
             return byte_count;
         } catch (...) {
@@ -867,6 +901,11 @@ private:
                 !task->active_handles.empty()) {
                 continue;
             }
+            if (task->request.requires_request_context && !task->request.has_request_context) {
+                fail_task(*task, Result::protocol_error,
+                    "The browser session is no longer available. Sign in and send this download from the browser again.");
+                continue;
+            }
             if (task->snapshot.content_length_known || task->write_offset > 0 ||
                 !task->segments.empty()) {
                 start_body(*task);
@@ -893,11 +932,42 @@ private:
         curl_easy_setopt(transfer->easy, CURLOPT_URL, task.request.url.c_str());
         curl_easy_setopt(transfer->easy, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(transfer->easy, CURLOPT_MAXREDIRS, 10L);
+        curl_easy_setopt(transfer->easy, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
         curl_easy_setopt(transfer->easy, CURLOPT_CONNECTTIMEOUT_MS, 15'000L);
         curl_easy_setopt(transfer->easy, CURLOPT_LOW_SPEED_LIMIT, 1L);
         curl_easy_setopt(transfer->easy, CURLOPT_LOW_SPEED_TIME, 30L);
         curl_easy_setopt(transfer->easy, CURLOPT_NOSIGNAL, 1L);
-        curl_easy_setopt(transfer->easy, CURLOPT_USERAGENT, "SwiftyDownloadManager/0.3 libcurl");
+        curl_easy_setopt(transfer->easy, CURLOPT_USERAGENT, task.request.user_agent.empty()
+            ? "SwiftyDownloadManager/0.3 libcurl" : task.request.user_agent.c_str());
+        if (task.request.has_request_context) {
+            // All handles run on the engine worker. The per-task jar survives
+            // HEAD, redirects, segments and retries, but never reaches disk.
+            if (!task.cookie_share) {
+                task.cookie_share.reset(curl_share_init());
+                if (!task.cookie_share || curl_share_setopt(task.cookie_share.get(),
+                        CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE) != CURLSHE_OK) {
+                    curl_easy_cleanup(transfer->easy);
+                    transfer->easy = nullptr;
+                    fail_task(task, Result::internal_error, "Unable to create the browser cookie session.");
+                    return nullptr;
+                }
+            }
+            curl_easy_setopt(transfer->easy, CURLOPT_SHARE, task.cookie_share.get());
+            curl_easy_setopt(transfer->easy, CURLOPT_COOKIEFILE, "");
+            if (!task.cookies_initialized) {
+                std::istringstream cookies(task.request.cookies);
+                for (std::string cookie; std::getline(cookies, cookie);) {
+                    curl_easy_setopt(transfer->easy, CURLOPT_COOKIELIST, cookie.c_str());
+                }
+                task.cookies_initialized = true;
+            }
+            if (!task.request.referrer.empty()) {
+                curl_easy_setopt(transfer->easy, CURLOPT_REFERER, task.request.referrer.c_str());
+            }
+            if (lowercase(task.request.url.substr(0, 8)) == "https://") {
+                curl_easy_setopt(transfer->easy, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+            }
+        }
         curl_easy_setopt(transfer->easy, CURLOPT_SSL_VERIFYPEER, 1L);
         curl_easy_setopt(transfer->easy, CURLOPT_SSL_VERIFYHOST, 2L);
         if (!config.certificate_authority_bundle.empty()) {
@@ -1222,6 +1292,12 @@ private:
 
     void finish_transfer(Transfer &transfer, CURLcode curl_result) {
         auto &task = *transfer.task;
+        if (transfer.unexpected_html) {
+            task.snapshot.final_url = transfer.effective_url;
+            fail_task(task, Result::protocol_error,
+                "The server returned a web page instead of the file. Sign in and send this download from the browser again.");
+            return;
+        }
         if (transfer.protocol_failed) {
             fail_task(task, Result::protocol_error, "Range response metadata did not match request");
             return;
@@ -1344,6 +1420,12 @@ private:
             }
         }
         if (task.request.filename.empty() && !response_supplied_filename) {
+            // Service endpoints such as /download?path=... only identify the
+            // resource after redirection. Resolve its name before reserving
+            // the destination path; Content-Disposition remains authoritative.
+            if (auto name = filename_from_url(task.snapshot.final_url); !name.empty()) {
+                task.snapshot.filename = std::move(name);
+            }
             if (const auto iterator = transfer.headers.find("content-type");
                 iterator != transfer.headers.end()) {
                 task.snapshot.filename = infer_filename_extension(

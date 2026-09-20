@@ -24,6 +24,5 @@ globalThis.SDMBackgroundController.start({
   api: extensionAPI,
   browser: "safari",
   registerContextMenuOnInstall: false,
-  sendMessagesDirectlyToApp: true,
   sendToApp,
 });

@@ -11,10 +11,11 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, fields, replace
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Iterator, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.json")
 DEFAULT_HOST = "127.0.0.1"
@@ -40,6 +41,10 @@ VERY_SLOW_BYTES_PER_SECOND = 1024
 VERY_SLOW_CHUNK_SIZE = 1024
 EMPTY_FILE_LAST_MODIFIED = "Wed, 01 Jan 2025 00:00:00 GMT"
 MULTIPART_BOUNDARY = "sdm-fixture-boundary"
+AUTH_COOKIE_NAME = "sdm_session"
+AUTH_COOKIE_VALUE = "valid"
+AUTH_HTML_BODY = b"<!doctype html>\n<html><title>Unauthorized</title><body>Sign in to download.</body></html>\n"
+
 DYNAMIC_HTML_BODY = (
     b"<!doctype html>\n"
     b'<html lang="en"><head><title>OpenSwiftUI Pull Request 923</title></head>'
@@ -115,6 +120,7 @@ class VirtualResource:
     bytes_per_second: int
     chunk_size: int
     supports_ranges: bool = True
+    sends_content_disposition: bool = True
     fail_after_bytes: int | None = None
 
     @property
@@ -313,6 +319,9 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self, *, include_body: bool) -> None:
         path = urlsplit(self.path).path
+        if path.startswith("/auth/") or path.startswith("/cookie-free/"):
+            self._serve_auth_fixture(path, include_body=include_body)
+            return
         if path == "/health":
             self._serve_health(include_body=include_body)
             return
@@ -338,6 +347,106 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             self._send_empty_response(404)
             return
         self._serve_virtual_file(resource, include_body=include_body)
+
+    def _auth_redirect(self, location: str, cookie: str | None = None) -> None:
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
+        self.end_headers()
+
+    def _serve_auth_fixture(self, path: str, *, include_body: bool) -> None:
+        """Synthetic browser session, including HEAD/Range and redirect cases."""
+        cookies = SimpleCookie()
+        cookies.load(self.headers.get("Cookie", ""))
+        session = cookies.get(AUTH_COOKIE_NAME)
+        value = session.value if session else None
+        if path in ("/auth/login", "/auth/logout"):
+            cookie = "sdm_session=valid; Path=/auth/; HttpOnly; SameSite=Lax"
+            if path.endswith("logout"):
+                cookie = "sdm_session=; Max-Age=0; Path=/auth/; HttpOnly; SameSite=Lax"
+            self._auth_redirect("/auth/", cookie)
+            return
+        if path in ("/auth/", "/auth/unauthorized/"):
+            body = AUTH_HTML_BODY
+            if path == "/auth/":
+                state = "Signed in" if value == AUTH_COOKIE_VALUE else "Signed out"
+                body = ("<!doctype html><html><title>SDM Cookie Fixture</title><body>"
+                        f"<h1>SDM Cookie Fixture</h1><p>{state}</p>"
+                        '<p><a href="/auth/login">Sign in (synthetic HttpOnly cookie)</a> · '
+                        '<a href="/auth/logout">Sign out</a></p><ul>'
+                        '<li><a href="/auth/file.xip">Cookie-protected XIP</a></li>'
+                        '<li><a href="/auth/redirect.xip">Redirect to protected XIP</a></li>'
+                        '<li><a download href="/auth/download?path=/Developer_Tools/Xcode_27.1_beta/Xcode_27.1_beta.xip">Apple-style download endpoint (filename from redirect)</a></li>'
+                        '<li><a href="/auth/rotate.xip">Refresh cookie during redirect</a></li>'
+                        '<li><a href="/auth/expired.xip">Expired server session (must fail)</a></li>'
+                        '<li><a href="/auth/head-expires.xip">Session expires after HEAD (must fail)</a></li>'
+                        '</ul></body></html>').encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=UTF-8")
+            self.send_header("Cache-Control", "no-store")
+            if include_body:
+                self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            if include_body:
+                self._write_chunked(body)
+            return
+        if path == "/cookie-free/file.xip":
+            if self.headers.get("Cookie"):
+                self._send_empty_response(403)
+                return
+        else:
+            allowed = {"renewed"} if path == "/auth/renewed.xip" else {AUTH_COOKIE_VALUE}
+            if path == "/auth/rotate.xip":
+                allowed.add("renewed")
+            if value not in allowed or path == "/auth/expired.xip" or (
+                path == "/auth/head-expires.xip" and include_body
+            ):
+                self._auth_redirect("/auth/unauthorized/")
+                return
+            if path == "/auth/redirect.xip":
+                self._auth_redirect("/auth/file.xip")
+                return
+            if path == "/auth/download":
+                query = parse_qs(urlsplit(self.path).query)
+                filename = "Xcode%2027.1%20beta.xip" if "encoded" in query else "Xcode_27.1_beta.xip"
+                suffix = "?disposition=1" if "disposition" in query else ""
+                self._auth_redirect(f"/auth/files/{filename}{suffix}")
+                return
+            if path in {"/auth/files/Xcode_27.1_beta.xip", "/auth/files/Xcode%2027.1%20beta.xip"}:
+                resource = self.fixture_server.resource_for_path(EMPTY_FILE_PATH)
+                assert resource is not None
+                disposition = "disposition" in parse_qs(urlsplit(self.path).query)
+                self._serve_virtual_file(replace(resource, path=path, name="Xcode-from-header.xip",
+                                                sends_content_disposition=disposition), include_body=include_body)
+                return
+            if path == "/auth/rotate.xip":
+                self._auth_redirect("/auth/renewed.xip", "sdm_session=renewed; Path=/auth/; HttpOnly; SameSite=Lax")
+                return
+            if path == "/auth/cross-host.xip":
+                self._auth_redirect(f"http://localhost:{self.server.server_address[1]}/cookie-free/file.xip")
+                return
+            if path == "/auth/cross-path.xip":
+                self._auth_redirect("/cookie-free/file.xip")
+                return
+            if path == "/auth/flaky.xip" and include_body and self.fixture_server.consume_first_failure(path):
+                self._send_retryable_response()
+                return
+            if path == "/auth/headers.xip" and (
+                self.headers.get("User-Agent") != "SDM-Fixture-Browser" or
+                self.headers.get("Referer") != f"http://127.0.0.1:{self.server.server_address[1]}/"
+            ):
+                self._send_empty_response(403)
+                return
+            if path not in {"/auth/file.xip", "/auth/renewed.xip", "/auth/head-expires.xip",
+                            "/auth/flaky.xip", "/auth/headers.xip"}:
+                self._send_empty_response(404)
+                return
+        resource = self.fixture_server.resource_for_path(EMPTY_FILE_PATH)
+        assert resource is not None
+        self._serve_virtual_file(replace(resource, path=path, name="fixture.xip"), include_body=include_body)
 
     def _serve_health(self, *, include_body: bool) -> None:
         body = b"ok\n"
@@ -538,7 +647,8 @@ class FixtureRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(content_length))
-        self.send_header("Content-Disposition", f'attachment; filename="{resource.name}"')
+        if resource.sends_content_disposition:
+            self.send_header("Content-Disposition", f'attachment; filename="{resource.name}"')
         self.send_header("ETag", resource.etag)
         self.send_header("Last-Modified", EMPTY_FILE_LAST_MODIFIED)
         self.send_header("Cache-Control", "no-store")
@@ -697,6 +807,7 @@ def main() -> None:
         f"    fails halfway: {base_url}{HALFWAY_FAILURE_FILE_PATH}\n"
         f"    very slow: {base_url}{VERY_SLOW_FILE_PATH}\n"
         f"    unknown-length HTML: {base_url}{DYNAMIC_HTML_PATH}",
+        f"    cookie login/download tests: {base_url}/auth/",
         flush=True,
     )
 

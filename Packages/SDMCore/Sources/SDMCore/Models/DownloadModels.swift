@@ -42,6 +42,9 @@ public struct DownloadRequest: Sendable, Codable, Equatable {
     public let connectionLimit: Int
     public let bandwidthLimit: UInt64?
     public let conflictPolicy: DownloadConflictPolicy
+    public let requestContext: DownloadRequestContext?
+    public let requiresRequestContext: Bool
+    public let rejectsHTML: Bool
 
     public init(
         id: DownloadID = DownloadID(),
@@ -50,7 +53,9 @@ public struct DownloadRequest: Sendable, Codable, Equatable {
         filename: String? = nil,
         connectionLimit: Int = 8,
         bandwidthLimit: UInt64? = nil,
-        conflictPolicy: DownloadConflictPolicy = .rename
+        conflictPolicy: DownloadConflictPolicy = .rename,
+        requestContext: DownloadRequestContext? = nil,
+        rejectsHTML: Bool? = nil
     ) {
         self.id = id
         self.url = url
@@ -59,7 +64,46 @@ public struct DownloadRequest: Sendable, Codable, Equatable {
         self.connectionLimit = connectionLimit
         self.bandwidthLimit = bandwidthLimit
         self.conflictPolicy = conflictPolicy
+        self.requestContext = requestContext
+        requiresRequestContext = requestContext != nil
+        self.rejectsHTML = rejectsHTML ?? Self.expectsFile(url: url, filename: filename)
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, url, destinationDirectory, filename, connectionLimit, bandwidthLimit, conflictPolicy
+        case requiresRequestContext, rejectsHTML
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(DownloadID.self, forKey: .id)
+        url = try values.decode(URL.self, forKey: .url)
+        destinationDirectory = try values.decode(URL.self, forKey: .destinationDirectory)
+        filename = try values.decodeIfPresent(String.self, forKey: .filename)
+        connectionLimit = try values.decode(Int.self, forKey: .connectionLimit)
+        bandwidthLimit = try values.decodeIfPresent(UInt64.self, forKey: .bandwidthLimit)
+        conflictPolicy = try values.decode(DownloadConflictPolicy.self, forKey: .conflictPolicy)
+        requiresRequestContext = try values.decodeIfPresent(Bool.self, forKey: .requiresRequestContext) ?? false
+        rejectsHTML = try values.decodeIfPresent(Bool.self, forKey: .rejectsHTML)
+            ?? Self.expectsFile(url: url, filename: filename)
+        requestContext = nil
+    }
+
+    static func expectsFile(url: URL, filename: String?) -> Bool {
+        let name = filename.map { URL(fileURLWithPath: $0) } ?? url
+        return Set("7z apk avi bin bz2 cab dmg doc docx exe flac gz img iso jar m4a m4v mkv mov mp3 mp4 msi ods odt pdf pkg ppt pptx rar tar tgz wav webm xls xlsx xip xz zip zipx".split(separator: " "))
+            .contains(Substring(name.pathExtension.lowercased()))
+    }
+
+    func validateContext() throws {
+        guard !requiresRequestContext || requestContext != nil else {
+            throw DownloadError(code: .invalidState, message: Self.missingContextMessage)
+        }
+        try requestContext?.validate(for: url)
+    }
+
+    static let missingContextMessage = "The browser session is no longer available. Sign in and send this download from the browser again."
+    static let unexpectedHTMLMessage = "The server returned a web page instead of the file. Sign in and send this download from the browser again."
 }
 
 /// Filesystem locations and process-wide concurrency limits for one engine.

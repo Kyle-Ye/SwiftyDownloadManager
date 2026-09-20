@@ -91,7 +91,19 @@ final class EngineBridge: @unchecked Sendable {
                             value.connection_limit = UInt32(request.connectionLimit)
                             value.bandwidth_limit = request.bandwidthLimit ?? 0
                             value.conflict_policy = request.conflictPolicy.rawValue
-                            return sdm_engine_enqueue(handle, &value, &commandID)
+                            value.has_request_context = request.requestContext == nil ? 0 : 1
+                            value.requires_request_context = request.requiresRequestContext ? 1 : 0
+                            value.rejects_html = request.rejectsHTML ? 1 : 0
+                            return Self.withStringView(request.requestContext?.netscapeCookies ?? "") { cookies in
+                                Self.withStringView(request.requestContext?.userAgent ?? "") { userAgent in
+                                    Self.withStringView(request.requestContext?.referrerHeader(for: request.url) ?? "") { referrer in
+                                        value.cookies = cookies
+                                        value.user_agent = userAgent
+                                        value.referrer = referrer
+                                        return sdm_engine_enqueue(handle, &value, &commandID)
+                                    }
+                                }
+                            }
                         }
                     }
                 }

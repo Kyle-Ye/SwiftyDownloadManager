@@ -133,6 +133,6 @@ final class PersistenceMigrationTests: XCTestCase {
         await manager.shutdown()
 
         let version = databaseURL.path.withCString(sdm_test_database_user_version)
-        XCTAssertEqual(version, 3)
+        XCTAssertEqual(version, 4)
     }
 }

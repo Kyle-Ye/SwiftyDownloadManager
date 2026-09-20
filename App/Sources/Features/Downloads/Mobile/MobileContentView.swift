@@ -284,12 +284,10 @@ struct MobileContentView: View {
     }
 
     private func handleExternalURL(_ callbackURL: URL) {
-        guard let request = BrowserDownloadRequest(callbackURL: callbackURL) else { return }
         Task { @MainActor in
             do {
-                _ = try await service.enqueue(
-                    url: request.url,
-                    suggestedFilename: request.suggestedFilename,
+                try await service.receiveBrowserDownload(
+                    callbackURL,
                     connectionCount: service.selectedEngineDescriptor.supports(
                         .multiConnectionTransfers
                     ) ? defaultConnectionCount : 1

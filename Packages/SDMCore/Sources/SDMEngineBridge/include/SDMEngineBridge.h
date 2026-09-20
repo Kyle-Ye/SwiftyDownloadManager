@@ -76,6 +76,12 @@ typedef struct {
     uint32_t connection_limit;
     uint64_t bandwidth_limit;
     uint32_t conflict_policy;
+    sdm_string_view_t cookies;
+    sdm_string_view_t user_agent;
+    sdm_string_view_t referrer;
+    uint8_t has_request_context;
+    uint8_t requires_request_context;
+    uint8_t rejects_html;
 } sdm_download_request_t;
 
 typedef struct {

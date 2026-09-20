@@ -19,11 +19,14 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
         totalBytesExpectedToWrite: Int64
     ) {
         guard let id = downloadID(for: downloadTask) else { return }
+        let response = downloadTask.response as? HTTPURLResponse
         Task { [weak backend] in
             await backend?.didWrite(
                 downloadID: id,
                 totalBytesWritten: totalBytesWritten,
-                totalBytesExpected: totalBytesExpectedToWrite
+                totalBytesExpected: totalBytesExpectedToWrite,
+                response: response,
+                sourceTaskIdentifier: downloadTask.taskIdentifier
             )
         }
     }
@@ -34,7 +37,7 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
         didFinishDownloadingTo location: URL
     ) {
         guard let id = downloadID(for: downloadTask) else { return }
-        let stagedURL = stagingDirectory.appending(path: "\(id.description).download")
+        let stagedURL = stagingDirectory.appending(path: "\(id.description)-\(downloadTask.taskIdentifier).download")
         do {
             try FileManager.default.createDirectory(
                 at: stagingDirectory,
@@ -52,7 +55,9 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
                     finalURL: response?.url,
                     suggestedFilename: response?.suggestedFilename,
                     statusCode: response?.statusCode,
-                    expectedContentLength: response?.expectedContentLength ?? -1
+                    expectedContentLength: response?.expectedContentLength ?? -1,
+                    mimeType: response?.mimeType,
+                    sourceTaskIdentifier: downloadTask.taskIdentifier
                 )
             }
         } catch {
@@ -61,7 +66,8 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
                     downloadID: id,
                     code: .inputOutput,
                     message: error.localizedDescription,
-                    resumeData: nil
+                    resumeData: nil,
+                    sourceTaskIdentifier: downloadTask.taskIdentifier
                 )
             }
         }
@@ -80,8 +86,23 @@ final class URLSessionDownloadDelegateBridge: NSObject, URLSessionDownloadDelega
                 downloadID: id,
                 code: nsError.code == NSURLErrorCancelled ? .invalidState : .network,
                 message: nsError.localizedDescription,
-                resumeData: resumeData
+                resumeData: resumeData,
+                sourceTaskIdentifier: task.taskIdentifier
             )
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        guard let id = downloadID(for: task) else { completionHandler(nil); return }
+        Task { [weak backend] in
+            let next = await backend?.redirectedRequest(downloadID: id, response: response, request: request)
+            completionHandler(next)
         }
     }
 

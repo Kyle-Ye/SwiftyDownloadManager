@@ -82,9 +82,11 @@ func waitForSnapshot(
 ) async throws -> DownloadSnapshot {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: timeout)
+    var lastSnapshot: DownloadSnapshot?
     while clock.now < deadline {
         do {
             let snapshot = try await manager.snapshot(for: id)
+            lastSnapshot = snapshot
             if predicate(snapshot) {
                 return snapshot
             }
@@ -94,5 +96,5 @@ func waitForSnapshot(
         }
         try await Task.sleep(for: .milliseconds(10))
     }
-    throw FixtureServerError.failedToStart("Timed out waiting for download state")
+    throw FixtureServerError.failedToStart("Timed out waiting for download state; last state: \(String(describing: lastSnapshot?.state)), bytes: \(lastSnapshot?.downloadedBytes ?? 0), error: \(lastSnapshot?.error?.message ?? "none")")
 }

@@ -1,6 +1,7 @@
 importScripts(
   "Shared/download-support.js",
-  "Shared/background-controller.js"
+  "Shared/background-controller.js",
+  "handoff.js"
 );
 
 globalThis.SDMBackgroundController.start({
@@ -19,5 +20,5 @@ globalThis.SDMBackgroundController.start({
   api: chrome,
   browser: "chrome",
   registerContextMenuOnInstall: true,
-  sendMessagesDirectlyToApp: false,
+  sendToApp: globalThis.SDMChromeHandoff.send,
 });

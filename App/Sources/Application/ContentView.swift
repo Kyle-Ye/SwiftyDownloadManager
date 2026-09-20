@@ -86,11 +86,10 @@ struct ContentView: View {
             selectedDownloadIDs.formIntersection(availableIDs)
         }
         .onOpenURL(perform: handleExternalURL)
-        .onReceive(
-            NotificationCenter.default.publisher(for: .browserDownloadCallback)
-        ) { notification in
-            guard let callbackURL = notification.object as? URL else { return }
-            handleExternalURL(callbackURL)
+        .onChange(of: service.browserDownloadErrorMessage, initial: true) { _, message in
+            if let message {
+                presentedError = PresentedDownloadError(title: "Could Not Add Browser Download", message: message)
+            }
         }
         .focusedSceneValue(\.newURLAction, availableNewURLAction)
     }
@@ -345,13 +344,10 @@ struct ContentView: View {
     }
 
     private func handleExternalURL(_ callbackURL: URL) {
-        guard let request = BrowserDownloadRequest(callbackURL: callbackURL) else { return }
-
         Task { @MainActor in
             do {
-                _ = try await service.enqueue(
-                    url: request.url,
-                    suggestedFilename: request.suggestedFilename,
+                try await service.receiveBrowserDownload(
+                    callbackURL,
                     connectionCount: selectedEngineDescriptor.supports(
                         .multiConnectionTransfers
                     ) ? defaultConnectionCount : 1

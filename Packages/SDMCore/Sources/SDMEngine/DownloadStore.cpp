@@ -96,7 +96,7 @@ public:
             throw std::runtime_error("Unable to read database schema version");
         }
         auto schema_version = sqlite3_column_int(version.get(), 0);
-        if (schema_version > 3) {
+        if (schema_version > 4) {
             throw std::runtime_error("Database schema is newer than this engine");
         }
         if (schema_version == 0) {
@@ -109,6 +109,10 @@ public:
         }
         if (schema_version == 2) {
             migrate_to_version_three();
+            schema_version = 3;
+        }
+        if (schema_version == 3) {
+            migrate_to_version_four();
         }
     }
 
@@ -246,6 +250,19 @@ public:
         }
     }
 
+    void migrate_to_version_four() {
+        execute(database, "BEGIN IMMEDIATE");
+        try {
+            execute(database, "ALTER TABLE downloads ADD COLUMN requires_request_context INTEGER NOT NULL DEFAULT 0");
+            execute(database, "ALTER TABLE downloads ADD COLUMN rejects_html INTEGER NOT NULL DEFAULT 0");
+            execute(database, "PRAGMA user_version = 4");
+            execute(database, "COMMIT");
+        } catch (...) {
+            execute(database, "ROLLBACK");
+            throw;
+        }
+    }
+
     std::vector<sdm::PersistedDownload> load_all() {
         Statement downloads(database, R"sql(
             SELECT id, source_url, destination_directory, requested_filename,
@@ -255,7 +272,8 @@ public:
                    temporary_path, accepts_ranges, etag, last_modified,
                    created_milliseconds,
                    started_milliseconds, last_attempt_milliseconds,
-                   completed_milliseconds, updated_milliseconds
+                   completed_milliseconds, updated_milliseconds,
+                   requires_request_context, rejects_html
               FROM downloads
              ORDER BY updated_milliseconds DESC
         )sql");
@@ -263,6 +281,8 @@ public:
         while (sqlite3_step(downloads.get()) == SQLITE_ROW) {
             sdm::PersistedDownload value;
             bool has_invalid_state = false;
+            value.request.requires_request_context = sqlite3_column_int(downloads.get(), 25) != 0;
+            value.request.rejects_html = sqlite3_column_int(downloads.get(), 26) != 0;
             value.request.id = column_text(downloads.get(), 0);
             value.request.url = column_text(downloads.get(), 1);
             value.request.destination_directory = column_text(downloads.get(), 2);
@@ -444,10 +464,11 @@ public:
                     temporary_path, accepts_ranges, etag, last_modified,
                     created_milliseconds,
                     started_milliseconds, last_attempt_milliseconds,
-                    completed_milliseconds, updated_milliseconds
+                    completed_milliseconds, updated_milliseconds,
+                    requires_request_context, rejects_html
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     source_url = excluded.source_url,
@@ -473,7 +494,9 @@ public:
                     started_milliseconds = excluded.started_milliseconds,
                     last_attempt_milliseconds = excluded.last_attempt_milliseconds,
                     completed_milliseconds = excluded.completed_milliseconds,
-                    updated_milliseconds = excluded.updated_milliseconds
+                    updated_milliseconds = excluded.updated_milliseconds,
+                    requires_request_context = excluded.requires_request_context,
+                    rejects_html = excluded.rejects_html
             )sql");
             int index = 1;
             bind_text(statement.get(), index++, value.request.id);
@@ -501,6 +524,8 @@ public:
             sqlite3_bind_int64(statement.get(), index++, static_cast<sqlite3_int64>(value.snapshot.last_attempt_milliseconds));
             sqlite3_bind_int64(statement.get(), index++, static_cast<sqlite3_int64>(value.snapshot.completed_milliseconds));
             sqlite3_bind_int64(statement.get(), index++, static_cast<sqlite3_int64>(value.snapshot.updated_milliseconds));
+            sqlite3_bind_int(statement.get(), index++, value.request.requires_request_context ? 1 : 0);
+            sqlite3_bind_int(statement.get(), index++, value.request.rejects_html ? 1 : 0);
             require_done(database, statement.get());
 
             Statement remove_segments(

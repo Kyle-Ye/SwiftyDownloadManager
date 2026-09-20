@@ -14,5 +14,9 @@
     <true/>
     <key>com.apple.security.network.server</key>
     <true/>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>VB7MJ8R223.top.kyleye.swifty-download-manager</string>
+    </array>
 </dict>
 </plist>

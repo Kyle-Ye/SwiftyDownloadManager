@@ -3,6 +3,7 @@
   const extensionAPI = extensionPlatform.api;
   const downloadSupport = globalThis.SDMDownloadSupport;
   const pageBridgeSource = "swifty-download-manager-page-bridge";
+  let lastTrustedClick = 0;
   const pageBridgeToken = globalThis.crypto.randomUUID();
 
   function linkFromEvent(event) {
@@ -76,7 +77,7 @@
     }
 
     const url = parsedHTTPURL(message.url);
-    if (!url || !isDownloadURL(url)) {
+    if (!url || !isDownloadURL(url) || Date.now() - lastTrustedClick > 30_000) {
       postPageBridgeResponse(message.id, false);
       return;
     }
@@ -96,6 +97,7 @@
 
   document.addEventListener("click", (event) => {
     if (
+      !event.isTrusted ||
       event.defaultPrevented ||
       event.button !== 0 ||
       event.altKey ||
@@ -106,6 +108,7 @@
       return;
     }
 
+    lastTrustedClick = Date.now();
     const link = linkFromEvent(event);
     const url = link ? parsedHTTPURL(link.href) : null;
     if (!link || !url || !isDownloadLink(link, url)) {
@@ -113,20 +116,13 @@
     }
 
     const filename = suggestedFilename(link);
-    link.href = downloadSupport.callbackURL(
-      "download",
-      {
-        url: url.href,
-        filename,
-        source: window.location.href,
-      },
-      extensionPlatform.browser
-    );
-    link.target = "_self";
-    if (link instanceof HTMLAnchorElement) {
-      link.removeAttribute("download");
-    }
-
+    event.preventDefault();
     event.stopImmediatePropagation();
+    // Every entry point must visit the background cookie collector.
+    void extensionAPI.runtime.sendMessage({
+      type: "captureDownload", url: url.href, filename, sourcePage: window.location.href,
+    }).then((response) => {
+      if (!response?.accepted) window.location.assign(url.href);
+    }).catch(() => { window.location.assign(url.href); });
   }, true);
 })();

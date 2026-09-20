@@ -230,6 +230,12 @@ sdm_result_t sdm_engine_enqueue(
                 .connection_limit = request->connection_limit,
                 .bandwidth_limit = request->bandwidth_limit,
                 .conflict_policy = request->conflict_policy,
+                .cookies = copy_string(request->cookies),
+                .user_agent = copy_string(request->user_agent),
+                .referrer = copy_string(request->referrer),
+                .has_request_context = request->has_request_context != 0,
+                .requires_request_context = request->requires_request_context != 0,
+                .rejects_html = request->rejects_html != 0,
             },
             *out_command_id
         ));

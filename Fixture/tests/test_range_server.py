@@ -69,6 +69,74 @@ class RangeServerTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.server_context.__exit__(None, None, None)
 
+    def test_cookie_fixture_redirects_missing_or_invalid_sessions_to_200_html(self) -> None:
+        for cookie in [None, "sdm_session=expired"]:
+            headers = {"Cookie": cookie} if cookie else {}
+            with urlopen(Request(self.base_url + "/auth/file.xip", headers=headers), timeout=5) as response:
+                self.assertEqual(response.status, 200)
+                self.assertTrue(response.url.endswith("/auth/unauthorized/"))
+                self.assertTrue(response.headers["Content-Type"].startswith("text/html"))
+                self.assertTrue(response.read().startswith(b"<!doctype html>"))
+
+    def test_cookie_fixture_requires_cookie_for_head_and_each_range(self) -> None:
+        for method in ["HEAD", "GET"]:
+            for byte_range in ["bytes=0-0", "bytes=100-199"]:
+                request = Request(self.base_url + "/auth/file.xip", method=method,
+                                  headers={"Cookie": "sdm_session=valid", "Range": byte_range})
+                with urlopen(request, timeout=5) as response:
+                    self.assertEqual(response.status, 206)
+                    self.assertEqual(response.headers["Content-Type"], "application/octet-stream")
+                    start, end = map(int, byte_range.removeprefix("bytes=").split("-"))
+                    self.assertEqual(response.read(), pattern_bytes(start, end - start + 1) if method == "GET" else b"")
+
+    def test_cookie_download_endpoint_resolves_filename_without_disposition(self) -> None:
+        for method in ["HEAD", "GET"]:
+            # urllib follows a 302 HEAD as GET; follow explicitly to check both methods.
+            connection = HTTPConnection(*self.server.server_address, timeout=5)
+            headers = {"Cookie": "sdm_session=valid", "Range": "bytes=0-127"}
+            try:
+                connection.request(method, "/auth/download?path=/Developer_Tools/Xcode_27.1_beta/Xcode_27.1_beta.xip", headers=headers)
+                redirect = connection.getresponse()
+                self.assertEqual(redirect.status, 302)
+                location = redirect.headers["Location"]
+                self.assertEqual(location, "/auth/files/Xcode_27.1_beta.xip")
+                redirect.read()
+                connection.request(method, location, headers=headers)
+                response = connection.getresponse()
+                self.assertEqual(response.status, 206)
+                self.assertIsNone(response.headers["Content-Disposition"])
+                self.assertEqual(response.read(), pattern_bytes(0, 128) if method == "GET" else b"")
+            finally:
+                connection.close()
+        request = Request(self.base_url + "/auth/download?disposition=1", headers={"Cookie": "sdm_session=valid"})
+        with urlopen(request, timeout=5) as response:
+            self.assertEqual(response.headers["Content-Disposition"], 'attachment; filename="Xcode-from-header.xip"')
+
+    def test_cookie_fixture_can_sign_in_and_rotate_httponly_cookie(self) -> None:
+        from http.cookiejar import CookieJar
+        from urllib.request import HTTPCookieProcessor, build_opener
+        jar = CookieJar()
+        opener = build_opener(HTTPCookieProcessor(jar))
+        with opener.open(self.base_url + "/auth/login", timeout=5) as response:
+            self.assertIn(b"Signed in", response.read())
+        self.assertEqual([(c.name, c.value, c.path) for c in jar], [("sdm_session", "valid", "/auth/")])
+        self.assertTrue(next(iter(jar)).has_nonstandard_attr("HttpOnly"))
+        with opener.open(self.base_url + "/auth/rotate.xip", timeout=5) as response:
+            self.assertEqual(response.read(), pattern_bytes(0, self.config.file_size))
+        self.assertEqual(next(iter(jar)).value, "renewed")
+        with opener.open(self.base_url + "/auth/logout", timeout=5) as response:
+            self.assertIn(b"Signed out", response.read())
+        self.assertEqual(list(jar), [])
+
+    def test_cookie_fixture_rejects_leaks_and_expiration_between_head_and_body(self) -> None:
+        with self.assertRaises(HTTPError) as error:
+            urlopen(Request(self.base_url + "/cookie-free/file.xip", headers={"Cookie":"sdm_session=valid"}), timeout=5)
+        self.assertEqual(error.exception.code, 403)
+        with urlopen(Request(self.base_url + "/auth/head-expires.xip", method="HEAD", headers={"Cookie":"sdm_session=valid"}), timeout=5) as response:
+            self.assertEqual(response.headers["Content-Type"], "application/octet-stream")
+        with urlopen(Request(self.base_url + "/auth/head-expires.xip", headers={"Cookie":"sdm_session=valid"}), timeout=5) as response:
+            self.assertTrue(response.headers["Content-Type"].startswith("text/html"))
+
     def test_committed_config_matches_runtime_defaults(self) -> None:
         config = FixtureConfig.from_json(DEFAULT_CONFIG_PATH)
         self.assertEqual(

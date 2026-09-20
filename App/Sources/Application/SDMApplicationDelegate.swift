@@ -37,7 +37,8 @@ final class SDMApplicationDelegate: NSObject, NSApplicationDelegate {
 
         if callbackURL.host?.lowercased() == "open" {
             NSApplication.shared.activate()
-        } else if BrowserDownloadRequest(callbackURL: callbackURL) != nil {
+        } else if BrowserDownloadRequest(callbackURL: callbackURL) != nil ||
+                    BrowserHandoffTicket(callbackURL: callbackURL) != nil {
             NotificationCenter.default.post(
                 name: .browserDownloadCallback,
                 object: callbackURL

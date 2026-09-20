@@ -15,21 +15,48 @@ manifest format, toolbar API, message-listener behavior, and native-app fallback
 The extension recognizes common direct-download URL extensions, links carrying
 the `download` attribute, and eligible `window.open` calls that immediately
 follow a user click. It also adds **Download with SDM** to HTTP and HTTPS link
-context menus. Recognized requests are handed to the macOS app through its
-`swifty-download-manager://` callback URL.
+context menus. Recognized requests collect URL-scoped browser cookies, the browser
+User-Agent, and an origin-only Referer in the background worker. Ordinary
+anchors, `window.open`, context-menu actions, and the direct-navigation
+confirmation page all use this path. Cookie access failure returns the download
+to the browser instead of silently creating an anonymous SDM task.
 
-The callback avoids installing a Chrome Native Messaging Host outside the app
-sandbox. Chrome requires a native host manifest in a browser-specific location
-under `/Library` or the user's Library, plus an exact extension origin. That
-installation model is unnecessary for the direct public GET URLs currently
-supported by SDM. See Chrome's
-[Native Messaging documentation](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)
-for the additional requirements if the integration later needs bidirectional
-or cookie-aware communication.
+Chrome activates the app through `swifty-download-manager://handoff` with a
+random UUID and one-use AES-256-GCM key. The background worker sends the encrypted
+payload separately to `ws://127.0.0.1:10027` with subprotocol `sdm.handoff.v1`.
+Only the activated app has the key to decrypt it and produce the authenticated
+receipt. Retries of the same handoff receive the same result without creating
+another download. The listener binds only to IPv4 loopback, requires an extension
+Origin and the expected subprotocol, bounds message sizes, and expires tickets
+after 60 seconds. Keys and payloads never enter page DOM or extension storage.
+The Release app needs `com.apple.security.network.server` for this listener.
 
-Authenticated downloads that require browser-only cookies, request bodies, or
-custom headers are not transferred yet. Users can hold a modifier key while
-clicking to preserve Chrome's normal behavior.
+Safari collects the same request context and uses native messaging to stage an
+encrypted, short-lived file in a shared App Group: macOS uses
+`VB7MJ8R223.top.kyleye.swifty-download-manager`, and iOS uses
+`group.top.kyleye.swifty-download-manager`. Its key and UUID travel separately
+through OS app activation; the app consumes and deletes the ciphertext. Expired
+files are rejected and pruned on subsequent use. iOS also protects staging files
+with complete file protection. On macOS both targets must be signed by team
+`VB7MJ8R223`; macOS authorizes the team-prefixed group through that signature
+without a provisioning profile. On iOS both targets need profiles authorizing
+the registered group. `REGISTER_APP_GROUPS` is enabled for automatic signing. See Apple's
+[App Group provisioning guidance](https://developer.apple.com/documentation/xcode/accessing-app-group-containers).
+
+Both download engines use the context only in memory. Cookie domain, host-only,
+path, Secure and expiration rules apply on redirects; an HTTPS browser download
+cannot redirect to HTTP. Browser-profile stores and partition keys are queried
+when their APIs are available. No other browser's cookie store is consulted.
+HTML returned for a known binary filename is reported as an error, while
+intentional HTML downloads remain supported.
+
+Keep SDM running for browser-session downloads. URLSession uses an ephemeral
+foreground session for these tasks; continuing a paused browser task with
+URLSession starts a fresh GET so an opaque resume blob cannot replay expired
+cookies. Public URLSession tasks retain background transfers and opaque resume
+support. After restarting SDM, send a browser-session task again from the signed-in
+browser. POST bodies and arbitrary Authorization/custom headers remain unsupported.
+Users can hold a modifier key while clicking to preserve normal browser behavior.
 
 ## Local development
 
@@ -53,9 +80,9 @@ script again safely replaces this default output. Passing an explicit output
 path requires that path not to exist, preventing accidental data removal.
 
 The manifest requires Chrome 111 or later because `page.js` runs in the page's
-`MAIN` execution world. The package requests only `contextMenus`,
-`webNavigation`, and HTTP/HTTPS host access. It deliberately does not request
-`nativeMessaging` or `downloads`.
+`MAIN` execution world. The package requests `contextMenus`, `webNavigation`, `cookies`, and HTTP/HTTPS
+host access. It does not install a Chrome Native Messaging Host or request
+`downloads`/`webRequest` permissions. Safari additionally uses `nativeMessaging`.
 
 Run its tests directly:
 
@@ -106,8 +133,10 @@ registering a developer account:
 3. Upload `../Resources/ChromeWebStore/Assets/small-promo-440x280.png` and
    `../Resources/ChromeWebStore/Assets/screenshot-download-confirmation-1280x800.png`.
    The 128-pixel store icon is already included in the ZIP manifest.
-4. Disclose that page/download URLs are processed locally and passed to the SDM
-   app, and that SDM does not send them to a developer-operated service.
+4. Disclose that download URLs, URL-scoped cookies, browser User-Agent, and source
+   origins are processed locally and passed to the SDM app to reproduce the
+   selected download. Update cookie-permission justifications and privacy
+   disclosures before publishing; no data is sent to a developer-operated service.
 5. Confirm the public privacy page matches those disclosures, then submit the
    draft for review and publish it after approval.
 6. Confirm `ChromeExtensionSupport.webStoreURL` still uses the assigned item
