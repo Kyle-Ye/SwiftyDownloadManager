@@ -32,6 +32,15 @@ archive and its Notarize post-action, and App Store distribution signing for
 the iOS archive. Hardened Runtime and disabled injected base entitlements
 still apply to macOS Release builds.
 
+The App and Safari extension share the registered App Group
+`group.top.kyleye.swifty-download-manager` on iOS and macOS. Both App IDs must
+have App Groups enabled and be associated with this group in the developer
+account. Keep `REGISTER_APP_GROUPS = YES` and automatic signing enabled so
+Xcode obtains profiles authorizing the group. Verify that the final app and
+embedded extension each include the matching profile, including in the
+Developer ID export used for GitHub releases. See Apple's
+[App Group provisioning guidance](https://developer.apple.com/documentation/xcode/accessing-app-group-containers).
+
 No Developer ID certificate, private key, certificate password, or
 notarization credential belongs in the repository, GitHub Actions, or a local
 release script.

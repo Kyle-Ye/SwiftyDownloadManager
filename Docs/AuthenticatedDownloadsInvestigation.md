@@ -230,12 +230,15 @@ Local validation on 2026-09-20:
 - macOS arm64 and iOS Simulator app builds succeeded with signing disabled.
 - Chrome's unpacked extension was assembled in `Derived/ChromeExtension`.
 
-The macOS installation follow-up uses a team-prefixed App Group, authorized
+The initial macOS installation follow-up used a team-prefixed App Group, authorized
 through the existing development certificate. The Release app and embedded
 Safari extension passed signature verification, and a sandboxed, signed probe
 successfully staged and consumed an encrypted handoff in the actual App Group.
 The four native handoff tests also passed after this platform configuration
-change. iOS still requires registered App Group provisioning.
+change. Release 0.5.1 replaces that local development workaround with the
+registered `group.top.kyleye.swifty-download-manager` App Group on both
+platforms. The app and Safari extension now require profiles authorizing that
+group for development and distribution, including Developer ID exports.
 
 An actual authenticated Apple download and Safari browser-to-app interaction
 remain for manual testing. Browser sessions are transient: after restarting

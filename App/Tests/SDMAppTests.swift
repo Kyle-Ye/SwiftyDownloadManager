@@ -54,6 +54,18 @@ final class SDMAppTests: XCTestCase {
         _ = await SafariExtensionSupport.isEnabled()
     }
 
+    func testSafariHandoffCanRoundTripInAppGroupContainer() throws {
+        let sharedStore = try SafariHandoffStore()
+        let directory = sharedStore.directory.appending(path: "Test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SafariHandoffStore(directory: directory)
+        let payload = Data("App Group integration test".utf8)
+        let ticket = try store.stage(payload)
+
+        XCTAssertEqual(try store.consume(ticket), payload)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+    }
+
     func testSafariExtensionPackagesDirectNavigationCaptureResources() throws {
         let testBundleURL = Bundle(for: type(of: self)).bundleURL
         let plugInsURL = testBundleURL.deletingLastPathComponent()
