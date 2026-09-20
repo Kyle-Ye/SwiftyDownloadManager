@@ -131,10 +131,11 @@ def release_main(argv = ARGV)
   apps = request_json(
     "/apps",
     private_key,
-    options,
-    "filter[bundleId]" => options[:bundle_id],
-    "fields[apps]" => "name,bundleId",
-    "limit" => "2"
+    options, {
+      "filter[bundleId]" => options[:bundle_id],
+      "fields[apps]" => "name,bundleId",
+      "limit" => "2"
+    }
   ).fetch("data")
   abort "Expected one App Store Connect app for #{options[:bundle_id]}, found #{apps.length}" unless apps.length == 1
 
@@ -192,8 +193,9 @@ def release_main(argv = ARGV)
     build_run = request_json(
       "/ciBuildRuns/#{build_run.fetch('id')}",
       private_key,
-      options,
-      "fields[ciBuildRuns]" => "number,sourceCommit,executionProgress,completionStatus"
+      options, {
+        "fields[ciBuildRuns]" => "number,sourceCommit,executionProgress,completionStatus"
+      }
     ).fetch("data")
     attributes = build_run.fetch("attributes")
     source_commit = attributes.dig("sourceCommit", "commitSha")

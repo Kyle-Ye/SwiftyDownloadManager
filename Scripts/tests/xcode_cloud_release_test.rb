@@ -38,7 +38,7 @@ class XcodeCloudReleaseTest < Minitest::Test
     queue.shift
   end
 
-  def respond(path, response, method: "GET")
+  def respond(path, response, method = "GET")
     (@responses[[method, path]] ||= []) << response
   end
 
@@ -112,7 +112,7 @@ class XcodeCloudReleaseTest < Minitest::Test
       { "id" => "tag", "attributes" => { "canonicalName" => "refs/tags/0.4.0", "isDeleted" => false } },
       { "id" => "branch", "attributes" => { "canonicalName" => "refs/heads/release/0.4" } },
     ])
-    respond("/ciBuildRuns", { "data" => { "id" => "build" } }, method: "POST")
+    respond("/ciBuildRuns", { "data" => { "id" => "build" } }, "POST")
   end
 
   def test_rebuilds_the_exact_tag_instead_of_the_advanced_release_branch
