@@ -60,8 +60,17 @@ context menu when a download endpoint does not expose a recognizable filename.
 On macOS, the companion extension for Google Chrome is available from the
 [Chrome Web Store](https://chromewebstore.google.com/detail/jjhjgmnpneldikhkejhoeonjpbbekbpg).
 It can hand supported direct download links to the locally installed app.
-Ordinary pages and inline text, PDF, images, and media stay in the browser.
+Ordinary pages and inline text, PDF, images, and media stay in the browser by default.
 Download prompts offer **Continue in browser** as well as **Open SDM**.
+
+Open **SDM download settings…** from a page's context menu, or **Download settings**
+on a confirmation page, to edit the file types handled automatically. The default
+list includes archives and installers such as `zip`, `bin`, and `dmg`, and only
+hands them over when the website responds with a download. Add `mp4` to
+**Download instead of previewing** to send direct video links to SDM as well;
+this list is empty by default. HTML pages and failed checks stay in the browser.
+Settings are saved separately in each browser profile and apply to open pages.
+Embedded video playback and streaming requests are not captured.
 
 Holding a modifier key while clicking in Safari bypasses SDM and preserves the
 browser's normal link handling.

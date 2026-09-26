@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { createStorage } = require("../../BrowserExtension/Tests/extension-storage");
 
 const resourcesDirectory = path.join(__dirname, "..", "Resources");
 const sharedResourcesDirectory = path.join(
@@ -36,7 +37,7 @@ function eventHook() {
   };
 }
 
-function backgroundHarness({ partitionKey, probe = async (url) => ({ ok: true, url,
+function backgroundHarness({ storage = createStorage(), partitionKey, probe = async (url) => ({ ok: true, url,
   headers: new Headers({ "Content-Type": "application/octet-stream" }) }) } = {}) {
   const nativeMessages = [];
   const cookieQueries = [];
@@ -48,7 +49,9 @@ function backgroundHarness({ partitionKey, probe = async (url) => ({ ok: true, u
   const actionOnClicked = eventHook();
   const webNavigationOnBeforeNavigate = eventHook();
 
+  const optionsOpened = [];
   const chrome = {
+    storage,
     cookies: {
       getPartitionKey: partitionKey,
       async getAll(filter) { cookieQueries.push(filter); return [{name: "session", value: "secret", domain: "cdn.example.com", path: "/", secure: true, hostOnly: true}]; },
@@ -65,6 +68,7 @@ function backgroundHarness({ partitionKey, probe = async (url) => ({ ok: true, u
       },
     },
     runtime: {
+      async openOptionsPage() { optionsOpened.push(true); },
       getURL(resource) {
         return `chrome-extension://test-extension/${resource}`;
       },
@@ -110,7 +114,7 @@ function backgroundHarness({ partitionKey, probe = async (url) => ({ ok: true, u
   );
 
   return {
-    nativeMessages, cookieQueries,
+    nativeMessages, cookieQueries, storage, optionsOpened,
     actionOnClicked,
     contextMenuCreates,
     contextMenusOnClicked,
@@ -131,7 +135,7 @@ test("Chrome package uses a store-ready Manifest V3 layout", () => {
   assert.equal(manifest.background.service_worker, "background.js");
   assert.ok(manifest.action);
   assert.ok(!manifest.permissions.includes("nativeMessaging"));
-  assert.deepEqual(manifest.permissions.sort(), ["contextMenus", "cookies", "webNavigation"]);
+  assert.deepEqual(manifest.permissions.sort(), ["contextMenus", "cookies", "storage", "webNavigation"]);
   assert.deepEqual(manifest.host_permissions, ["http://*/*", "https://*/*"]);
   assert.ok(manifest.content_scripts.some((contentScript) =>
     contentScript.world === "MAIN" && contentScript.js.includes("Shared/page.js")
@@ -147,7 +151,11 @@ test("Chrome package uses a store-ready Manifest V3 layout", () => {
     "Shared/capture.js",
     "Shared/content.js",
     "Shared/download-support.js",
+    "Shared/download-settings.js",
     "Shared/page.js",
+    "Shared/options.html",
+    "Shared/options.js",
+    "Shared/options.css",
     ...Object.values(manifest.icons),
   ];
   for (const resource of packagedResources) {
@@ -175,10 +183,13 @@ test("Safari and Chrome manifests load the same shared interception sources", ()
   assert.deepEqual(sharedScripts(chromeManifest), sharedScripts(safariManifest));
   assert.deepEqual(sharedScripts(chromeManifest), [
     "Shared/download-support.js",
+    "Shared/download-settings.js",
     "Shared/content.js",
     "Shared/page.js",
   ]);
   for (const manifest of [chromeManifest, safariManifest]) {
+    assert.equal(manifest.options_ui.page, "Shared/options.html");
+    assert.ok(manifest.permissions.includes("storage"));
     assert.deepEqual(manifest.content_scripts.find((script) => script.world === "MAIN").js,
       ["Shared/page.js"], "The MAIN-world bridge must run without shared helper globals");
   }
@@ -242,7 +253,7 @@ test("direct file navigation is replaced by the confirmation page", async () => 
     tabId: 42,
     url: "https://cdn.example.com/application.pkg",
   });
-  await Promise.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(harness.tabUpdates.length, 1);
   const capturePage = new URL(harness.tabUpdates[0].options.url);
@@ -391,11 +402,11 @@ test("Continue in browser grants a bypass without sending a download to SDM", as
   assert.deepEqual(harness.navigations, [harness.downloadURL]);
   assert.equal(background.nativeMessages.length, 0);
   const navigate = background.webNavigationOnBeforeNavigate.listeners[0];
-  navigate({ frameId: 0, tabId: 42, url: harness.downloadURL });
+  await navigate({ frameId: 0, tabId: 42, url: harness.downloadURL });
   assert.equal(background.tabUpdates.length, 0);
-  navigate({ frameId: 0, tabId: 43, url: harness.downloadURL });
+  await navigate({ frameId: 0, tabId: 43, url: harness.downloadURL });
   assert.equal(background.tabUpdates.length, 1, "Bypass must stay in its tab");
-  navigate({ frameId: 0, tabId: 42, url: harness.downloadURL });
+  await navigate({ frameId: 0, tabId: 42, url: harness.downloadURL });
   assert.equal(background.tabUpdates.length, 2, "Bypass must be one use");
 });
 
@@ -415,10 +426,10 @@ const ordinaryURLs = [
   "https://example.com/source.ts", "https://example.com/data.csv",
 ];
 
-test("GitHub source and browser-viewable formats never enter the navigation interstitial", () => {
+test("GitHub source and browser-viewable formats never enter the navigation interstitial", async () => {
   const harness = backgroundHarness();
   for (const url of ordinaryURLs) {
-    harness.webNavigationOnBeforeNavigate.listeners[0]({ frameId: 0, tabId: 42, url });
+    await harness.webNavigationOnBeforeNavigate.listeners[0]({ frameId: 0, tabId: 42, url });
   }
   assert.equal(harness.tabUpdates.length, 0);
 });
@@ -453,7 +464,7 @@ test("automatic capture requires a confirmed response, not a filename suffix", a
     assert.equal(probes[0].options.credentials, "include");
     assert.ok(probes[0].options.signal instanceof AbortSignal);
     if (!expected) {
-      harness.webNavigationOnBeforeNavigate.listeners[0]({ frameId: 0, tabId: 7, url });
+      await harness.webNavigationOnBeforeNavigate.listeners[0]({ frameId: 0, tabId: 7, url });
       assert.equal(harness.tabUpdates.length, 0);
     }
   }
@@ -539,11 +550,79 @@ test("Chrome handoff encrypts browser context and authenticates the app receipt"
   assert(!wire.includes(ticket.searchParams.get("key")));
 });
 
+test("preview opt-in affects navigation and automatic handoff, and an opt-out stops both", async () => {
+  const harness = backgroundHarness({ async probe(url) {
+    return { ok: true, url, headers: new Headers({ "Content-Type": "video/mp4", "Content-Disposition": "inline" }) };
+  } });
+  const url = "https://cdn.example.com/movie.MP4?token=test";
+  const navigate = () => harness.webNavigationOnBeforeNavigate.listeners[0]({ frameId: 0, tabId: 7, url });
+  const capture = () => new Promise((resolve) => harness.runtimeOnMessage.listeners[0](
+    { type: "captureDownload", automatic: true, url }, { tab: { id: 7 }, url: "https://example.com/" }, resolve));
+  await navigate();
+  assert.equal(harness.tabUpdates.length, 0, "MP4 is off by default");
+  // Adding mp4 to the conservative list still respects inline responses.
+  await harness.storage.local.set({ downloadRules: { candidateExtensions: ["mp4"], previewExtensions: [] } });
+  assert.equal((await capture()).accepted, false);
+  await navigate(); // Consume the failed-check bypass.
+  await harness.storage.local.set({ downloadRules: { candidateExtensions: [], previewExtensions: ["mp4"] } });
+  await navigate();
+  assert.equal(harness.tabUpdates.length, 1);
+  assert.equal(new URL(harness.tabUpdates[0].options.url).searchParams.get("url"), url);
+  assert.equal((await capture()).accepted, true);
+  assert.equal(harness.nativeMessages.length, 1);
+  await harness.storage.local.set({ downloadRules: { candidateExtensions: [], previewExtensions: [] } });
+  await navigate();
+  assert.equal(harness.tabUpdates.length, 1);
+  assert.equal((await capture()).accepted, false);
+  assert.equal(harness.nativeMessages.length, 1, "Stale page requests must respect saved opt-outs");
+});
+
+test("preview opt-in still rejects login pages, HEAD errors and HTTPS downgrades", async () => {
+  for (const probe of [
+    async (url) => ({ ok: true, url, headers: new Headers({ "Content-Type": "text/html" }) }),
+    async (url) => ({ ok: false, url, headers: new Headers({ "Content-Type": "video/mp4" }) }),
+    async () => ({ ok: true, url: "http://example.com/movie.mp4", headers: new Headers({ "Content-Type": "video/mp4" }) }),
+    async () => { throw new Error("HEAD unavailable"); },
+  ]) {
+    const harness = backgroundHarness({ probe, storage: createStorage({ previewExtensions: ["mp4"] }) });
+    const response = await new Promise((resolve) => harness.runtimeOnMessage.listeners[0](
+      { type: "captureDownload", automatic: true, url: "https://example.com/movie.mp4" },
+      { tab: { id: 7 } }, resolve));
+    assert.equal(response.accepted, false);
+    assert.equal(harness.nativeMessages.length, 0);
+    assert.equal(harness.cookieQueries.length, 0);
+  }
+});
+
+test("cold-start rules do not redirect a superseded navigation", async () => {
+  const storage = createStorage();
+  let finishRead;
+  storage.local.get = () => new Promise((resolve) => { finishRead = resolve; });
+  const harness = backgroundHarness({ storage });
+  const navigate = harness.webNavigationOnBeforeNavigate.listeners[0];
+  const older = navigate({ frameId: 0, tabId: 7, url: "https://example.com/old.zip" });
+  const current = navigate({ frameId: 0, tabId: 7, url: "https://example.com/page" });
+  finishRead({});
+  await Promise.all([older, current]);
+  assert.equal(harness.tabUpdates.length, 0);
+});
+
+test("page context menu opens the extension settings", async () => {
+  const harness = backgroundHarness();
+  harness.runtimeOnInstalled.listeners[0]();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(harness.contextMenuCreates.some((menu) => menu.id === "sdm-download-settings"));
+  harness.contextMenusOnClicked.listeners[0]({ menuItemId: "sdm-download-settings" }, { id: 7 });
+  assert.equal(harness.optionsOpened.length, 1);
+  assert.equal(harness.nativeMessages.length, 0);
+});
+
 for (const browserName of ["chrome", "safari"]) {
   test(`${browserName} collector preserves the tab's store and partition, and rejects cookie-read failure`, async () => {
     const queryCalls = [], payloads = [], updates = [], listeners = [];
     let denied = false;
     const api = {
+      storage: createStorage(),
       runtime: { id: "sdm", getURL: (path) => `chrome-extension://sdm/${path}`, onInstalled: eventHook() },
       tabs: { async update(id, options) { updates.push(options.url); } },
       contextMenus: { async removeAll() {}, create() {}, onClicked: eventHook() },
@@ -562,6 +641,7 @@ for (const browserName of ["chrome", "safari"]) {
     const context = vm.createContext({ URL, navigator: { userAgent: "Fixture Browser" } });
     vm.runInContext(fs.readFileSync(sourcePath("Shared/download-support.js"), "utf8"), context);
     vm.runInContext(fs.readFileSync(sourcePath("Shared/background-controller.js"), "utf8"), context);
+    vm.runInContext(fs.readFileSync(sourcePath("Shared/download-settings.js"), "utf8"), context);
     context.SDMBackgroundController.start({api, browser: browserName, action:{onClicked:eventHook()},
       addMessageListener(listener) { listeners.push(listener); }, registerContextMenuOnInstall: true,
       async sendToApp(payload) { payloads.push(payload); return {accepted:true}; }});

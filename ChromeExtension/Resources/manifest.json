@@ -14,6 +14,10 @@
   "background": {
     "service_worker": "background.js"
   },
+  "options_ui": {
+    "page": "Shared/options.html",
+    "open_in_tab": true
+  },
   "action": {
     "default_icon": {
       "16": "icons/icon-16.png",
@@ -31,6 +35,7 @@
       "js": [
         "platform.js",
         "Shared/download-support.js",
+        "Shared/download-settings.js",
         "Shared/content.js"
       ],
       "run_at": "document_start",
@@ -56,6 +61,7 @@
   "permissions": [
     "contextMenus",
     "webNavigation",
-    "cookies"
+    "cookies",
+    "storage"
   ]
 }

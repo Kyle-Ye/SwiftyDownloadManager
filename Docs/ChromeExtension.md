@@ -18,7 +18,7 @@ isolated script independently validates every bridged download request.
 
 ## How it works
 
-The extension leaves ordinary navigation and inline formats such as text, PDF,
+By default, the extension leaves ordinary navigation and inline formats such as text, PDF,
 images, and media to the browser. Archive and installer filename extensions are
 only candidates: a credentialed HEAD request must return a successful attachment
 response or a known binary download MIME type before automatic handoff or a
@@ -28,6 +28,66 @@ The HEAD check times out after three seconds and never fetches the response body
 HEAD and GET can differ on some servers; this is a conservative preflight, not a
 browser download event listener. Endpoints outside these candidates can still be
 sent explicitly using **Download with SDM** in the link context menu.
+
+## File-type settings
+
+The extension owns these preferences because it decides which browser navigation
+to intercept. Chrome and Safari share the same options page and rule evaluator.
+The native app continues to own download engines and destinations, and does not
+need to be running to edit interception preferences. Settings are local to each
+browser profile; they are not synchronized through the app or across browsers.
+Safari also runs a separate extension instance and storage for each profile, as
+described in [WebKit's Safari 17 profile documentation](https://webkit.org/blog/14445/webkit-features-in-safari-17-0/).
+
+Open **SDM download settings…** from the page context menu, **Download settings**
+on a confirmation page, or the browser's extension options entry. Clicking the
+toolbar icon still opens SDM.
+
+There are two editable lists:
+
+- **Download when offered by the website**: these are candidates for the existing
+  conservative response check. A successful HEAD must return
+  `Content-Disposition: attachment`, or a recognized binary MIME type without an
+  explicit disposition. Explicit inline responses stay in the browser.
+- **Download instead of previewing**: empty by default. Adding `mp4` here opts into
+  downloading direct MP4 links even with `video/mp4` and `Content-Disposition:
+  inline`. A successful HEAD and a nonempty MIME type other than `text/html` or
+  `application/xhtml+xml` are still required. This list takes precedence when a
+  suffix appears in both lists. It does not capture embedded video or streaming
+  requests.
+
+The default candidate list is:
+
+```text
+7z apk app arc arj bin bz2 cab dmg doc docx epub exe gz img iso jar key msi
+numbers odf ods odt pages pkg ppt pptx rar tar tgz xls xlsx xip xz zip zipx
+```
+
+Matching uses the original HTTP(S) URL's final pathname suffix, ignores case,
+query parameters and fragments, and does not infer a filename from a query or
+response header. For example, `/file.ZIP?name=movie.mp4` matches `zip`,
+`/file.tar.gz` matches `gz`, and `/download?name=file.zip` has no matching suffix.
+Enter single extensions separated by whitespace, commas or semicolons, with an
+optional leading dot. Wildcards, URLs and compound suffixes are rejected.
+
+Remove a suffix from both lists to disable automatic handling for that type.
+Emptying both lists disables all suffix-based interception. Same-origin
+`download` links and explicit **Download with SDM** actions remain available.
+**Restore defaults** immediately saves the default list and clears preview
+overrides. Save and restore apply to already injected pages, including their
+MAIN-world bridge, and future tabs without reloading the page.
+
+Only the two extension lists are stored under `downloadRules` in
+`storage.local`; no URLs or browser session data are stored there. Background
+workers load persisted preferences before classifying navigation or an automatic
+request, and content scripts keep automatic handling off until loading finishes.
+`storage.onChanged` updates both. Failed settings reads leave automatic handling
+off, and failed HEAD checks or HTTPS downgrades always continue in the browser.
+The browser options and storage APIs follow the
+[Chrome options documentation](https://developer.chrome.com/docs/extensions/develop/ui/options-page)
+and [storage documentation](https://developer.chrome.com/docs/extensions/reference/api/storage).
+
+## Download entry points
 
 Same-origin links carrying the `download` attribute express explicit download
 intent and do not require the preflight. Cross-origin `download` attributes alone
@@ -120,7 +180,8 @@ script again safely replaces this default output. Passing an explicit output
 path requires that path not to exist, preventing accidental data removal.
 
 The manifest requires Chrome 111 or later because `page.js` runs in the page's
-`MAIN` execution world. The package requests `contextMenus`, `webNavigation`, `cookies`, and HTTP/HTTPS
+`MAIN` execution world. The package requests `contextMenus`, `webNavigation`, `cookies`,
+`storage` (for local file-type preferences), and HTTP/HTTPS
 host access. It does not install a Chrome Native Messaging Host or request
 `downloads`/`webRequest` permissions. Safari additionally uses `nativeMessaging`.
 
