@@ -42,7 +42,6 @@
         "https://*/*"
       ],
       "js": [
-        "Shared/download-support.js",
         "Shared/page.js"
       ],
       "run_at": "document_start",

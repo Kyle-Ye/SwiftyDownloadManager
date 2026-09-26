@@ -119,7 +119,7 @@ function safariBackgroundHarness() {
   return { nativeMessages, runtimeOnMessage, tabUpdates };
 }
 
-function pageBridgeHarness() {
+function pageBridgeHarness({ initialize = true } = {}) {
   const originalOpenCalls = [];
   const postedMessages = [];
   const timeouts = new Map();
@@ -155,18 +155,17 @@ function pageBridgeHarness() {
     document,
     window,
   });
-  vm.runInContext(downloadSupportSource, context);
+  // MAIN has its own globals. The helper is loaded only in the isolated
+  // content-script world; sharing it here hid the browser's runtime failure.
   vm.runInContext(pageSource, context);
 
-  window.dispatch("message", {
-    data: {
-      source: bridgeSource,
-      token: "test-token",
-      type: "bridgeInitialize",
-    },
-    origin: pageOrigin,
-    source: window,
-  });
+  if (initialize) {
+    window.dispatch("message", {
+      data: contentBridgeHarness().postedMessages[0].message,
+      origin: pageOrigin,
+      source: window,
+    });
+  }
   postedMessages.length = 0;
 
   return {
@@ -227,6 +226,26 @@ test("programmatic download is captured after a real click", () => {
   assert.equal(harness.timeouts.size, 0);
 });
 
+test("window.open remains native until the isolated-world bridge is ready", () => {
+  const harness = pageBridgeHarness({ initialize: false });
+  dispatchEligibleClick(harness.document);
+  assert.deepEqual(harness.window.open("/file.bin", "_self"), { opened: true });
+  assert.equal(harness.postedMessages.length, 0);
+  assert.deepEqual(harness.originalOpenCalls, [["/file.bin", "_self"]]);
+});
+
+test("the standalone page bridge resolves relative download URLs and keeps inline formats native", () => {
+  const harness = pageBridgeHarness();
+  dispatchEligibleClick(harness.document);
+  assert.equal(harness.window.open("/empty.BIN?download=1", "_self"), null);
+  assert.equal(harness.postedMessages[0].message.url, `${pageOrigin}/empty.BIN?download=1`);
+  for (const url of ["/CMakeLists.txt", "/document.pdf", "/page", "blob:fixture", "javascript:void(0)", "http://["]) {
+    assert.deepEqual(harness.window.open(url, "_self"), { opened: true });
+  }
+  assert.equal(harness.postedMessages.length, 1);
+  assert.equal(harness.originalOpenCalls.length, 6);
+});
+
 test("rejected programmatic download resumes the original window.open", () => {
   const harness = pageBridgeHarness();
   dispatchEligibleClick(harness.document);
@@ -266,7 +285,7 @@ test("ordinary navigation and downloads without a click are not captured", () =>
   assert.equal(harness.originalOpenCalls.length, 2);
 });
 
-function contentBridgeHarness() {
+function contentBridgeHarness({ response = { accepted: true } } = {}) {
   const runtimeMessages = [];
   const postedMessages = [];
   const document = new FakeEventTarget();
@@ -287,7 +306,7 @@ function contentBridgeHarness() {
     runtime: {
       sendMessage(message) {
         runtimeMessages.push(message);
-        return Promise.resolve({ accepted: true });
+        return Promise.resolve(response);
       },
     },
   };
@@ -337,6 +356,7 @@ test("content bridge forwards a page download request to the extension", async (
 
   assert.equal(harness.runtimeMessages.length, 1);
   assert.equal(harness.runtimeMessages[0].type, "captureDownload");
+  assert.equal(harness.runtimeMessages[0].automatic, true);
   assert.equal(harness.runtimeMessages[0].url, "https://cdn.example.com/file.dmg");
   assert.equal(harness.runtimeMessages[0].sourcePage, `${pageOrigin}/`);
   assert.equal(harness.postedMessages[0].message.type, "downloadResponse");
@@ -415,4 +435,51 @@ test("a page cannot start credential collection without a trusted click", () => 
     token:"test-token", type:"downloadRequest", id:"forged", url:"https://cdn.example.com/file.xip"}});
   assert.equal(harness.runtimeMessages.length, 0);
   assert.equal(harness.postedMessages.at(-1).message.accepted, false);
+});
+
+test("GitHub source pages and inline formats retain normal clicks and window.open", () => {
+  const urls = [
+    "https://github.com/swiftlang/swift/blob/swift-6.4.0-RELEASE/stdlib/public/RuntimeModule/CMakeLists.txt",
+    "https://example.com/document.pdf", "https://example.com/file.txt",
+    "https://example.com/movie.mp4", "https://example.com/audio.mp3",
+    "https://example.com/image.tiff", "https://example.com/source.ts",
+  ];
+  const content = contentBridgeHarness();
+  const page = pageBridgeHarness();
+  dispatchEligibleClick(page.document);
+  for (const url of urls) {
+    const link = new content.HTMLAnchorElement();
+    link.href = url;
+    link.hasAttribute = () => false;
+    content.document.dispatch("click", { isTrusted: true, button: 0,
+      composedPath: () => [link], preventDefault() { assert.fail("Ordinary navigation was intercepted"); } });
+    assert.deepEqual(page.window.open(url, "_blank"), { opened: true });
+  }
+  assert.equal(content.runtimeMessages.length, 0);
+  assert.equal(page.postedMessages.length, 0);
+  assert.equal(page.originalOpenCalls.length, urls.length);
+});
+
+test("a rejected candidate replays its link so browser targets and attributes are preserved", async () => {
+  const harness = contentBridgeHarness({ response: { accepted: false } });
+  const link = new harness.HTMLAnchorElement();
+  link.href = "https://example.com/file.zip";
+  link.target = "_blank";
+  link.hasAttribute = () => true;
+  link.getAttribute = () => "file.zip";
+  let clicks = 0;
+  link.click = () => {
+    clicks++;
+    assert.equal(link.target, "_blank");
+    harness.document.dispatch("click", { isTrusted: false,
+      preventDefault() { assert.fail("Fallback must not be intercepted again"); } });
+  };
+  harness.document.dispatch("click", { isTrusted: true, button: 0, composedPath: () => [link],
+    preventDefault() {}, stopImmediatePropagation() {} });
+  await Promise.resolve();
+  assert.equal(clicks, 1);
+  assert.equal(harness.runtimeMessages.length, 1);
+  assert.equal(harness.runtimeMessages[0].automatic, true);
+  assert.equal(harness.runtimeMessages[0].downloadAttribute, true);
+  assert.equal(harness.runtimeMessages[0].filename, "file.zip");
 });

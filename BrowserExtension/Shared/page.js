@@ -1,5 +1,4 @@
 (() => {
-  const downloadSupport = globalThis.SDMDownloadSupport;
   const pageBridgeSource = "swifty-download-manager-page-bridge";
   const userGestureLifetimeMilliseconds = 30_000;
   const responseTimeoutMilliseconds = 40_000;
@@ -12,12 +11,21 @@
   const originalWindowOpen = window.open.bind(window);
   const pendingDownloads = new Map();
   let bridgeToken;
+  let downloadCandidateExtensions = new Set();
   let lastEligibleClickMilliseconds = 0;
   let requestOrdinal = 0;
 
   function parsedDownloadURL(value) {
-    const url = downloadSupport.parsedHTTPURL(String(value), document.baseURI);
-    return url && downloadSupport.isDirectDownloadURL(url.href) ? url : null;
+    try {
+      const url = new URL(String(value), document.baseURI);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+      const filename = url.pathname.split("/").pop() ?? "";
+      const separator = filename.lastIndexOf(".");
+      const extension = separator >= 0 ? filename.slice(separator + 1).toLowerCase() : "";
+      return downloadCandidateExtensions.has(extension) ? url : null;
+    } catch {
+      return null;
+    }
   }
 
   function hasRecentEligibleClick() {
@@ -63,7 +71,12 @@
       return;
     }
 
-    if (message.type === "bridgeInitialize" && typeof message.token === "string") {
+    if (message.type === "bridgeInitialize" && typeof message.token === "string" &&
+        Array.isArray(message.downloadCandidateExtensions) &&
+        message.downloadCandidateExtensions.every((value) => typeof value === "string")) {
+      // MAIN is self-contained. Receive plain matching data from the isolated
+      // script instead of assuming its helper global is available in this world.
+      downloadCandidateExtensions = new Set(message.downloadCandidateExtensions);
       bridgeToken = message.token;
       return;
     }
@@ -80,8 +93,11 @@
   });
 
   window.open = function (...args) {
+    if (!bridgeToken || !hasRecentEligibleClick()) {
+      return originalWindowOpen(...args);
+    }
     const url = parsedDownloadURL(args[0]);
-    if (!bridgeToken || !url || !hasRecentEligibleClick()) {
+    if (!url) {
       return originalWindowOpen(...args);
     }
 
