@@ -119,7 +119,7 @@ function safariBackgroundHarness() {
   return { nativeMessages, runtimeOnMessage, tabUpdates };
 }
 
-function pageBridgeHarness() {
+function pageBridgeHarness({ initialize = true } = {}) {
   const originalOpenCalls = [];
   const postedMessages = [];
   const timeouts = new Map();
@@ -155,18 +155,17 @@ function pageBridgeHarness() {
     document,
     window,
   });
-  vm.runInContext(downloadSupportSource, context);
+  // MAIN has its own globals. The helper is loaded only in the isolated
+  // content-script world; sharing it here hid the browser's runtime failure.
   vm.runInContext(pageSource, context);
 
-  window.dispatch("message", {
-    data: {
-      source: bridgeSource,
-      token: "test-token",
-      type: "bridgeInitialize",
-    },
-    origin: pageOrigin,
-    source: window,
-  });
+  if (initialize) {
+    window.dispatch("message", {
+      data: contentBridgeHarness().postedMessages[0].message,
+      origin: pageOrigin,
+      source: window,
+    });
+  }
   postedMessages.length = 0;
 
   return {
@@ -225,6 +224,26 @@ test("programmatic download is captured after a real click", () => {
   replyToPageBridge(harness, harness.postedMessages[0], true);
   assert.equal(harness.originalOpenCalls.length, 0);
   assert.equal(harness.timeouts.size, 0);
+});
+
+test("window.open remains native until the isolated-world bridge is ready", () => {
+  const harness = pageBridgeHarness({ initialize: false });
+  dispatchEligibleClick(harness.document);
+  assert.deepEqual(harness.window.open("/file.bin", "_self"), { opened: true });
+  assert.equal(harness.postedMessages.length, 0);
+  assert.deepEqual(harness.originalOpenCalls, [["/file.bin", "_self"]]);
+});
+
+test("the standalone page bridge resolves relative download URLs and keeps inline formats native", () => {
+  const harness = pageBridgeHarness();
+  dispatchEligibleClick(harness.document);
+  assert.equal(harness.window.open("/empty.BIN?download=1", "_self"), null);
+  assert.equal(harness.postedMessages[0].message.url, `${pageOrigin}/empty.BIN?download=1`);
+  for (const url of ["/CMakeLists.txt", "/document.pdf", "/page", "blob:fixture", "javascript:void(0)", "http://["]) {
+    assert.deepEqual(harness.window.open(url, "_self"), { opened: true });
+  }
+  assert.equal(harness.postedMessages.length, 1);
+  assert.equal(harness.originalOpenCalls.length, 6);
 });
 
 test("rejected programmatic download resumes the original window.open", () => {

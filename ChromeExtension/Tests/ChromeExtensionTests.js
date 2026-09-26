@@ -176,9 +176,12 @@ test("Safari and Chrome manifests load the same shared interception sources", ()
   assert.deepEqual(sharedScripts(chromeManifest), [
     "Shared/download-support.js",
     "Shared/content.js",
-    "Shared/download-support.js",
     "Shared/page.js",
   ]);
+  for (const manifest of [chromeManifest, safariManifest]) {
+    assert.deepEqual(manifest.content_scripts.find((script) => script.world === "MAIN").js,
+      ["Shared/page.js"], "The MAIN-world bridge must run without shared helper globals");
+  }
 });
 
 test("background forwards cookies through the private app handoff", async () => {

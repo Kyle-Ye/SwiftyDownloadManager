@@ -67,6 +67,7 @@
 
   globalThis.SDMDownloadSupport = Object.freeze({
     callbackURL,
+    downloadCandidateExtensions: Object.freeze([...downloadCandidateExtensions]),
     isDownloadCandidateURL,
     isDownloadResponse,
     isHTTPURL,

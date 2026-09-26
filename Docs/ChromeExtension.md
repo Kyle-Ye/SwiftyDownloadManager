@@ -10,6 +10,12 @@ interception, callback URL construction, the confirmation page, and the common
 background controller. The small Safari and Chrome adapters provide their
 manifest format, toolbar API, message-listener behavior, and native-app fallback.
 
+`page.js` runs alone in the page's MAIN world. It receives the canonical candidate
+extension list as plain data in the isolated content script's bridge initialization
+message; it must not depend on `SDMDownloadSupport` existing in the page world.
+Until initialization completes, `window.open` keeps its native behavior. The
+isolated script independently validates every bridged download request.
+
 ## How it works
 
 The extension leaves ordinary navigation and inline formats such as text, PDF,
@@ -35,6 +41,16 @@ Both actions show progress while their request is pending and become available
 again when it finishes, including when a file download or external-app launch
 leaves the confirmation document open. An unsuccessful **Open SDM** request shows
 an error and lets the user retry or explicitly choose **Continue in browser**.
+
+| Entry point | Confirmed download behavior |
+| --- | --- |
+| Address bar, `location.href`, or another top-level navigation to a candidate filename | Show the confirmation page after HEAD validation |
+| Recognized link click or `window.open` following a user click | Hand directly to SDM after validation |
+| Same-origin link with `download`, or explicit **Download with SDM** context-menu action | Hand directly to SDM |
+
+The navigation confirmation path ignores subframes, non-candidate filenames,
+and the one-use browser-continuation bypass. A HEAD response that cannot confirm
+a download returns to normal browsing without showing the prompt.
 
 Recognized requests collect URL-scoped browser cookies, the browser
 User-Agent, and an origin-only Referer in the background worker. Ordinary

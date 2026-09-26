@@ -50,6 +50,7 @@
       source: pageBridgeSource,
       token: pageBridgeToken,
       type: "bridgeInitialize",
+      downloadCandidateExtensions: downloadSupport.downloadCandidateExtensions,
     }, window.location.origin);
   }
 
