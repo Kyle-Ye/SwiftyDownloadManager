@@ -24,7 +24,7 @@
   }
 
   function isDownloadURL(url) {
-    return downloadSupport.isDirectDownloadURL(url.href);
+    return downloadSupport.isDownloadCandidateURL(url.href);
   }
 
   function suggestedFilename(link) {
@@ -84,6 +84,7 @@
 
     void extensionAPI.runtime.sendMessage({
       type: "captureDownload",
+      automatic: true,
       url: url.href,
       sourcePage: window.location.href,
     }).then((response) => {
@@ -120,9 +121,12 @@
     event.stopImmediatePropagation();
     // Every entry point must visit the background cookie collector.
     void extensionAPI.runtime.sendMessage({
-      type: "captureDownload", url: url.href, filename, sourcePage: window.location.href,
+      type: "captureDownload", automatic: true, downloadAttribute: link.hasAttribute("download"),
+      url: url.href, filename, sourcePage: window.location.href,
     }).then((response) => {
-      if (!response?.accepted) window.location.assign(url.href);
-    }).catch(() => { window.location.assign(url.href); });
+      // Replay normal link handling, including its target and download attribute.
+      // Synthetic clicks do not re-enter the trusted-click interception above.
+      if (!response?.accepted) link.click();
+    }).catch(() => { link.click(); });
   }, true);
 })();

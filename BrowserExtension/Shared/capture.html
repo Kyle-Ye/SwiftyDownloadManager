@@ -8,15 +8,19 @@
   </head>
   <body>
     <main>
-      <div class="icon" aria-hidden="true">&#x2193;</div>
-      <h1>Download with SDM?</h1>
-      <p class="explanation">
-        Your browser identified this address as a direct file download. Continue in
-        Swifty Download Manager.
-      </p>
-      <p id="download-url" class="download-url"></p>
-      <a id="open-app" class="primary-action" href="#">Open SDM</a>
-      <p id="error" class="error" hidden>This download URL is invalid.</p>
+      <section id="confirmation" hidden>
+        <div class="icon" aria-hidden="true">&#x2193;</div>
+        <h1>Download with SDM?</h1>
+        <p class="explanation">
+          This address responds with a downloadable file. Open it in
+          Swifty Download Manager or continue in your browser.
+        </p>
+        <p id="download-url" class="download-url"></p>
+        <button id="open-app" class="primary-action" type="button">Open SDM</button>
+      </section>
+      <button id="continue-browser" class="secondary-action" type="button" hidden>Continue in browser</button>
+      <p id="status" role="status" hidden></p>
+      <p id="error" class="error" role="alert" hidden>This download URL is invalid.</p>
     </main>
     <script src="download-support.js"></script>
     <script src="capture.js"></script>

@@ -7,7 +7,26 @@
     const bypasses = new Map();
 
     function allowBrowserDownload(tabID, url) {
+      for (const [entry, expiry] of bypasses) if (expiry < Date.now()) bypasses.delete(entry);
       bypasses.set(`${tabID}:${url}`, Date.now() + 15_000);
+    }
+
+    async function checkDownload(message, sender) {
+      let download = false;
+      try {
+        const response = await fetch(message.url, {
+          method: "HEAD", credentials: "include", cache: "no-store",
+          signal: AbortSignal.timeout(3_000),
+        });
+        const finalURL = support.parsedHTTPURL(response.url);
+        download = finalURL !== null &&
+          !(message.url.startsWith("https:") && finalURL.protocol !== "https:") &&
+          support.isDownloadResponse(response);
+      } catch {
+        // A failed or unsupported HEAD request is not evidence of a download.
+      }
+      if (!download) allowBrowserDownload(sender.tab?.id, message.url);
+      return { download };
     }
 
     async function cookiesFor(url, sender) {
@@ -20,7 +39,12 @@
         filter.storeId = store.id;
       }
       let cookies = await api.cookies.getAll(filter);
-      if (api.cookies.getPartitionKey && sender.tab?.id !== undefined) {
+      // The confirmation page is an extension document, not the original web
+      // frame. Chrome rejects partition lookup for its chrome-extension origin.
+      // Only query web-frame partitions; unpartitioned URL cookies above still
+      // come from the tab's selected profile, including on confirmation pages.
+      const frameURL = sender.url ?? sender.tab?.url;
+      if (api.cookies.getPartitionKey && sender.tab?.id !== undefined && support.isHTTPURL(frameURL)) {
         const { partitionKey } = await api.cookies.getPartitionKey({ tabId: sender.tab.id, frameId: sender.frameId ?? 0 });
         if (partitionKey?.topLevelSite) {
           cookies = cookies.concat(await api.cookies.getAll({ ...filter, partitionKey }));
@@ -35,6 +59,11 @@
       try {
         const target = new URL(message.url);
         if (target.username || target.password) throw new Error("URLs containing passwords are unsupported.");
+        const sourceURL = support.parsedHTTPURL(sender.url);
+        const explicitDownload = message.downloadAttribute === true && sourceURL?.origin === target.origin;
+        if (message.automatic === true && !explicitDownload && !(await checkDownload(message, sender)).download) {
+          return { accepted: false };
+        }
         const source = support.parsedHTTPURL(sender.url) ?? support.parsedHTTPURL(message.sourcePage) ??
           support.parsedHTTPURL(sender.tab?.url);
         // Send only the origin, following the downgrade restriction of strict-origin.
@@ -60,8 +89,14 @@
 
     function handleMessage(message, sender) {
       if (sender.id && sender.id !== api.runtime.id) return undefined;
-      if (message?.type !== "captureDownload" || !support.isHTTPURL(message.url)) return undefined;
-      return capture(message, sender);
+      if (!support.isHTTPURL(message?.url)) return undefined;
+      if (message.type === "captureDownload") return capture(message, sender);
+      if (message.type === "checkDownload") return checkDownload(message, sender);
+      if (message.type === "continueInBrowser") {
+        allowBrowserDownload(sender.tab?.id, message.url);
+        return Promise.resolve({ accepted: true });
+      }
+      return undefined;
     }
     addMessageListener(handleMessage);
 
@@ -82,7 +117,7 @@
       else if (tab?.id !== undefined) void api.tabs.update(tab.id, { url: support.callbackURL("open", {}, browser) });
     });
     api.webNavigation.onBeforeNavigate.addListener((details) => {
-      if (details.frameId !== 0 || !support.isDirectDownloadURL(details.url)) return;
+      if (details.frameId !== 0 || !support.isDownloadCandidateURL(details.url)) return;
       const key = `${details.tabId}:${details.url}`;
       for (const [entry, expiry] of bypasses) if (expiry < Date.now()) bypasses.delete(entry);
       if (bypasses.has(key)) { bypasses.delete(key); return; }

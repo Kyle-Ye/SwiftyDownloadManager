@@ -63,6 +63,35 @@ h1 {
   text-decoration: none;
 }
 
+button {
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  width: 100%;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .error {
   color: #ff453a;
+}
+
+.secondary-action {
+  background: transparent;
+  color: LinkText;
+  display: block;
+  font-size: 16px;
+  margin-top: 16px;
+  padding: 12px;
+}
+
+#status {
+  color: GrayText;
+}
+
+[hidden] {
+  display: none !important;
 }

@@ -12,14 +12,36 @@ manifest format, toolbar API, message-listener behavior, and native-app fallback
 
 ## How it works
 
-The extension recognizes common direct-download URL extensions, links carrying
-the `download` attribute, and eligible `window.open` calls that immediately
-follow a user click. It also adds **Download with SDM** to HTTP and HTTPS link
-context menus. Recognized requests collect URL-scoped browser cookies, the browser
+The extension leaves ordinary navigation and inline formats such as text, PDF,
+images, and media to the browser. Archive and installer filename extensions are
+only candidates: a credentialed HEAD request must return a successful attachment
+response or a known binary download MIME type before automatic handoff or a
+download prompt. HTML previews, explicit inline responses, unknown MIME types,
+failed checks, and endpoints without HEAD support continue in the browser.
+The HEAD check times out after three seconds and never fetches the response body.
+HEAD and GET can differ on some servers; this is a conservative preflight, not a
+browser download event listener. Endpoints outside these candidates can still be
+sent explicitly using **Download with SDM** in the link context menu.
+
+Same-origin links carrying the `download` attribute express explicit download
+intent and do not require the preflight. Cross-origin `download` attributes alone
+do not qualify. Eligible `window.open` calls following a user click use the same
+candidate and response checks. Direct candidate navigation visits a hidden
+confirmation page while checking headers; it returns to the original address if
+the response does not qualify. A confirmed download offers **Open SDM** and
+**Continue in browser**. Continuing grants a one-use navigation bypass and replaces
+the confirmation history entry, so the original URL is not immediately recaptured.
+Both actions show progress while their request is pending and become available
+again when it finishes, including when a file download or external-app launch
+leaves the confirmation document open. An unsuccessful **Open SDM** request shows
+an error and lets the user retry or explicitly choose **Continue in browser**.
+
+Recognized requests collect URL-scoped browser cookies, the browser
 User-Agent, and an origin-only Referer in the background worker. Ordinary
 anchors, `window.open`, context-menu actions, and the direct-navigation
-confirmation page all use this path. Cookie access failure returns the download
-to the browser instead of silently creating an anonymous SDM task.
+confirmation page all use this path. Cookie access failure rejects the handoff
+instead of silently creating an anonymous SDM task. Automatic interception falls
+back to the browser; the confirmation page keeps both choices available.
 
 Chrome activates the app through `swifty-download-manager://handoff` with a
 random UUID and one-use AES-256-GCM key. The background worker sends the encrypted
@@ -44,8 +66,11 @@ for automatic signing. See Apple's
 
 Both download engines use the context only in memory. Cookie domain, host-only,
 path, Secure and expiration rules apply on redirects; an HTTPS browser download
-cannot redirect to HTTP. Browser-profile stores and partition keys are queried
-when their APIs are available. No other browser's cookie store is consulted.
+cannot redirect to HTTP. Browser-profile stores and HTTP frame partition keys are
+queried when their APIs are available. The extension confirmation document has no
+web frame partition to query; it uses URL-scoped unpartitioned cookies from the
+same tab's profile and does not query the extension origin as a cookie partition.
+No other browser's cookie store is consulted.
 HTML returned for a known binary filename is reported as an error, while
 intentional HTML downloads remain supported.
 

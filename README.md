@@ -60,6 +60,8 @@ context menu when a download endpoint does not expose a recognizable filename.
 On macOS, the companion extension for Google Chrome is available from the
 [Chrome Web Store](https://chromewebstore.google.com/detail/jjhjgmnpneldikhkejhoeonjpbbekbpg).
 It can hand supported direct download links to the locally installed app.
+Ordinary pages and inline text, PDF, images, and media stay in the browser.
+Download prompts offer **Continue in browser** as well as **Open SDM**.
 
 Holding a modifier key while clicking in Safari bypasses SDM and preserves the
 browser's normal link handling.

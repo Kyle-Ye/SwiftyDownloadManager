@@ -17,7 +17,7 @@
 
   function parsedDownloadURL(value) {
     const url = downloadSupport.parsedHTTPURL(String(value), document.baseURI);
-    return url && downloadSupport.isDirectDownloadURL(url.href) ? url : null;
+    return url && downloadSupport.isDownloadCandidateURL(url.href) ? url : null;
   }
 
   function hasRecentEligibleClick() {

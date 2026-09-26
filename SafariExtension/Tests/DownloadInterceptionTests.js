@@ -266,7 +266,7 @@ test("ordinary navigation and downloads without a click are not captured", () =>
   assert.equal(harness.originalOpenCalls.length, 2);
 });
 
-function contentBridgeHarness() {
+function contentBridgeHarness({ response = { accepted: true } } = {}) {
   const runtimeMessages = [];
   const postedMessages = [];
   const document = new FakeEventTarget();
@@ -287,7 +287,7 @@ function contentBridgeHarness() {
     runtime: {
       sendMessage(message) {
         runtimeMessages.push(message);
-        return Promise.resolve({ accepted: true });
+        return Promise.resolve(response);
       },
     },
   };
@@ -337,6 +337,7 @@ test("content bridge forwards a page download request to the extension", async (
 
   assert.equal(harness.runtimeMessages.length, 1);
   assert.equal(harness.runtimeMessages[0].type, "captureDownload");
+  assert.equal(harness.runtimeMessages[0].automatic, true);
   assert.equal(harness.runtimeMessages[0].url, "https://cdn.example.com/file.dmg");
   assert.equal(harness.runtimeMessages[0].sourcePage, `${pageOrigin}/`);
   assert.equal(harness.postedMessages[0].message.type, "downloadResponse");
@@ -415,4 +416,51 @@ test("a page cannot start credential collection without a trusted click", () => 
     token:"test-token", type:"downloadRequest", id:"forged", url:"https://cdn.example.com/file.xip"}});
   assert.equal(harness.runtimeMessages.length, 0);
   assert.equal(harness.postedMessages.at(-1).message.accepted, false);
+});
+
+test("GitHub source pages and inline formats retain normal clicks and window.open", () => {
+  const urls = [
+    "https://github.com/swiftlang/swift/blob/swift-6.4.0-RELEASE/stdlib/public/RuntimeModule/CMakeLists.txt",
+    "https://example.com/document.pdf", "https://example.com/file.txt",
+    "https://example.com/movie.mp4", "https://example.com/audio.mp3",
+    "https://example.com/image.tiff", "https://example.com/source.ts",
+  ];
+  const content = contentBridgeHarness();
+  const page = pageBridgeHarness();
+  dispatchEligibleClick(page.document);
+  for (const url of urls) {
+    const link = new content.HTMLAnchorElement();
+    link.href = url;
+    link.hasAttribute = () => false;
+    content.document.dispatch("click", { isTrusted: true, button: 0,
+      composedPath: () => [link], preventDefault() { assert.fail("Ordinary navigation was intercepted"); } });
+    assert.deepEqual(page.window.open(url, "_blank"), { opened: true });
+  }
+  assert.equal(content.runtimeMessages.length, 0);
+  assert.equal(page.postedMessages.length, 0);
+  assert.equal(page.originalOpenCalls.length, urls.length);
+});
+
+test("a rejected candidate replays its link so browser targets and attributes are preserved", async () => {
+  const harness = contentBridgeHarness({ response: { accepted: false } });
+  const link = new harness.HTMLAnchorElement();
+  link.href = "https://example.com/file.zip";
+  link.target = "_blank";
+  link.hasAttribute = () => true;
+  link.getAttribute = () => "file.zip";
+  let clicks = 0;
+  link.click = () => {
+    clicks++;
+    assert.equal(link.target, "_blank");
+    harness.document.dispatch("click", { isTrusted: false,
+      preventDefault() { assert.fail("Fallback must not be intercepted again"); } });
+  };
+  harness.document.dispatch("click", { isTrusted: true, button: 0, composedPath: () => [link],
+    preventDefault() {}, stopImmediatePropagation() {} });
+  await Promise.resolve();
+  assert.equal(clicks, 1);
+  assert.equal(harness.runtimeMessages.length, 1);
+  assert.equal(harness.runtimeMessages[0].automatic, true);
+  assert.equal(harness.runtimeMessages[0].downloadAttribute, true);
+  assert.equal(harness.runtimeMessages[0].filename, "file.zip");
 });

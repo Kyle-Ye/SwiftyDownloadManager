@@ -36,7 +36,8 @@ function eventHook() {
   };
 }
 
-function backgroundHarness() {
+function backgroundHarness({ partitionKey, probe = async (url) => ({ ok: true, url,
+  headers: new Headers({ "Content-Type": "application/octet-stream" }) }) } = {}) {
   const nativeMessages = [];
   const cookieQueries = [];
   const contextMenuCreates = [];
@@ -49,6 +50,7 @@ function backgroundHarness() {
 
   const chrome = {
     cookies: {
+      getPartitionKey: partitionKey,
       async getAll(filter) { cookieQueries.push(filter); return [{name: "session", value: "secret", domain: "cdn.example.com", path: "/", secure: true, hostOnly: true}]; },
       async getAllCookieStores() { return [{id: "profile-1", tabIds: [7, 11]}]; },
     },
@@ -79,6 +81,8 @@ function backgroundHarness() {
   };
 
   const context = vm.createContext({
+    AbortSignal,
+    fetch: probe,
     Error,
     Object,
     Promise,
@@ -247,26 +251,238 @@ test("direct file navigation is replaced by the confirmation page", async () => 
   );
 });
 
-test("the shared confirmation page returns rejected handoffs to the browser", async () => {
+function confirmationHarness(browser, reply, downloadURL = "https://example.com/file.xip") {
+  const elements = new Map(["open-app", "continue-browser", "confirmation", "download-url", "error", "status"].map((id) => [id, {
+    hidden: ["confirmation", "continue-browser", "error", "status"].includes(id),
+    addEventListener(_type, listener) { this.click = listener; },
+  }]));
+  const navigations = [], messages = [];
+  const context = vm.createContext({ URL, URLSearchParams,
+    document: { getElementById(id) { return elements.get(id); } },
+    window: { location: { search: `?url=${encodeURIComponent(downloadURL)}`,
+      replace(url) { navigations.push(url); } } },
+    [browser]: { runtime: { async sendMessage(message) {
+      messages.push(message);
+      return reply(message);
+    } } },
+  });
+  vm.runInContext(fs.readFileSync(sourcePath("Shared/capture.js"), "utf8"), context);
+  return { elements, navigations, messages, downloadURL };
+}
+
+test("a rejected handoff leaves the confirmation ready to retry or continue in the browser", async () => {
   for (const browser of ["chrome", "browser"]) {
-    const elements = new Map(["open-app", "download-url", "error"].map((id) => [id, {
-      addEventListener(_type, listener) { this.click = listener; },
-    }]));
-    const navigations = [];
-    const downloadURL = "https://example.com/file.xip";
-    const context = vm.createContext({ URL, URLSearchParams,
-      document: { getElementById(id) { return elements.get(id); } },
-      window: { location: { search: `?url=${encodeURIComponent(downloadURL)}`,
-        assign(url) { navigations.push(url); } } },
-      [browser]: { runtime: { async sendMessage(message) {
-        assert.equal(message.type, "captureDownload");
-        assert.equal(message.url, downloadURL);
-        return { accepted: false };
-      } } },
+    let accepted = false;
+    const harness = confirmationHarness(browser, (message) => {
+      if (message.type === "checkDownload") return { download: true };
+      return { accepted: message.type === "continueInBrowser" || accepted };
     });
-    vm.runInContext(fs.readFileSync(sourcePath("Shared/capture.js"), "utf8"), context);
-    await elements.get("open-app").click({ preventDefault() {} });
-    assert.deepEqual(navigations, [downloadURL]);
+    await new Promise((resolve) => setImmediate(resolve));
+    await harness.elements.get("open-app").click({ preventDefault() {} });
+    assert.deepEqual(harness.navigations, [], "An explicit app choice must not start a browser download on failure");
+    assert.deepEqual(harness.messages.map((message) => message.type),
+      ["checkDownload", "captureDownload"]);
+    assert.equal(harness.elements.get("error").hidden, false);
+    assert.equal(harness.elements.get("open-app").disabled, false);
+    accepted = true;
+    await harness.elements.get("open-app").click({ preventDefault() {} });
+    assert.equal(harness.messages.filter((message) => message.type === "captureDownload").length, 2);
+    assert.equal(harness.elements.get("error").hidden, true);
+    assert.equal(harness.elements.get("status").textContent, "Sent to SDM. You can close this tab.");
+    await harness.elements.get("continue-browser").click({ preventDefault() {} });
+    assert.deepEqual(harness.navigations, [harness.downloadURL]);
+  }
+});
+
+test("a file download that leaves the confirmation document open does not lock either action", async () => {
+  const harness = confirmationHarness("chrome", (message) =>
+    message.type === "checkDownload" ? { download: true } : { accepted: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await harness.elements.get("continue-browser").click({ preventDefault() {} });
+    assert.equal(harness.elements.get("continue-browser").disabled, false);
+    await harness.elements.get("open-app").click({ preventDefault() {} });
+    assert.equal(harness.elements.get("open-app").disabled, false);
+  }
+  assert.deepEqual(harness.navigations, [harness.downloadURL, harness.downloadURL]);
+  assert.equal(harness.messages.filter((message) => message.type === "captureDownload").length, 2);
+});
+
+test("confirmation prevents duplicate pending requests and unlocks after a transport failure", async () => {
+  let reject;
+  const harness = confirmationHarness("chrome", (message) => {
+    if (message.type === "checkDownload") return { download: true };
+    return new Promise((_resolve, rejectRequest) => { reject = rejectRequest; });
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const pending = harness.elements.get("open-app").click({ preventDefault() {} });
+  assert.equal(harness.elements.get("open-app").disabled, true);
+  assert.equal(harness.elements.get("continue-browser").disabled, true);
+  await harness.elements.get("open-app").click({ preventDefault() {} });
+  await harness.elements.get("continue-browser").click({ preventDefault() {} });
+  assert.equal(harness.messages.length, 2);
+  reject(new Error("Connection lost"));
+  await pending;
+  assert.equal(harness.elements.get("open-app").disabled, false);
+  assert.equal(harness.elements.get("continue-browser").disabled, false);
+  const retry = harness.elements.get("continue-browser").click({ preventDefault() {} });
+  assert.equal(harness.messages.at(-1).type, "continueInBrowser");
+  reject(new Error("Connection lost"));
+  await retry;
+  assert.equal(harness.elements.get("open-app").disabled, false);
+  assert.equal(harness.elements.get("continue-browser").disabled, false);
+});
+
+test("extension confirmation pages use tab cookies without querying an extension-origin partition", async () => {
+  for (const scheme of ["chrome-extension", "safari-web-extension"]) {
+    let partitionQueries = 0;
+    const harness = backgroundHarness({ async partitionKey() {
+      partitionQueries++;
+      throw new Error('No host permissions for cookies at url: "chrome-extension://test-extension/".');
+    } });
+    const response = await new Promise((resolve) => harness.runtimeOnMessage.listeners[0](
+      { type: "captureDownload", url: "http://127.0.0.1:18736/empty.bin" },
+      { url: `${scheme}://test-extension/Shared/capture.html`, tab: { id: 7 } }, resolve));
+    assert.equal(response.accepted, true);
+    assert.equal(partitionQueries, 0);
+    assert.equal(harness.cookieQueries[0].storeId, "profile-1");
+    assert.equal(harness.cookieQueries[0].url, "http://127.0.0.1:18736/empty.bin");
+    assert.equal(harness.nativeMessages.length, 1);
+    assert.equal(harness.nativeMessages[0].requestContext.cookies[0].value, "secret");
+  }
+});
+
+test("a partition lookup failure for an HTTP page still rejects authenticated handoff", async () => {
+  const harness = backgroundHarness({ async partitionKey() { throw new Error("Permission denied"); } });
+  const response = await new Promise((resolve) => harness.runtimeOnMessage.listeners[0](
+    { type: "captureDownload", url: "https://cdn.example.com/file.xip" },
+    { url: "https://example.com/", tab: { id: 7 } }, resolve));
+  assert.equal(response.accepted, false);
+  assert.equal(harness.nativeMessages.length, 0);
+});
+
+test("confirmation stays hidden for inline pages and unverifiable responses", async () => {
+  for (const result of [false, undefined, new Error("Offline")]) {
+    const harness = confirmationHarness("chrome", (message) => {
+      if (message.type === "continueInBrowser") return { accepted: true };
+      assert.equal(message.type, "checkDownload");
+      if (result instanceof Error) throw result;
+      return { download: result };
+    });
+    assert.equal(harness.elements.get("confirmation").hidden, true);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(harness.elements.get("confirmation").hidden, true);
+    assert.deepEqual(harness.navigations, [harness.downloadURL]);
+  }
+});
+
+test("Continue in browser grants a bypass without sending a download to SDM", async () => {
+  const background = backgroundHarness();
+  const sender = { tab: { id: 42 }, url: "chrome-extension://test-extension/Shared/capture.html" };
+  const listener = background.runtimeOnMessage.listeners[0];
+  const harness = confirmationHarness("chrome", (message) => new Promise((resolve) => listener(message, sender, resolve)));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(harness.elements.get("confirmation").hidden, false);
+  harness.elements.get("continue-browser").click({ preventDefault() {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(harness.navigations, [harness.downloadURL]);
+  assert.equal(background.nativeMessages.length, 0);
+  const navigate = background.webNavigationOnBeforeNavigate.listeners[0];
+  navigate({ frameId: 0, tabId: 42, url: harness.downloadURL });
+  assert.equal(background.tabUpdates.length, 0);
+  navigate({ frameId: 0, tabId: 43, url: harness.downloadURL });
+  assert.equal(background.tabUpdates.length, 1, "Bypass must stay in its tab");
+  navigate({ frameId: 0, tabId: 42, url: harness.downloadURL });
+  assert.equal(background.tabUpdates.length, 2, "Bypass must be one use");
+});
+
+test("invalid confirmation URLs do not expose either download action", () => {
+  for (const url of ["javascript:alert(1)", "not a URL"]) {
+    const harness = confirmationHarness("chrome", () => assert.fail("Unexpected message"), url);
+    assert.equal(harness.elements.get("confirmation").hidden, true);
+    assert.equal(harness.elements.get("continue-browser").hidden, true);
+    assert.equal(harness.elements.get("error").hidden, false);
+  }
+});
+
+const ordinaryURLs = [
+  "https://github.com/swiftlang/swift/blob/swift-6.4.0-RELEASE/stdlib/public/RuntimeModule/CMakeLists.txt",
+  "https://example.com/document.pdf", "https://example.com/video.mp4",
+  "https://example.com/audio.mp3", "https://example.com/image.tiff",
+  "https://example.com/source.ts", "https://example.com/data.csv",
+];
+
+test("GitHub source and browser-viewable formats never enter the navigation interstitial", () => {
+  const harness = backgroundHarness();
+  for (const url of ordinaryURLs) {
+    harness.webNavigationOnBeforeNavigate.listeners[0]({ frameId: 0, tabId: 42, url });
+  }
+  assert.equal(harness.tabUpdates.length, 0);
+});
+
+test("automatic capture requires a confirmed response, not a filename suffix", async () => {
+  const cases = [
+    [{ "Content-Type": "text/html" }, false],
+    [{ "Content-Type": "text/plain" }, false],
+    [{ "Content-Type": "application/pdf" }, false],
+    [{ "Content-Type": "video/mp4" }, false],
+    [{ "Content-Type": "application/unknown" }, false],
+    [{}, false],
+    [{ "Content-Type": "application/zip", "Content-Disposition": "inline; filename=a.zip" }, false],
+    [{ "Content-Type": "application/zip" }, true],
+    [{ "Content-Type": "Application/Octet-Stream; charset=binary" }, true],
+    [{ "Content-Type": "text/plain", "Content-Disposition": "Attachment; filename=CMakeLists.txt" }, true],
+  ];
+  for (const [headers, expected] of cases) {
+    const probes = [];
+    const harness = backgroundHarness({ async probe(url, options) {
+      probes.push({ url, options });
+      return { ok: true, url, headers: new Headers(headers) };
+    } });
+    const url = "https://cdn.example.com/preview.zip";
+    const response = await new Promise((resolve) => harness.runtimeOnMessage.listeners[0](
+      { type: "captureDownload", automatic: true, url },
+      { url: "https://example.com/", tab: { id: 7 } }, resolve));
+    assert.equal(response.accepted, expected, JSON.stringify(headers));
+    assert.equal(harness.nativeMessages.length, expected ? 1 : 0);
+    assert.equal(harness.cookieQueries.length, expected ? 1 : 0);
+    assert.equal(probes[0].options.method, "HEAD");
+    assert.equal(probes[0].options.credentials, "include");
+    assert.ok(probes[0].options.signal instanceof AbortSignal);
+    if (!expected) {
+      harness.webNavigationOnBeforeNavigate.listeners[0]({ frameId: 0, tabId: 7, url });
+      assert.equal(harness.tabUpdates.length, 0);
+    }
+  }
+});
+
+test("HEAD failure, HTTP errors, and HTTPS downgrades default to the browser", async () => {
+  for (const probe of [
+    async () => { throw new Error("Timeout or unsupported HEAD"); },
+    async (url) => ({ ok: false, url, headers: new Headers({ "Content-Disposition": "attachment" }) }),
+    async () => ({ ok: true, url: "http://example.com/file.zip", headers: new Headers({ "Content-Type": "application/zip" }) }),
+  ]) {
+    const harness = backgroundHarness({ probe });
+    const result = await new Promise((resolve) => harness.runtimeOnMessage.listeners[0](
+      { type: "captureDownload", automatic: true, url: "https://example.com/file.zip" },
+      { tab: { id: 7 } }, resolve));
+    assert.equal(result.accepted, false);
+    assert.equal(harness.nativeMessages.length, 0);
+  }
+});
+
+test("only a same-origin download attribute can skip the response check", async () => {
+  for (const sameOrigin of [true, false]) {
+    let probes = 0;
+    const harness = backgroundHarness({ async probe(url) {
+      probes++;
+      return { ok: true, url, headers: new Headers({ "Content-Type": "text/html" }) };
+    } });
+    const response = await new Promise((resolve) => harness.runtimeOnMessage.listeners[0](
+      { type: "captureDownload", automatic: true, downloadAttribute: true, url: "https://example.com/page" },
+      { url: sameOrigin ? "https://example.com/" : "https://another.example/", tab: { id: 7 } }, resolve));
+    assert.equal(response.accepted, sameOrigin);
+    assert.equal(probes, sameOrigin ? 0 : 1);
   }
 });
 
