@@ -3,6 +3,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { createStorage } = require("../../BrowserExtension/Tests/extension-storage");
+const settingsSource = fs.readFileSync(path.join(__dirname, "../../BrowserExtension/Shared/download-settings.js"), "utf8");
 
 const resourcesDirectory = path.join(__dirname, "..", "Resources");
 const sharedResourcesDirectory = path.join(
@@ -72,6 +74,7 @@ function safariBackgroundHarness() {
   const tabUpdates = [];
   const runtimeOnMessage = eventHook();
   const browser = {
+    storage: createStorage(),
     cookies: {
       async getAll() { return [{name: "session", value: "safari-secret", domain: "cdn.example.com", path: "/", secure: true, hostOnly: true}]; },
       async getAllCookieStores() { return [{id: "safari-profile", tabIds: [9]}]; },
@@ -113,13 +116,14 @@ function safariBackgroundHarness() {
     console,
   });
   vm.runInContext(downloadSupportSource, context);
+  vm.runInContext(settingsSource, context);
   vm.runInContext(backgroundControllerSource, context);
   vm.runInContext(backgroundSource, context);
 
   return { nativeMessages, runtimeOnMessage, tabUpdates };
 }
 
-function pageBridgeHarness({ initialize = true } = {}) {
+async function pageBridgeHarness({ initialize = true } = {}) {
   const originalOpenCalls = [];
   const postedMessages = [];
   const timeouts = new Map();
@@ -161,7 +165,7 @@ function pageBridgeHarness({ initialize = true } = {}) {
 
   if (initialize) {
     window.dispatch("message", {
-      data: contentBridgeHarness().postedMessages[0].message,
+      data: (await contentBridgeHarness()).postedMessages.at(-1).message,
       origin: pageOrigin,
       source: window,
     });
@@ -203,8 +207,8 @@ function replyToPageBridge(harness, request, accepted) {
   });
 }
 
-test("programmatic download is captured after a real click", () => {
-  const harness = pageBridgeHarness();
+test("programmatic download is captured after a real click", async () => {
+  const harness = await pageBridgeHarness();
   dispatchEligibleClick(harness.document);
 
   const result = harness.window.open(
@@ -226,16 +230,16 @@ test("programmatic download is captured after a real click", () => {
   assert.equal(harness.timeouts.size, 0);
 });
 
-test("window.open remains native until the isolated-world bridge is ready", () => {
-  const harness = pageBridgeHarness({ initialize: false });
+test("window.open remains native until the isolated-world bridge is ready", async () => {
+  const harness = await pageBridgeHarness({ initialize: false });
   dispatchEligibleClick(harness.document);
   assert.deepEqual(harness.window.open("/file.bin", "_self"), { opened: true });
   assert.equal(harness.postedMessages.length, 0);
   assert.deepEqual(harness.originalOpenCalls, [["/file.bin", "_self"]]);
 });
 
-test("the standalone page bridge resolves relative download URLs and keeps inline formats native", () => {
-  const harness = pageBridgeHarness();
+test("the standalone page bridge resolves relative download URLs and keeps inline formats native", async () => {
+  const harness = await pageBridgeHarness();
   dispatchEligibleClick(harness.document);
   assert.equal(harness.window.open("/empty.BIN?download=1", "_self"), null);
   assert.equal(harness.postedMessages[0].message.url, `${pageOrigin}/empty.BIN?download=1`);
@@ -246,8 +250,8 @@ test("the standalone page bridge resolves relative download URLs and keeps inlin
   assert.equal(harness.originalOpenCalls.length, 6);
 });
 
-test("rejected programmatic download resumes the original window.open", () => {
-  const harness = pageBridgeHarness();
+test("rejected programmatic download resumes the original window.open", async () => {
+  const harness = await pageBridgeHarness();
   dispatchEligibleClick(harness.document);
   harness.window.open("https://cdn.example.com/file.dmg", "_self", "noopener");
 
@@ -261,8 +265,8 @@ test("rejected programmatic download resumes the original window.open", () => {
   assert.equal(harness.timeouts.size, 0);
 });
 
-test("unanswered programmatic download resumes after the bridge timeout", () => {
-  const harness = pageBridgeHarness();
+test("unanswered programmatic download resumes after the bridge timeout", async () => {
+  const harness = await pageBridgeHarness();
   dispatchEligibleClick(harness.document);
   harness.window.open("https://cdn.example.com/file.dmg", "_self");
 
@@ -275,8 +279,8 @@ test("unanswered programmatic download resumes after the bridge timeout", () => 
   ]]);
 });
 
-test("ordinary navigation and downloads without a click are not captured", () => {
-  const harness = pageBridgeHarness();
+test("ordinary navigation and downloads without a click are not captured", async () => {
+  const harness = await pageBridgeHarness();
 
   harness.window.open("https://example.com/page", "_self");
   harness.window.open("https://cdn.example.com/file.dmg", "_self");
@@ -285,7 +289,7 @@ test("ordinary navigation and downloads without a click are not captured", () =>
   assert.equal(harness.originalOpenCalls.length, 2);
 });
 
-function contentBridgeHarness({ response = { accepted: true } } = {}) {
+async function contentBridgeHarness({ response = { accepted: true }, storage = createStorage() } = {}) {
   const runtimeMessages = [];
   const postedMessages = [];
   const document = new FakeEventTarget();
@@ -303,6 +307,7 @@ function contentBridgeHarness({ response = { accepted: true } } = {}) {
   class HTMLAnchorElement {}
   class HTMLAreaElement {}
   const browser = {
+    storage,
     runtime: {
       sendMessage(message) {
         runtimeMessages.push(message);
@@ -325,10 +330,12 @@ function contentBridgeHarness({ response = { accepted: true } } = {}) {
   });
   vm.runInContext(platformSource, context);
   vm.runInContext(downloadSupportSource, context);
+  vm.runInContext(settingsSource, context);
   vm.runInContext(contentSource, context);
+  await new Promise((resolve) => setImmediate(resolve));
 
   return {
-    document, HTMLAnchorElement,
+    document, HTMLAnchorElement, storage,
     postedMessages,
     runtimeMessages,
     window,
@@ -336,7 +343,7 @@ function contentBridgeHarness({ response = { accepted: true } } = {}) {
 }
 
 test("content bridge forwards a page download request to the extension", async () => {
-  const harness = contentBridgeHarness();
+  const harness = await contentBridgeHarness();
   dispatchEligibleClick(harness.document);
   assert.equal(harness.postedMessages[0].message.type, "bridgeInitialize");
   harness.postedMessages.length = 0;
@@ -363,8 +370,8 @@ test("content bridge forwards a page download request to the extension", async (
   assert.equal(harness.postedMessages[0].message.accepted, true);
 });
 
-test("content bridge rejects unrecognized download URLs", () => {
-  const harness = contentBridgeHarness();
+test("content bridge rejects unrecognized download URLs", async () => {
+  const harness = await contentBridgeHarness();
   harness.postedMessages.length = 0;
 
   harness.window.dispatch("message", {
@@ -383,7 +390,7 @@ test("content bridge rejects unrecognized download URLs", () => {
   assert.equal(harness.postedMessages[0].message.accepted, false);
 });
 
-test("page bridge runs as a main-world content script", () => {
+test("page bridge runs as a main-world content script", async () => {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(resourcesDirectory, "manifest.json"), "utf8")
   );
@@ -415,7 +422,7 @@ test("Safari background keeps runtime downloads on native messaging", async () =
 });
 
 test("ordinary anchor clicks use the background collector without modifying the page URL", async () => {
-  const harness = contentBridgeHarness();
+  const harness = await contentBridgeHarness();
   const link = new harness.HTMLAnchorElement();
   link.href = "https://cdn.example.com/file.xip";
   link.hasAttribute = () => false;
@@ -429,23 +436,23 @@ test("ordinary anchor clicks use the background collector without modifying the 
   assert.equal(link.href, "https://cdn.example.com/file.xip");
 });
 
-test("a page cannot start credential collection without a trusted click", () => {
-  const harness = contentBridgeHarness();
+test("a page cannot start credential collection without a trusted click", async () => {
+  const harness = await contentBridgeHarness();
   harness.window.dispatch("message", {source:harness.window, origin:pageOrigin, data:{source:bridgeSource,
     token:"test-token", type:"downloadRequest", id:"forged", url:"https://cdn.example.com/file.xip"}});
   assert.equal(harness.runtimeMessages.length, 0);
   assert.equal(harness.postedMessages.at(-1).message.accepted, false);
 });
 
-test("GitHub source pages and inline formats retain normal clicks and window.open", () => {
+test("GitHub source pages and inline formats retain normal clicks and window.open", async () => {
   const urls = [
     "https://github.com/swiftlang/swift/blob/swift-6.4.0-RELEASE/stdlib/public/RuntimeModule/CMakeLists.txt",
     "https://example.com/document.pdf", "https://example.com/file.txt",
     "https://example.com/movie.mp4", "https://example.com/audio.mp3",
     "https://example.com/image.tiff", "https://example.com/source.ts",
   ];
-  const content = contentBridgeHarness();
-  const page = pageBridgeHarness();
+  const content = await contentBridgeHarness();
+  const page = await pageBridgeHarness();
   dispatchEligibleClick(page.document);
   for (const url of urls) {
     const link = new content.HTMLAnchorElement();
@@ -461,7 +468,7 @@ test("GitHub source pages and inline formats retain normal clicks and window.ope
 });
 
 test("a rejected candidate replays its link so browser targets and attributes are preserved", async () => {
-  const harness = contentBridgeHarness({ response: { accepted: false } });
+  const harness = await contentBridgeHarness({ response: { accepted: false } });
   const link = new harness.HTMLAnchorElement();
   link.href = "https://example.com/file.zip";
   link.target = "_blank";
@@ -482,4 +489,38 @@ test("a rejected candidate replays its link so browser targets and attributes ar
   assert.equal(harness.runtimeMessages[0].automatic, true);
   assert.equal(harness.runtimeMessages[0].downloadAttribute, true);
   assert.equal(harness.runtimeMessages[0].filename, "file.zip");
+});
+
+test("saved rule changes update both existing link interception and the MAIN-world bridge", async () => {
+  const content = await contentBridgeHarness();
+  const page = await pageBridgeHarness({ initialize: false });
+  function updateBridge() {
+    page.window.dispatch("message", { source: page.window, origin: pageOrigin,
+      data: content.postedMessages.at(-1).message });
+  }
+  updateBridge();
+  dispatchEligibleClick(page.document);
+  const url = `${pageOrigin}/movie.MP4?download=1`;
+  assert.deepEqual(page.window.open(url, "_self"), { opened: true });
+  const link = new content.HTMLAnchorElement();
+  link.href = url;
+  link.hasAttribute = () => false;
+  let prevented = 0;
+  const click = () => content.document.dispatch("click", {
+    isTrusted: true, button: 0, composedPath: () => [link],
+    preventDefault() { prevented++; }, stopImmediatePropagation() {},
+  });
+  click();
+  assert.equal(prevented, 0);
+  await content.storage.local.set({ downloadRules: { candidateExtensions: [], previewExtensions: ["mp4"] } });
+  updateBridge();
+  assert.equal(page.window.open(url, "_self"), null);
+  click();
+  assert.equal(prevented, 1);
+  assert.equal(content.runtimeMessages.at(-1).url, url);
+  await content.storage.local.set({ downloadRules: { candidateExtensions: [], previewExtensions: [] } });
+  updateBridge();
+  assert.deepEqual(page.window.open(url, "_self"), { opened: true });
+  click();
+  assert.equal(prevented, 1);
 });

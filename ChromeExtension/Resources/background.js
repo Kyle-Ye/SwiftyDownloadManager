@@ -1,5 +1,6 @@
 importScripts(
   "Shared/download-support.js",
+  "Shared/download-settings.js",
   "Shared/background-controller.js",
   "handoff.js"
 );

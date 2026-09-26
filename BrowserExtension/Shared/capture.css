@@ -92,6 +92,10 @@ button:disabled {
   color: GrayText;
 }
 
+#confirmation[hidden] ~ .settings-link {
+  display: none;
+}
+
 [hidden] {
   display: none !important;
 }

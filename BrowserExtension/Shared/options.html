@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SDM download settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">SWIFTY DOWNLOAD MANAGER</p>
+        <h1>Downloads in your browser</h1>
+        <p>Choose which file types SDM handles automatically. These settings apply to this browser profile only.</p>
+      </header>
+      <form id="settings-form">
+        <fieldset id="settings-fields" disabled>
+          <section>
+            <label for="candidate-extensions">Download when offered by the website</label>
+            <p id="candidate-help">SDM checks that the website offers a download. Files marked for inline display and web previews stay in your browser.</p>
+            <textarea id="candidate-extensions" rows="4" spellcheck="false" autocapitalize="none" aria-describedby="candidate-help format-help"></textarea>
+          </section>
+          <section>
+            <label for="preview-extensions">Download instead of previewing</label>
+            <p id="preview-help">Add types such as <code>mp4, mp3, pdf</code> to download them even when the browser could display them. Off by default. HTML pages and failed checks still stay in your browser.</p>
+            <textarea id="preview-extensions" rows="2" spellcheck="false" autocapitalize="none" placeholder="None by default. Example: mp4" aria-describedby="preview-help format-help"></textarea>
+          </section>
+          <p id="format-help" class="hint">Separate extensions with commas or spaces; a leading dot is optional. Matching ignores letter case, query parameters, and fragments, and uses the final suffix (use <code>gz</code> for <code>.tar.gz</code>). Remove a type from both lists to stop automatic handling.</p>
+          <div class="actions">
+            <button id="save" class="primary" type="submit">Save settings</button>
+            <button id="restore" type="button">Restore defaults</button>
+          </div>
+        </fieldset>
+        <p id="status" role="status" aria-live="polite">Loading settings…</p>
+        <p id="error" role="alert" hidden></p>
+      </form>
+      <aside>
+        <h2>When does SDM ask?</h2>
+        <p>Opening a matching address through the address bar or a page redirect shows a confirmation after the file check. Recognized link clicks and download buttons go directly to SDM.</p>
+        <p>You can always choose <strong>Continue in browser</strong> on the confirmation page. A website’s same-origin download link or an explicit <strong>Download with SDM</strong> action works independently of these lists.</p>
+        <p>These rules apply to direct HTTP and HTTPS file links, including download buttons that use <code>window.open</code>. Embedded video playback and streaming segments are not captured.</p>
+      </aside>
+    </main>
+    <script src="download-support.js"></script>
+    <script src="download-settings.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

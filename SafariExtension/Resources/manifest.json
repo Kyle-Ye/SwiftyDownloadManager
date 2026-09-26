@@ -12,10 +12,15 @@
   "background": {
     "scripts": [
       "Shared/download-support.js",
+      "Shared/download-settings.js",
       "Shared/background-controller.js",
       "background.js"
     ],
     "persistent": false
+  },
+  "options_ui": {
+    "page": "Shared/options.html",
+    "open_in_tab": true
   },
   "browser_action": {
     "default_icon": "icon.svg",
@@ -30,6 +35,7 @@
       "js": [
         "platform.js",
         "Shared/download-support.js",
+        "Shared/download-settings.js",
         "Shared/content.js"
       ],
       "run_at": "document_start",
@@ -53,6 +59,7 @@
     "contextMenus",
     "nativeMessaging",
     "webNavigation",
-    "cookies"
+    "cookies",
+    "storage"
   ]
 }

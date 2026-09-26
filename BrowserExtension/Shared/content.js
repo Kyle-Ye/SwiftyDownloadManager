@@ -5,6 +5,7 @@
   const pageBridgeSource = "swifty-download-manager-page-bridge";
   let lastTrustedClick = 0;
   const pageBridgeToken = globalThis.crypto.randomUUID();
+  const settings = globalThis.SDMDownloadSettings.createStore(extensionAPI, postPageBridgeInitialization);
 
   function linkFromEvent(event) {
     for (const node of event.composedPath()) {
@@ -24,7 +25,7 @@
   }
 
   function isDownloadURL(url) {
-    return downloadSupport.isDownloadCandidateURL(url.href);
+    return downloadSupport.isDownloadCandidateURL(url.href, undefined, settings.rules);
   }
 
   function suggestedFilename(link) {
@@ -50,7 +51,7 @@
       source: pageBridgeSource,
       token: pageBridgeToken,
       type: "bridgeInitialize",
-      downloadCandidateExtensions: downloadSupport.downloadCandidateExtensions,
+      downloadCandidateExtensions: downloadSupport.candidateExtensions(settings.rules),
     }, window.location.origin);
   }
 
@@ -94,8 +95,6 @@
       postPageBridgeResponse(message.id, false);
     });
   });
-
-  postPageBridgeInitialization();
 
   document.addEventListener("click", (event) => {
     if (

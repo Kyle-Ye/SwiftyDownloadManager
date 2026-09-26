@@ -1,10 +1,13 @@
 (() => {
   const contextMenuIdentifier = "download-with-sdm";
+  const settingsMenuIdentifier = "sdm-download-settings";
 
   function start(configuration) {
     const { action, addMessageListener, api, browser, registerContextMenuOnInstall, sendToApp } = configuration;
     const support = globalThis.SDMDownloadSupport;
+    const settings = globalThis.SDMDownloadSettings.createStore(api);
     const bypasses = new Map();
+    const pendingNavigations = new Map();
 
     function allowBrowserDownload(tabID, url) {
       for (const [entry, expiry] of bypasses) if (expiry < Date.now()) bypasses.delete(entry);
@@ -14,6 +17,11 @@
     async function checkDownload(message, sender) {
       let download = false;
       try {
+        await settings.ready;
+        if (!message.downloadAttribute && !support.isDownloadCandidateURL(message.url, undefined, settings.rules)) {
+          allowBrowserDownload(sender.tab?.id, message.url);
+          return { download: false };
+        }
         const response = await fetch(message.url, {
           method: "HEAD", credentials: "include", cache: "no-store",
           signal: AbortSignal.timeout(3_000),
@@ -21,7 +29,8 @@
         const finalURL = support.parsedHTTPURL(response.url);
         download = finalURL !== null &&
           !(message.url.startsWith("https:") && finalURL.protocol !== "https:") &&
-          support.isDownloadResponse(response);
+          (message.downloadAttribute || support.isDownloadCandidateURL(message.url, undefined, settings.rules)) &&
+          support.isDownloadResponse(response, message.url, settings.rules);
       } catch {
         // A failed or unsupported HEAD request is not evidence of a download.
       }
@@ -104,8 +113,13 @@
       await api.contextMenus.removeAll();
       api.contextMenus.create({ id: contextMenuIdentifier, title: "Download with SDM", contexts: ["link"],
         targetUrlPatterns: ["http://*/*", "https://*/*"] });
+      api.contextMenus.create({ id: settingsMenuIdentifier, title: "SDM download settings…", contexts: ["page"] });
     }
     api.contextMenus.onClicked.addListener((info, tab) => {
+      if (info.menuItemId === settingsMenuIdentifier) {
+        void api.runtime.openOptionsPage();
+        return;
+      }
       if (info.menuItemId !== contextMenuIdentifier || !support.isHTTPURL(info.linkUrl)) return;
       void capture({ url: info.linkUrl, sourcePage: info.pageUrl }, { tab, url: info.pageUrl, frameId: info.frameId })
         .then((response) => {
@@ -117,13 +131,20 @@
       else if (tab?.id !== undefined) void api.tabs.update(tab.id, { url: support.callbackURL("open", {}, browser) });
     });
     api.webNavigation.onBeforeNavigate.addListener((details) => {
-      if (details.frameId !== 0 || !support.isDownloadCandidateURL(details.url)) return;
-      const key = `${details.tabId}:${details.url}`;
-      for (const [entry, expiry] of bypasses) if (expiry < Date.now()) bypasses.delete(entry);
-      if (bypasses.has(key)) { bypasses.delete(key); return; }
-      const url = new URL(api.runtime.getURL("Shared/capture.html"));
-      url.searchParams.set("url", details.url);
-      void api.tabs.update(details.tabId, { url: url.href });
+      if (details.frameId !== 0) return;
+      const navigation = {};
+      pendingNavigations.set(details.tabId, navigation);
+      return settings.ready.then(() => {
+        if (pendingNavigations.get(details.tabId) !== navigation) return;
+        pendingNavigations.delete(details.tabId);
+        if (!support.isDownloadCandidateURL(details.url, undefined, settings.rules)) return;
+        const key = `${details.tabId}:${details.url}`;
+        for (const [entry, expiry] of bypasses) if (expiry < Date.now()) bypasses.delete(entry);
+        if (bypasses.has(key)) { bypasses.delete(key); return; }
+        const url = new URL(api.runtime.getURL("Shared/capture.html"));
+        url.searchParams.set("url", details.url);
+        void api.tabs.update(details.tabId, { url: url.href });
+      }).catch(() => { pendingNavigations.delete(details.tabId); });
     });
     if (registerContextMenuOnInstall) api.runtime.onInstalled.addListener(() => { void registerContextMenu(); });
     else void registerContextMenu();
