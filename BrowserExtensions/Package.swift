@@ -7,8 +7,8 @@ let package = Package(
     name: "SDMBrowserHandoff",
     platforms: [.macOS(.v14), .iOS(.v17)],
     targets: [
-        .target(name: "SDMBrowserHandoff", path: ".", exclude: ["Shared", "Tests"],
-                sources: ["Native", "ChromeNative"]),
+        .target(name: "SDMBrowserHandoff", path: ".", exclude: ["Chrome", "Safari", "Shared", "Tests"],
+                sources: ["Native"]),
         .testTarget(name: "SDMBrowserHandoffTests", dependencies: ["SDMBrowserHandoff"], path: "Tests/Native"),
     ]
 )

@@ -1,5 +1,7 @@
 require "minitest/autorun"
+require "open3"
 require "tmpdir"
+require "yaml"
 require_relative "../wait-for-xcode-cloud-artifact"
 require_relative "../previous-release-tag"
 
@@ -186,5 +188,73 @@ class XcodeCloudReleaseTest < Minitest::Test
     assert_equal "0.3.0", previous_release_tag("0.4.0", tags)
     assert_equal "0.9.0", previous_release_tag("0.10.0", tags)
     assert_nil previous_release_tag("0.1.0", tags)
+  end
+end
+
+class ReleaseSourceVersionsTest < Minitest::Test
+  def setup
+    @directory = Dir.mktmpdir("sdm-release-source-test")
+    @source = File.join(@directory, "release-source")
+    FileUtils.mkdir_p(@source)
+    workflow = YAML.load_file(File.expand_path("../../.github/workflows/release.yml", __dir__))
+    @validation = workflow.fetch("jobs").fetch("publish").fetch("steps").find do |step|
+      step["name"] == "Validate the release tag, branch, and source versions"
+    end.fetch("run")
+    write_source("Project.swift", "\"CFBundleShortVersionString\": \"0.4.0\"\n" * 2)
+    write_source("Packages/SDMCore/Sources/SDMEngine/Engine.cpp", 'return "0.4.0";')
+    write_source("Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift",
+                 'SDMCoreInfo.engineVersion, "0.4.0"')
+  end
+
+  def teardown
+    FileUtils.remove_entry(@directory)
+  end
+
+  def write_source(path, contents)
+    path = File.join(@source, path)
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, contents)
+  end
+
+  def write_manifests(layout, version = "0.4.0")
+    %w[Safari Chrome].each do |browser|
+      directory = layout == :consolidated ? "BrowserExtensions/#{browser}" : "#{browser}Extension"
+      write_source("#{directory}/Resources/manifest.json", JSON.generate(version: version))
+    end
+  end
+
+  def git(*arguments)
+    output, status = Open3.capture2e("git", *arguments, chdir: @source)
+    assert status.success?, output
+  end
+
+  def validate_source
+    git("init", "--quiet", "--initial-branch=release/0.4")
+    git("add", ".")
+    git("-c", "user.name=Release Test", "-c", "user.email=release@example.invalid",
+        "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Release fixture")
+    git("tag", "0.4.0")
+    git("remote", "add", "origin", @source)
+    Open3.capture2e({ "RELEASE_TAG" => "0.4.0", "GITHUB_ENV" => File.join(@directory, "env") },
+                   "bash", "-c", @validation, chdir: @source)
+  end
+
+  def test_validates_manifests_in_the_consolidated_layout
+    write_manifests(:consolidated)
+    output, status = validate_source
+    assert status.success?, output
+  end
+
+  def test_validates_historical_tags_with_the_legacy_layout
+    write_manifests(:legacy)
+    output, status = validate_source
+    assert status.success?, output
+  end
+
+  def test_rejects_mismatched_current_manifests_even_when_legacy_versions_match
+    write_manifests(:consolidated, "0.5.0")
+    write_manifests(:legacy)
+    output, status = validate_source
+    refute status.success?, output
   end
 end

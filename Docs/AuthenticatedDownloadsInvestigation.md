@@ -64,10 +64,10 @@ the filename or from an HTTP 401/403 response.
 
 | Layer | Behavior before the fix | Relevant source |
 | --- | --- | --- |
-| Chrome permissions | Has host access, `contextMenus`, and `webNavigation`; no `cookies`, `webRequest`, or `downloads` permission | [Chrome manifest](../ChromeExtension/Resources/manifest.json) |
-| Ordinary link click | Rewrites the anchor to the app callback directly; this path does not ask the background worker to assemble a request | [content.js](../BrowserExtension/Shared/content.js), click handler |
-| `window.open` and context menu | Forward URL, optional filename, and source page through the shared controller | [page.js](../BrowserExtension/Shared/page.js), [background-controller.js](../BrowserExtension/Shared/background-controller.js) |
-| Direct navigation | Uses an extension capture page based on the URL's extension, before validating a download response | [background-controller.js](../BrowserExtension/Shared/background-controller.js), [capture.js](../BrowserExtension/Shared/capture.js) |
+| Chrome permissions | Has host access, `contextMenus`, and `webNavigation`; no `cookies`, `webRequest`, or `downloads` permission | [Chrome manifest](../BrowserExtensions/Chrome/Resources/manifest.json) |
+| Ordinary link click | Rewrites the anchor to the app callback directly; this path does not ask the background worker to assemble a request | [content.js](../BrowserExtensions/Shared/content.js), click handler |
+| `window.open` and context menu | Forward URL, optional filename, and source page through the shared controller | [page.js](../BrowserExtensions/Shared/page.js), [background-controller.js](../BrowserExtensions/Shared/background-controller.js) |
+| Direct navigation | Uses an extension capture page based on the URL's extension, before validating a download response | [background-controller.js](../BrowserExtensions/Shared/background-controller.js), [capture.js](../BrowserExtensions/Shared/capture.js) |
 | App callback | Parses URL, filename, and source page; there is no authentication field | [BrowserDownloadRequest.swift](../App/Sources/Features/BrowserExtensions/BrowserDownloadRequest.swift) |
 | App enqueue | Passes URL, filename, and connection count; parsed `sourcePageURL` is not forwarded as a Referer | [ContentView.swift](../App/Sources/Application/ContentView.swift), `handleExternalURL`; [DownloadService.swift](../App/Sources/Features/Downloads/DownloadService.swift), `enqueue` |
 | Core request | Has no cookie, Referer, or browser-header input | [DownloadModels.swift](../Packages/SDMCore/Sources/SDMCore/Models/DownloadModels.swift), `DownloadRequest` |

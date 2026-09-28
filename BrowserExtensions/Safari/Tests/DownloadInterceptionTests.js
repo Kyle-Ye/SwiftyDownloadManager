@@ -3,15 +3,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
-const { createStorage } = require("../../BrowserExtension/Tests/extension-storage");
-const settingsSource = fs.readFileSync(path.join(__dirname, "../../BrowserExtension/Shared/download-settings.js"), "utf8");
+const { createStorage } = require("../../Tests/extension-storage");
+const settingsSource = fs.readFileSync(path.join(__dirname, "../../Shared/download-settings.js"), "utf8");
 
 const resourcesDirectory = path.join(__dirname, "..", "Resources");
 const sharedResourcesDirectory = path.join(
   __dirname,
   "..",
   "..",
-  "BrowserExtension",
   "Shared"
 );
 const contentSource = fs.readFileSync(

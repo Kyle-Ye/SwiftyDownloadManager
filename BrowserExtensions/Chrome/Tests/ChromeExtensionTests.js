@@ -3,21 +3,20 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
-const { createStorage } = require("../../BrowserExtension/Tests/extension-storage");
+const { createStorage } = require("../../Tests/extension-storage");
 
 const resourcesDirectory = path.join(__dirname, "..", "Resources");
 const sharedResourcesDirectory = path.join(
   __dirname,
   "..",
   "..",
-  "BrowserExtension",
   "Shared"
 );
 const safariResourcesDirectory = path.join(
   __dirname,
   "..",
   "..",
-  "SafariExtension",
+  "Safari",
   "Resources"
 );
 function sourcePath(resource) {
