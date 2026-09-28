@@ -7,10 +7,10 @@ cd "$SDM_REPOSITORY_DIR"
 
 ruby Scripts/tests/xcode_cloud_release_test.rb
 python3 -m unittest discover -s Scripts/tests -p '*_test.py' -v
-node --test SafariExtension/Tests/DownloadInterceptionTests.js
-node --test ChromeExtension/Tests/ChromeExtensionTests.js
-node --test BrowserExtension/Tests/DownloadRulesTests.js
+node --test BrowserExtensions/Safari/Tests/DownloadInterceptionTests.js
+node --test BrowserExtensions/Chrome/Tests/ChromeExtensionTests.js
+node --test BrowserExtensions/Tests/DownloadRulesTests.js
 python3 -m unittest discover -s Fixture/tests -v
 swift test --package-path Packages/SDMCore
 
-swift test --package-path BrowserExtension
+swift test --package-path BrowserExtensions

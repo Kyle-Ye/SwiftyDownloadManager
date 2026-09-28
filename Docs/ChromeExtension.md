@@ -1,9 +1,9 @@
 # Chrome extension
 
 SDM includes a macOS-only Google Chrome integration. Its Manifest V3 adapter is
-under `ChromeExtension/Resources`, while browser-independent interception code
-lives in `BrowserExtension/Shared` and is also bundled into the Safari Web
-Extension. The iOS and iPadOS apps continue to expose only Safari.
+under `BrowserExtensions/Chrome/Resources`, while browser-independent
+interception code lives in `BrowserExtensions/Shared` and is also bundled into
+the Safari Web Extension. The iOS and iPadOS apps continue to expose only Safari.
 
 The shared layer owns download URL recognition, click and `window.open`
 interception, callback URL construction, the confirmation page, and the common
@@ -15,6 +15,45 @@ extension list as plain data in the isolated content script's bridge initializat
 message; it must not depend on `SDMDownloadSupport` existing in the page world.
 Until initialization completes, `window.open` keeps its native behavior. The
 isolated script independently validates every bridged download request.
+
+## Source layout
+
+The shared interception layer was extracted from the Safari extension when
+Chrome support was added. Both platform implementations and their shared code
+now live under one directory:
+
+```text
+BrowserExtensions/
+├── Shared/          # Browser-independent JavaScript, confirmation, and options
+├── Chrome/
+│   ├── Resources/   # Chrome manifest, adapters, handoff client, and icons
+│   └── Tests/       # Chrome integration and shared behavior checks
+├── Safari/
+│   ├── Resources/   # Safari manifest, adapters, and icon
+│   ├── Sources/     # Safari native-message handler
+│   ├── Support/     # Platform entitlements
+│   └── Tests/       # Safari integration and shared behavior checks
+├── Native/
+│   ├── Shared/      # Handoff ticket, encryption, and errors
+│   ├── Chrome/      # macOS loopback handoff server
+│   └── Safari/      # App Group handoff store
+├── Tests/           # Shared download-rule tests and browser storage harness
+│   └── Native/      # Independent Swift handoff tests
+└── Package.swift    # Swift test package
+```
+
+`Project.swift` compiles `Native/Shared`, `Native/Chrome`, and `Native/Safari`
+directly into the app; the Chrome server is guarded by `#if os(macOS)`. The
+Safari extension compiles `Native/Shared` and `Native/Safari` alongside its own
+`Safari/Sources`. These types remain private to their targets. The
+`SDMBrowserHandoff` Swift package tests the transport independently of app
+signing and UI lifecycle; it is not an app dependency.
+
+Both extension bundles retain the same `Shared/...` resource paths. The Chrome
+prepare script combines `Chrome/Resources` with `Shared`; Tuist copies `Shared`
+into the Safari extension bundle. Keep the platform manifests and adapters
+separate because their manifest versions, browser APIs, and native transports
+differ.
 
 ## How it works
 
@@ -188,7 +227,7 @@ host access. It does not install a Chrome Native Messaging Host or request
 Run its tests directly:
 
 ```bash
-node --test ChromeExtension/Tests/ChromeExtensionTests.js
+node --test BrowserExtensions/Chrome/Tests/ChromeExtensionTests.js
 ```
 
 ## Build the Chrome Web Store ZIP
@@ -197,7 +236,7 @@ Use the checked-in packager so the manifest remains at the archive root:
 
 ```bash
 SDM_VERSION="$(plutil -extract version raw -o - \
-  ChromeExtension/Resources/manifest.json)"
+  BrowserExtensions/Chrome/Resources/manifest.json)"
 Scripts/package-chrome-extension.sh \
   "Artifacts/SwiftyDownloadManager-Chrome-${SDM_VERSION}.zip"
 ```

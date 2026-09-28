@@ -59,8 +59,9 @@ let project = Project(
             ]),
             buildableFolders: [
                 "App/Sources",
-                "BrowserExtension/ChromeNative",
-                "BrowserExtension/Native",
+                "BrowserExtensions/Native/Chrome",
+                "BrowserExtensions/Native/Shared",
+                "BrowserExtensions/Native/Safari",
                 "App/Resources",
             ],
             dependencies: [
@@ -124,17 +125,18 @@ let project = Project(
                 ],
             ]),
             resources: [
-                .folderReference(path: "BrowserExtension/Shared"),
+                .folderReference(path: "BrowserExtensions/Shared"),
             ],
             buildableFolders: [
-                "SafariExtension/Sources",
-                "BrowserExtension/Native",
-                "SafariExtension/Resources",
+                "BrowserExtensions/Safari/Sources",
+                "BrowserExtensions/Native/Shared",
+                "BrowserExtensions/Native/Safari",
+                "BrowserExtensions/Safari/Resources",
             ],
             settings: .settings(base: [
                 "APPLICATION_EXTENSION_API_ONLY": "YES",
-                "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": "SafariExtension/Support/SDMSafariExtension.entitlements",
-                "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": "SafariExtension/Support/SDMSafariExtension-iOS.entitlements",
+                "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": "BrowserExtensions/Safari/Support/SDMSafariExtension.entitlements",
+                "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": "BrowserExtensions/Safari/Support/SDMSafariExtension-iOS.entitlements",
                 "DEVELOPMENT_TEAM": "VB7MJ8R223",
                 "REGISTER_APP_GROUPS": "YES",
                 "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": "YES",

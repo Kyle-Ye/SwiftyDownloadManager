@@ -100,7 +100,7 @@ curl --head --cookie 'sdm_session=valid' http://127.0.0.1:8080/auth/file.xip
 curl --head --location http://127.0.0.1:8080/auth/file.xip
 swift test --package-path Packages/SDMCore --filter AuthenticatedDownloadTests
 swift test --package-path Packages/SDMCore --filter DownloadFilenameTests
-swift test --package-path BrowserExtension
+swift test --package-path BrowserExtensions
 ```
 
 ## Transfer and Range limits

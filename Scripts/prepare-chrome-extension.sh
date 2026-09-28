@@ -3,8 +3,8 @@
 set -euo pipefail
 
 SDM_REPOSITORY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SDM_CHROME_SOURCE_DIR="$SDM_REPOSITORY_DIR/ChromeExtension/Resources"
-SDM_SHARED_SOURCE_DIR="$SDM_REPOSITORY_DIR/BrowserExtension/Shared"
+SDM_CHROME_SOURCE_DIR="$SDM_REPOSITORY_DIR/BrowserExtensions/Chrome/Resources"
+SDM_SHARED_SOURCE_DIR="$SDM_REPOSITORY_DIR/BrowserExtensions/Shared"
 if [[ $# -eq 0 ]]; then
   SDM_OUTPUT_INPUT="Derived/ChromeExtension"
   SDM_REPLACES_DEFAULT_OUTPUT=true
@@ -26,7 +26,7 @@ case "$SDM_OUTPUT_DIR" in
     ;;
 esac
 
-node --test "$SDM_REPOSITORY_DIR/ChromeExtension/Tests/ChromeExtensionTests.js"
+node --test "$SDM_REPOSITORY_DIR/BrowserExtensions/Chrome/Tests/ChromeExtensionTests.js"
 if [[ "$SDM_REPLACES_DEFAULT_OUTPUT" == true ]]; then
   rm -rf "$SDM_REPOSITORY_DIR/Derived/ChromeExtension"
 elif [[ -e "$SDM_OUTPUT_DIR" ]]; then

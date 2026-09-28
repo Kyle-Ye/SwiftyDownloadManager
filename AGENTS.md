@@ -57,10 +57,14 @@ changing the lifecycle or public integration surface. Redistribution notices
 and the pinned libcurl binary are documented in
 `Docs/ThirdPartyLicensing.md`.
 
-The Chrome and Safari extensions share browser-independent interception and
-download-recognition code in `BrowserExtension/Shared`. Keep platform adapters
-and manifests separate. See `Docs/ChromeExtension.md` before changing extension
-permissions, packaging, or store metadata.
+Browser extension sources live under `BrowserExtensions/`. Chrome and Safari
+share browser-independent interception and download-recognition code in
+`BrowserExtensions/Shared`; keep their platform adapters and manifests separate
+under `Chrome/` and `Safari/`. Native handoff code lives in `Native/Shared`,
+`Native/Chrome`, and `Native/Safari`. The app compiles all three; the Safari
+extension compiles only `Native/Shared` and `Native/Safari`. See
+`Docs/ChromeExtension.md` before changing extension permissions, packaging, or
+store metadata.
 
 ## LookInside
 

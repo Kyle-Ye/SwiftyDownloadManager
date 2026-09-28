@@ -91,8 +91,14 @@ jobs:
           echo "RELEASE_BRANCH=$release_branch" >> "$GITHUB_ENV"
 
           test "$(grep -F -c "\"CFBundleShortVersionString\": \"$RELEASE_TAG\"" Project.swift)" -eq 2
-          test "$(plutil -extract version raw -o - SafariExtension/Resources/manifest.json)" = "$RELEASE_TAG"
-          test "$(plutil -extract version raw -o - ChromeExtension/Resources/manifest.json)" = "$RELEASE_TAG"
+          for browser in Safari Chrome; do
+            manifest="BrowserExtensions/$browser/Resources/manifest.json"
+            # Backfilled tags can predate the consolidated extension layout.
+            if [[ ! -f "$manifest" ]]; then
+              manifest="${browser}Extension/Resources/manifest.json"
+            fi
+            test "$(plutil -extract version raw -o - "$manifest")" = "$RELEASE_TAG"
+          done
           grep -F "return \"$RELEASE_TAG\";" Packages/SDMCore/Sources/SDMEngine/Engine.cpp
           grep -F "SDMCoreInfo.engineVersion, \"$RELEASE_TAG\"" Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift
 

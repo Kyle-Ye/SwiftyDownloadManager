@@ -182,9 +182,9 @@ version such as `0.5.1`, all of these values must be `0.5.1`:
 - App marketing version in `Project.swift`.
 - Safari Extension marketing version in `Project.swift`.
 - Safari Web Extension manifest version in
-  `SafariExtension/Resources/manifest.json`.
+  `BrowserExtensions/Safari/Resources/manifest.json`.
 - Chrome Extension manifest version in
-  `ChromeExtension/Resources/manifest.json`.
+  `BrowserExtensions/Chrome/Resources/manifest.json`.
 - Engine version in `Packages/SDMCore/Sources/SDMEngine/Engine.cpp`, with the
   matching expected value in
   `Packages/SDMCore/Tests/SDMCoreTests/SDMCoreInfoTests.swift`.
@@ -240,9 +240,9 @@ test "$(rg -F -c \
   "\"CFBundleShortVersionString\": \"${SDM_VERSION}\"" Project.swift)" -eq 2
 test "$(rg -F -c \
   "\"CFBundleVersion\": \"${SDM_BUILD_NUMBER}\"" Project.swift)" -eq 2
-test "$(jq -r '.version' SafariExtension/Resources/manifest.json)" = \
+test "$(jq -r '.version' BrowserExtensions/Safari/Resources/manifest.json)" = \
   "${SDM_VERSION}"
-test "$(jq -r '.version' ChromeExtension/Resources/manifest.json)" = \
+test "$(jq -r '.version' BrowserExtensions/Chrome/Resources/manifest.json)" = \
   "${SDM_VERSION}"
 rg -n -F "return \"${SDM_VERSION}\";" \
   Packages/SDMCore/Sources/SDMEngine/Engine.cpp
