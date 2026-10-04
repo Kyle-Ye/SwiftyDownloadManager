@@ -8,6 +8,7 @@ import ProjectDescription
 let packageSettings = PackageSettings(
     productTypes: [
         "SDMCore": .staticFramework,
+        "WelcomeKit": .staticFramework,
     ],
     targetSettings: [
         "SDMCore": .settings(base: [
@@ -29,5 +30,6 @@ let package = Package(
             exact: "1.0.0"
         ),
         .package(path: "Packages/SDMCore"),
+        .package(path: "Packages/WelcomeKit"),
     ]
 )

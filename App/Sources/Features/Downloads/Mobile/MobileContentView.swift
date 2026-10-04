@@ -5,6 +5,7 @@ import SwiftUI
 struct MobileContentView: View {
     @Environment(\.editMode) private var editMode
     @Bindable var service: DownloadService
+    let welcomeLaunchState: WelcomeLaunchState
     @AppStorage(AppStorageKey.defaultConnectionCount) private var defaultConnectionCount = 8
     @State private var selection: DownloadFilter? = .all
     @State private var selectedDownloadIDs: Set<DownloadID> = []
@@ -12,8 +13,14 @@ struct MobileContentView: View {
     @State private var confirmsBatchRemoval = false
     @State private var showsNewDownload = false
     @State private var showsSettings = false
+    @State private var showsWelcome = false
     @State private var presentedError: PresentedDownloadError?
     @State private var didPresentDestinationRecovery = false
+
+    init(service: DownloadService, welcomeLaunchState: WelcomeLaunchState = WelcomeLaunchState()) {
+        self.service = service
+        self.welcomeLaunchState = welcomeLaunchState
+    }
 
     private var selectedFilter: DownloadFilter {
         selection ?? .all
@@ -143,7 +150,7 @@ struct MobileContentView: View {
         }
         .sheet(isPresented: $showsSettings) {
             NavigationStack {
-                SettingsView(service: service)
+                SettingsView(service: service, welcomeLaunchState: welcomeLaunchState)
                     .navigationTitle("Settings")
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
@@ -153,6 +160,10 @@ struct MobileContentView: View {
                         }
                     }
             }
+        }
+        .sheet(isPresented: $showsWelcome, onDismiss: presentDestinationRecoveryIfNeeded) {
+            SDMWelcomeView(onFinish: dismissWelcome, onClose: dismissWelcome)
+                .onAppear(perform: welcomeLaunchState.recordPresentation)
         }
         .alert(item: $presentedError) { error in
             Alert(
@@ -181,7 +192,11 @@ struct MobileContentView: View {
         }
         .onOpenURL(perform: handleExternalURL)
         .task {
-            presentDestinationRecoveryIfNeeded()
+            if welcomeLaunchState.claimAutomaticPresentation() {
+                showsWelcome = true
+            } else {
+                presentDestinationRecoveryIfNeeded()
+            }
         }
     }
 
@@ -199,8 +214,12 @@ struct MobileContentView: View {
         showsNewDownload = true
     }
 
+    private func dismissWelcome() {
+        showsWelcome = false
+    }
+
     private func presentDestinationRecoveryIfNeeded() {
-        guard !didPresentDestinationRecovery,
+        guard !showsWelcome, !didPresentDestinationRecovery,
               let message = service.defaultDestinationRecoveryMessage else { return }
         didPresentDestinationRecovery = true
         presentedError = PresentedDownloadError(

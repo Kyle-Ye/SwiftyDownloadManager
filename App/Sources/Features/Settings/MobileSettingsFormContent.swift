@@ -13,6 +13,7 @@ struct MobileSettingsFormContent: View {
     let defaultDestinationDirectory: URL
     let chooseCustomDefaultDestination: () -> Void
     let openSafariSettings: () -> Void
+    let showWelcome: () -> Void
 
     var body: some View {
         Section("General") {
@@ -96,6 +97,8 @@ struct MobileSettingsFormContent: View {
         }
 
         Section("About") {
+            Button("Welcome to SDM", systemImage: "hand.wave", action: showWelcome)
+
             if let selectedDescriptor {
                 NavigationLink {
                     DownloadEngineInformationView(

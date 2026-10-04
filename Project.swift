@@ -67,6 +67,7 @@ let project = Project(
             dependencies: [
                 .target(name: "SDMSafariExtension"),
                 .external(name: "SDMCore"),
+                .external(name: "WelcomeKit"),
                 .external(name: "LookInsideServer"),
                 .external(
                     name: "SkyLightWindow",
