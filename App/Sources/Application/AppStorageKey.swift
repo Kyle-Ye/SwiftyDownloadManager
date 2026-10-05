@@ -1,4 +1,5 @@
 enum AppStorageKey {
+    static let hasPresentedWelcome = "hasPresentedWelcome"
     static let defaultConnectionCount = "defaultConnectionCount"
     static let defaultDownloadLocation = "defaultDownloadLocation"
     static let customDefaultDownloadDirectory = "customDefaultDownloadDirectory"

@@ -22,13 +22,20 @@ struct SettingsView: View {
     @State private var showsCustomDestinationPicker = false
     @State private var safariExtensionIsEnabled: Bool?
     @State private var presentedError: PresentedDownloadError?
+    #if os(iOS)
+    @State private var showsWelcome = false
+    private let welcomeLaunchState: WelcomeLaunchState
+    #endif
     #if os(macOS)
     @State private var showsLegalNotices = false
     #endif
     @Bindable var service: DownloadService
 
-    init(service: DownloadService) {
+    init(service: DownloadService, welcomeLaunchState: WelcomeLaunchState = WelcomeLaunchState()) {
         self.service = service
+        #if os(iOS)
+        self.welcomeLaunchState = welcomeLaunchState
+        #endif
         _defaultDownloadLocation = State(initialValue: service.defaultDownloadLocation)
     }
 
@@ -45,7 +52,8 @@ struct SettingsView: View {
                 databaseURL: service.databaseURL,
                 defaultDestinationDirectory: service.defaultDestinationDirectory,
                 chooseCustomDefaultDestination: presentCustomDestinationPicker,
-                openSafariSettings: SafariExtensionSupport.showPreferences
+                openSafariSettings: SafariExtensionSupport.showPreferences,
+                showWelcome: { showsWelcome = true }
             )
             #else
             MacSettingsFormContent(
@@ -114,6 +122,12 @@ struct SettingsView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        #if os(iOS)
+        .sheet(isPresented: $showsWelcome) {
+            SDMWelcomeView(onFinish: dismissWelcome, onClose: dismissWelcome)
+                .onAppear(perform: welcomeLaunchState.recordPresentation)
+        }
+        #endif
         #if os(macOS)
         .sheet(isPresented: $showsLegalNotices) {
             NavigationStack {
@@ -134,6 +148,12 @@ struct SettingsView: View {
         guard let kind = DownloadEngineKind(rawValue: selectedEngine) else { return nil }
         return service.engineDescriptors.first { $0.kind == kind }
     }
+
+    #if os(iOS)
+    private func dismissWelcome() {
+        showsWelcome = false
+    }
+    #endif
 
     private func refreshSafariExtensionState() async {
         safariExtensionIsEnabled = await SafariExtensionSupport.isEnabled()

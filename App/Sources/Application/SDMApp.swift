@@ -13,6 +13,11 @@ struct SDMApp: App {
     #endif
     @AppStorage(AppStorageKey.showsMenuBarIcon) private var showsMenuBarIcon = true
     @State private var downloadService: DownloadService
+    #if os(macOS)
+    @State private var welcomeController = SDMWelcomeController()
+    #else
+    @State private var welcomeLaunchState = WelcomeLaunchState()
+    #endif
     private let preparesStoreScreenshots: Bool
     private let storeScreenshotColorScheme: ColorScheme?
     private let storeScreenshotWindowSize: CGSize?
@@ -63,6 +68,7 @@ struct SDMApp: App {
         #if os(macOS)
         Window("Swifty Download Manager", id: AppWindowID.main) {
             ContentView(service: downloadService)
+                .modifier(WelcomeLaunchModifier(controller: welcomeController))
                 .preferredColorScheme(storeScreenshotColorScheme)
                 .frame(
                     width: storeScreenshotWindowSize?.width,
@@ -79,6 +85,7 @@ struct SDMApp: App {
         .commands {
             DownloadCommands()
             BrowserCommands()
+            WelcomeCommands(controller: welcomeController)
         }
 
         Window("Browser Extensions", id: AppWindowID.browsers) {
@@ -111,7 +118,7 @@ struct SDMApp: App {
         }
         #else
         WindowGroup {
-            MobileContentView(service: downloadService)
+            MobileContentView(service: downloadService, welcomeLaunchState: welcomeLaunchState)
         }
         #endif
     }
