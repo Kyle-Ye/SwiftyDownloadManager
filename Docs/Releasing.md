@@ -264,7 +264,7 @@ xcodebuild test -quiet \
   -scheme SDMApp \
   -destination 'platform=macOS,arch=arm64' \
   -only-testing:SDMAppTests \
-  CODE_SIGNING_ALLOWED=NO
+  -allowProvisioningUpdates
 xcodebuild build -quiet \
   -workspace SDM.xcworkspace \
   -scheme SDMApp \
@@ -272,6 +272,10 @@ xcodebuild build -quiet \
   CODE_SIGNING_ALLOWED=NO
 git diff --check
 ```
+
+Run the macOS App tests with automatic signing enabled: their Safari handoff
+integration test accesses the registered App Group container. An unsigned
+build can compile successfully but fail this integration test locally.
 
 Review `Docs/ThirdPartyLicensing.md` and confirm every file under
 `App/Resources/Legal` is present in the built application. The pinned
